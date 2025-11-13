@@ -1,142 +1,69 @@
-use anyhow::{Result, anyhow};
-use std::io::stdin;
+use inkwell::OptimizationLevel;
+use inkwell::builder::Builder;
+use inkwell::context::Context;
+use inkwell::execution_engine::{ExecutionEngine, JitFunction};
+use inkwell::module::Module;
 
-#[derive(PartialEq, Debug)]
-enum Token {
-    EndOfFile,
-    Def,
-    Extern,
-    Identifier { name: String },
-    Number { value: f64 },
-    Other(char),
+use std::error::Error;
+
+/// Convenience type alias for the `sum` function.
+///
+/// Calling this is innately `unsafe` because there's no guarantee it doesn't
+/// do `unsafe` operations internally.
+type SumFunc = unsafe extern "C" fn(u64, u64, u64) -> u64;
+
+struct CodeGen<'ctx> {
+    context: &'ctx Context,
+    module: Module<'ctx>,
+    builder: Builder<'ctx>,
+    execution_engine: ExecutionEngine<'ctx>,
 }
 
-struct Lexer {
-    input: Vec<char>,
-    pos: usize,
-}
+impl<'ctx> CodeGen<'ctx> {
+    fn jit_compile_sum(&self) -> Option<JitFunction<'_, SumFunc>> {
+        let i64_type = self.context.i64_type();
+        let fn_type = i64_type.fn_type(&[i64_type.into(), i64_type.into(), i64_type.into()], false);
+        let function = self.module.add_function("sum", fn_type, None);
+        let basic_block = self.context.append_basic_block(function, "entry");
 
-impl Lexer {
-    fn from_stdin() -> Result<Self> {
-        let mut buf = String::new();
-        stdin().read_line(&mut buf)?;
-        Ok(Self {
-            input: buf.chars().collect(),
-            pos: 0,
-        })
-    }
+        self.builder.position_at_end(basic_block);
 
-    fn from_str(s: &str) -> Self {
-        Self {
-            input: s.chars().collect(),
-            pos: 0,
-        }
-    }
+        let x = function.get_nth_param(0)?.into_int_value();
+        let y = function.get_nth_param(1)?.into_int_value();
+        let z = function.get_nth_param(2)?.into_int_value();
 
-    fn get_char(&mut self) -> Option<char> {
-        self.pos += 1;
-        if self.pos == self.input.len() {
-            return None;
-        }
-        Some(self.input[self.pos])
-    }
+        let sum = self.builder.build_int_add(x, y, "sum").unwrap();
+        let sum = self.builder.build_int_add(sum, z, "sum").unwrap();
 
-    fn get_token(&mut self) -> Result<Token> {
-        if self.pos == self.input.len() {
-            return Ok(Token::EndOfFile);
-        }
+        self.builder.build_return(Some(&sum)).unwrap();
 
-        let mut current = self.input[self.pos];
-        while current.is_whitespace() {
-            let next = self.get_char();
-            current = match next {
-                Some(c) => c,
-                None => {
-                    return Ok(Token::EndOfFile);
-                }
-            }
-        }
-
-        if current.is_alphabetic() {
-            let mut ident = String::new();
-            while current.is_alphabetic() {
-                ident += &current.to_string();
-                current = match self.get_char() {
-                    Some(c) => c,
-                    None => {
-                        break;
-                    }
-                }
-            }
-            if &ident == "extern" {
-                return Ok(Token::Extern);
-            }
-            if &ident == "def" {
-                return Ok(Token::Def);
-            }
-            return Ok(Token::Identifier { name: ident });
-        }
-
-        if current.is_ascii_digit() {
-            let mut x = String::new();
-            while current.is_ascii_digit() || current == '.' {
-                x += &current.to_string();
-                current = match self.get_char() {
-                    Some(c) => c,
-                    None => {
-                        break;
-                    }
-                }
-            }
-            let value: f64 = x.parse()?;
-            return Ok(Token::Number { value });
-        }
-
-        self.pos += 1;
-        Ok(Token::Other(current))
+        unsafe { self.execution_engine.get_function("sum").ok() }
     }
 }
 
-fn main() -> Result<()> {
-    let mut lexer = Lexer::from_stdin()?;
-    loop {
-        let t = lexer.get_token()?;
-        println!("{:#?}", t);
-        if t == Token::EndOfFile {
-            break;
-        }
+fn main() -> Result<(), Box<dyn Error>> {
+    let context = Context::create();
+    let module = context.create_module("sum");
+    let execution_engine = module.create_jit_execution_engine(OptimizationLevel::None)?;
+    let codegen = CodeGen {
+        context: &context,
+        module,
+        builder: context.create_builder(),
+        execution_engine,
+    };
+
+    let sum = codegen
+        .jit_compile_sum()
+        .ok_or("Unable to JIT compile `sum`")?;
+
+    let x = 1u64;
+    let y = 2u64;
+    let z = 3u64;
+
+    unsafe {
+        println!("{} + {} + {} = {}", x, y, z, sum.call(x, y, z));
+        assert_eq!(sum.call(x, y, z), x + y + z);
     }
+
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_get_token() {
-        assert_eq!(
-            Lexer::from_str("a").get_token().unwrap(),
-            Token::Identifier { name: "a".into() }
-        );
-        assert_eq!(
-            Lexer::from_str("    anIdentifier then others 1.234")
-                .get_token()
-                .unwrap(),
-            Token::Identifier {
-                name: "anIdentifier".into()
-            }
-        );
-        assert_eq!(Lexer::from_str(" ").get_token().unwrap(), Token::EndOfFile);
-        assert_eq!(
-            Lexer::from_str("1").get_token().unwrap(),
-            Token::Number { value: 1.0 }
-        );
-        assert_eq!(
-            Lexer::from_str("1.234").get_token().unwrap(),
-            Token::Number { value: 1.234 }
-        );
-
-        assert!(Lexer::from_str("1.234.34").get_token().is_err());
-    }
 }
