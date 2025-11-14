@@ -1,8 +1,9 @@
-use inkwell::OptimizationLevel;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::execution_engine::{ExecutionEngine, JitFunction};
 use inkwell::module::Module;
+use inkwell::values::{BasicValue, BasicValueEnum, IntValue};
+use inkwell::{AddressSpace, OptimizationLevel};
 
 use std::error::Error;
 
@@ -12,6 +13,8 @@ use std::error::Error;
 /// do `unsafe` operations internally.
 type SumFunc = unsafe extern "C" fn(u64, u64, u64) -> u64;
 
+type CompiledBlock = unsafe extern "C" fn(*mut CpuState);
+
 struct CodeGen<'ctx> {
     context: &'ctx Context,
     module: Module<'ctx>,
@@ -20,25 +23,38 @@ struct CodeGen<'ctx> {
 }
 
 impl<'ctx> CodeGen<'ctx> {
-    fn jit_compile_sum(&self) -> Option<JitFunction<'_, SumFunc>> {
-        let i64_type = self.context.i64_type();
-        let fn_type = i64_type.fn_type(&[i64_type.into(), i64_type.into(), i64_type.into()], false);
-        let function = self.module.add_function("sum", fn_type, None);
-        let basic_block = self.context.append_basic_block(function, "entry");
+    fn jit_compile_load(&self) -> Option<JitFunction<'_, CompiledBlock>> {
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let void_type = self.context.void_type();
+        let fn_type = void_type.fn_type(&[ptr_type.into()], false);
+        let function = self.module.add_function("load_state", fn_type, None);
+        let basic_block = self
+            .context
+            .append_basic_block(function, "load_state_block");
 
         self.builder.position_at_end(basic_block);
+        let addr = function.get_nth_param(0)?.into_pointer_value();
+        let r0 = self
+            .builder
+            .build_load(self.context.i32_type(), addr, "r0")
+            .ok()?
+            .into_int_value();
+        let c = self.context.i32_type().const_int(5, false);
+        let res = self.builder.build_int_add(r0, c, "res").unwrap();
+        self.builder.build_store(addr, res).ok()?;
+        self.builder.build_return(None).ok()?;
 
-        let x = function.get_nth_param(0)?.into_int_value();
-        let y = function.get_nth_param(1)?.into_int_value();
-        let z = function.get_nth_param(2)?.into_int_value();
-
-        let sum = self.builder.build_int_add(x, y, "sum").unwrap();
-        let sum = self.builder.build_int_add(sum, z, "sum").unwrap();
-
-        self.builder.build_return(Some(&sum)).unwrap();
-
-        unsafe { self.execution_engine.get_function("sum").ok() }
+        if function.verify(true) {
+            return unsafe { self.execution_engine.get_function("load_state").ok() };
+        }
+        None
     }
+}
+
+#[repr(C)]
+pub struct CpuState {
+    pub regs: [u32; 16],
+    pub mem: Box<[u8; 0xe010000]>,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -52,18 +68,17 @@ fn main() -> Result<(), Box<dyn Error>> {
         execution_engine,
     };
 
-    let sum = codegen
-        .jit_compile_sum()
-        .ok_or("Unable to JIT compile `sum`")?;
+    let load = codegen
+        .jit_compile_load()
+        .ok_or("Unable to JIT compile `load_state`")?;
 
-    let x = 1u64;
-    let y = 2u64;
-    let z = 3u64;
+    let mut x: i32 = 10;
 
+    println!("Calling func...");
     unsafe {
-        println!("{} + {} + {} = {}", x, y, z, sum.call(x, y, z));
-        assert_eq!(sum.call(x, y, z), x + y + z);
+        load.call(&mut x);
     }
+    println!("x: {}", x);
 
     Ok(())
 }
