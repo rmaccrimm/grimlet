@@ -1,6 +1,8 @@
 pub mod codegen;
 pub mod state;
 
+use capstone::arch::BuildsCapstone;
+use capstone::{Capstone, InsnDetail, arch};
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::execution_engine::{ExecutionEngine, JitFunction};
@@ -11,6 +13,8 @@ use inkwell::{AddressSpace, OptimizationLevel};
 use codegen::CodeGen;
 use state::GuestState;
 use std::error::Error;
+use std::fs::File;
+use std::io::{BufReader, Cursor, Read};
 
 /// Convenience type alias for the `sum` function.
 ///
@@ -29,17 +33,22 @@ fn main() -> Result<(), Box<dyn Error>> {
         execution_engine,
     };
 
-    let load = codegen
-        .jit_compile_load()
-        .ok_or("Unable to JIT compile `load_state`")?;
+    let bytes = std::fs::read("gba_bios.bin")?;
+    println!("{}", bytes.len());
 
-    let mut x: i32 = 10;
+    let cs = Capstone::new()
+        .arm()
+        .mode(arch::arm::ArchMode::Thumb)
+        .detail(true)
+        .build()
+        .unwrap();
 
-    println!("Calling func...");
-    unsafe {
-        load.call(&mut x);
+    let insns = cs.disasm_all(&bytes[0x11c..], 0x11c).unwrap();
+    for insn in insns.as_ref() {
+        println!("{}", insn);
+        // let detail = cs.insn_detail(insn).unwrap();
+        // println!("{:?}", detail.arch_detail().operands());
     }
-    println!("x: {}", x);
 
     Ok(())
 }
