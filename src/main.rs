@@ -7,11 +7,11 @@ use capstone::arch::BuildsCapstone;
 
 use codegen::CodeGen;
 use state::GuestState;
+use std::env;
 
 use inkwell::context::Context;
-use std::error::Error;
 use std::fs::File;
-use std::io::{BufReader, Cursor, Read};
+use std::io::Read;
 
 /// Am I sticking with this name?
 struct Grimlet<'ctx> {
@@ -31,19 +31,26 @@ impl<'ctx> Grimlet<'ctx> {
         let mut state = GuestState::new();
 
         let mut f = File::open(bios_path)?;
-        f.read_exact(&mut state.mem.bios)?;
+        f.read_exact(&mut *state.mem)?;
 
         Ok(Self { codegen, cs, state })
     }
 
-    pub fn run(&self) {
-        println!("Running!")
+    pub fn run(&mut self) {
+        let pc = println!("Running!");
     }
 }
 
 fn main() -> Result<()> {
     let context = Context::create();
-    let grimlet = Grimlet::new(&context, "gba_bios.bin")?;
-    grimlet.run();
+    let bios_path = env::args().into_iter().next().unwrap();
+    let mut grimlet = Grimlet::new(&context, &bios_path)?;
+    grimlet.state.regs[0] = 12;
+    let f = grimlet.codegen.compile_test().unwrap();
+    println!("{:?}", grimlet.state.regs);
+    unsafe {
+        f.call(&mut grimlet.state);
+    }
+    println!("{:?}", grimlet.state.regs);
     Ok(())
 }

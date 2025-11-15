@@ -14,12 +14,12 @@ impl MainMemory {
 #[repr(C)]
 pub struct GuestState {
     pub regs: [u32; 16],
-    pub mem: MainMemory,
+    pub mem: Box<[u8; 0x4000]>,
 }
 
 impl GuestState {
     pub fn new() -> Self {
-        let mem = MainMemory::new();
+        let mem = Box::new([0; 0x4000]);
         let regs = [0; 16];
         Self { regs, mem }
     }
