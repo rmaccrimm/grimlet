@@ -1,3 +1,4 @@
+use anyhow::{Result, anyhow};
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::execution_engine::{ExecutionEngine, JitFunction};
@@ -17,30 +18,45 @@ pub struct CodeGen<'ctx> {
 }
 
 impl<'ctx> CodeGen<'ctx> {
-    pub fn jit_compile_load(&self) -> Option<JitFunction<'_, CompiledBlock>> {
-        let ptr_type = self.context.ptr_type(AddressSpace::default());
-        let void_type = self.context.void_type();
-        let fn_type = void_type.fn_type(&[ptr_type.into()], false);
-        let function = self.module.add_function("load_state", fn_type, None);
-        let basic_block = self
-            .context
-            .append_basic_block(function, "load_state_block");
+    pub fn new(context: &'ctx Context) -> Result<Self> {
+        let module = context.create_module("sum");
+        let execution_engine = module
+            .create_jit_execution_engine(OptimizationLevel::None)
+            .map_err(|s| anyhow!(s.to_string()))?;
+        let builder = context.create_builder();
 
-        self.builder.position_at_end(basic_block);
-        let addr = function.get_nth_param(0)?.into_pointer_value();
-        let r0 = self
-            .builder
-            .build_load(self.context.i32_type(), addr, "r0")
-            .ok()?
-            .into_int_value();
-        let c = self.context.i32_type().const_int(5, false);
-        let res = self.builder.build_int_add(r0, c, "res").unwrap();
-        self.builder.build_store(addr, res).ok()?;
-        self.builder.build_return(None).ok()?;
-
-        if function.verify(true) {
-            return unsafe { self.execution_engine.get_function("load_state").ok() };
-        }
-        None
+        Ok(Self {
+            context,
+            module,
+            builder,
+            execution_engine,
+        })
     }
+
+    // pub fn jit_compile_load(&self) -> Option<JitFunction<'_, CompiledBlock>> {
+    //     let ptr_type = self.context.ptr_type(AddressSpace::default());
+    //     let void_type = self.context.void_type();
+    //     let fn_type = void_type.fn_type(&[ptr_type.into()], false);
+    //     let function = self.module.add_function("load_state", fn_type, None);
+    //     let basic_block = self
+    //         .context
+    //         .append_basic_block(function, "load_state_block");
+
+    //     self.builder.position_at_end(basic_block);
+    //     let addr = function.get_nth_param(0)?.into_pointer_value();
+    //     let r0 = self
+    //         .builder
+    //         .build_load(self.context.i32_type(), addr, "r0")
+    //         .ok()?
+    //         .into_int_value();
+    //     let c = self.context.i32_type().const_int(5, false);
+    //     let res = self.builder.build_int_add(r0, c, "res").unwrap();
+    //     self.builder.build_store(addr, res).ok()?;
+    //     self.builder.build_return(None).ok()?;
+
+    //     if function.verify(true) {
+    //         return unsafe { self.execution_engine.get_function("load_state").ok() };
+    //     }
+    //     None
+    // }
 }

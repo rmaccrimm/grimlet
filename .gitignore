@@ -2,4 +2,4 @@
 *.bin
 *.ll
 /.scratch
-.DS_Store
+*.DS_Store
