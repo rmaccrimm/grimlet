@@ -1,1 +1,5 @@
 /target
+*.bin
+*.ll
+/.scratch
+.DS_Store
