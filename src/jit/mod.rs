@@ -1,15 +1,20 @@
-use crate::state::GuestState;
+mod alu;
+mod branch;
+mod ldstr;
+
+use std::collections::HashMap;
+
+use crate::cpu::ArmState;
 
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::execution_engine::{ExecutionEngine, JitFunction};
-
 use inkwell::module::Module;
 use inkwell::types::{FunctionType, IntType, PointerType, StructType};
 use inkwell::values::{IntValue, PointerValue};
 use inkwell::{AddressSpace, OptimizationLevel};
 
-pub type CompiledBlock = unsafe extern "C" fn(*mut GuestState);
+type CompiledFunc<'a> = JitFunction<'a, unsafe extern "C" fn(*mut ArmState)>;
 
 struct RegMap<'a> {
     ptr: PointerValue<'a>,
@@ -17,7 +22,7 @@ struct RegMap<'a> {
 }
 
 pub struct Compiler<'ctx> {
-    pub function: Option<JitFunction<'ctx, CompiledBlock>>,
+    pub func_cache: HashMap<u32, CompiledFunc<'ctx>>,
     context: &'ctx Context,
     module: Module<'ctx>,
     builder: Builder<'ctx>,
@@ -44,7 +49,7 @@ impl<'ctx> Compiler<'ctx> {
         let state_type = context.struct_type(&field_types, false);
 
         Self {
-            function: None,
+            func_cache: HashMap::new(),
             context,
             module,
             builder,
@@ -58,7 +63,7 @@ impl<'ctx> Compiler<'ctx> {
     }
 
     /// Loads the guest machine registers into LLVM values and maintains a mapping from the pointer
-    /// into the guest state and current value
+    /// into the guest state to it's current LLVM value
     fn load_registers<'a>(&self, state_ptr: PointerValue<'a>) -> Vec<RegMap<'a>>
     where
         'ctx: 'a,
@@ -91,7 +96,7 @@ impl<'ctx> Compiler<'ctx> {
         regs
     }
 
-    pub fn compile<'a>(&mut self) {
+    pub fn compile(&mut self, addr: u32) {
         let name = format!("block_{}", self.func_count);
         self.func_count += 1;
         let function = self.module.add_function(&name, self.fn_type, None);
@@ -121,7 +126,8 @@ impl<'ctx> Compiler<'ctx> {
         self.builder.build_return(None).unwrap();
 
         if function.verify(true) {
-            self.function = unsafe { Some(self.execution_engine.get_function(&name).unwrap()) };
+            let f = unsafe { self.execution_engine.get_function(&name).unwrap() };
+            self.func_cache.insert(addr, f);
         }
     }
 }

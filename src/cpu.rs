@@ -32,13 +32,14 @@ pub enum Reg {
     CPSR = 16,
 }
 
+/// Emulated CPU state
 #[repr(C)]
-pub struct GuestState {
+pub struct ArmState {
     pub regs: [u32; 17],
     pub mem: Box<[u8; 0x4000]>,
 }
 
-impl GuestState {
+impl ArmState {
     pub fn new() -> Self {
         let mem = Box::new([0; 0x4000]);
         let regs = [0; 17];
