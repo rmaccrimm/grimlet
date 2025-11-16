@@ -5,9 +5,6 @@ use anyhow::Result;
 use capstone::Capstone;
 use capstone::arch::BuildsCapstone;
 use codegen::LlvmComponents;
-use inkwell::builder::Builder;
-use inkwell::execution_engine::ExecutionEngine;
-use inkwell::module::Module;
 
 use codegen::Compiler;
 use state::GuestState;
@@ -22,7 +19,6 @@ struct Grimlet<'a> {
     cs: Capstone,
     ll: LlvmComponents<'a>,
     state: GuestState,
-    context: Context,
 }
 
 impl<'a> Grimlet<'a> {
@@ -32,25 +28,16 @@ impl<'a> Grimlet<'a> {
             .mode(capstone::arch::arm::ArchMode::Arm)
             .detail(true)
             .build()?;
-
         let mut state = GuestState::new();
-
         let mut f = File::open(bios_path)?;
         f.read_exact(&mut *state.mem)?;
-
-        let context = Context::create();
-
-        Ok(Self {
-            cs,
-            ll,
-            state,
-            context,
-        })
+        Ok(Self { cs, ll, state })
     }
 
     pub fn run(&mut self) {
         let mut compiler = Compiler::new();
-        compiler.compile_test(&mut self.ll);
+        compiler.compile(&mut self.ll);
+        println!("");
         unsafe {
             self.ll.function.clone().unwrap().call(&mut self.state);
         }
@@ -63,7 +50,9 @@ fn main() -> Result<()> {
 
     let bios_path = env::args().into_iter().next().unwrap();
     let mut grimlet = Grimlet::new(ll, &bios_path)?;
-    grimlet.state.regs[0] = 12;
+    for i in 0..17 {
+        grimlet.state.regs[i] = i as u32;
+    }
 
     println!("{:?}", grimlet.state.regs);
     grimlet.run();
