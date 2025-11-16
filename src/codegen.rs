@@ -4,12 +4,14 @@ use super::state::GuestState;
 use anyhow::{Result, anyhow};
 use inkwell::builder::Builder;
 use inkwell::context::{Context, ContextRef};
-use inkwell::execution_engine::{ExecutionEngine, JitFunction};
+use inkwell::execution_engine::{self, ExecutionEngine, JitFunction};
 use inkwell::llvm_sys::LLVMValue;
 use inkwell::llvm_sys::prelude::LLVMValueRef;
 use inkwell::module::Module;
 use inkwell::types::{FunctionType, IntType, PointerType, StructType};
-use inkwell::values::{AsValueRef, BasicValue, BasicValueEnum, IntValue, PointerValue};
+use inkwell::values::{
+    AsValueRef, BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue,
+};
 use inkwell::{AddressSpace, OptimizationLevel};
 use std::sync::Arc;
 
@@ -20,112 +22,107 @@ struct GuestRegRef<'a> {
     value: IntValue<'a>,
 }
 
-pub struct Compiler<'ctx> {
-    context: ContextRef<'ctx>,
+pub struct LlvmComponents<'ctx> {
+    pub function: Option<JitFunction<'ctx, CompiledBlock>>,
+    context: &'ctx Context,
     module: Module<'ctx>,
-    func_count: u32,
+    builder: Builder<'ctx>,
+    execution_engine: ExecutionEngine<'ctx>,
+    i32_type: IntType<'ctx>,
+    ptr_type: PointerType<'ctx>,
+    fn_type: FunctionType<'ctx>,
+    state_type: StructType<'ctx>,
 }
 
-impl<'ctx> Compiler<'ctx> {
-    pub fn new(context: &'ctx Context) -> Result<Self> {
+impl<'ctx> LlvmComponents<'ctx> {
+    pub fn new(context: &'ctx Context) -> Self {
         let module = context.create_module("main");
-        Ok(Self {
-            context: module.get_context(),
-            module: module,
-            func_count: 0,
-        })
+        let execution_engine = module
+            .create_jit_execution_engine(OptimizationLevel::None)
+            .unwrap();
+        let builder = context.create_builder();
+        let i32_type = context.i32_type();
+        let ptr_type = context.ptr_type(AddressSpace::default());
+        let fn_type = context.void_type().fn_type(&[ptr_type.into()], false);
+
+        let field_types = [i32_type.array_type(17).into(), ptr_type.into()];
+        let state_type = context.struct_type(&field_types, false);
+
+        Self {
+            function: None,
+            context,
+            module,
+            builder,
+            execution_engine,
+            i32_type,
+            ptr_type,
+            fn_type,
+            state_type,
+        }
+    }
+}
+
+pub struct Compiler {
+    pub func_count: u32,
+}
+
+impl Compiler {
+    pub fn new() -> Self {
+        Self { func_count: 0 }
     }
 
     /*
        Helpers for accessing frequently used LLVM types (_ll)
     */
 
-    fn i32_ll(&self) -> IntType {
-        self.context.i32_type()
-    }
-
-    fn state_ll(&self) -> StructType {
-        let types = [
-            self.context.i32_type().array_type(16).into(),
-            self.context.ptr_type(AddressSpace::default()).into(),
-        ];
-        self.context.struct_type(&types, false)
-    }
-
-    fn ptr_ll(&self) -> PointerType {
-        self.context.ptr_type(AddressSpace::default())
-    }
-
-    fn fn_ll(&self) -> FunctionType {
-        self.context
-            .void_type()
-            .fn_type(&[self.ptr_ll().into()], false)
-    }
-
     /// Loads the guest machine register into an LLVM register. Both the pointer into the guest
     /// state and current value are maintained so it can be transfered back at the end
-    fn load_reg<'a>(
-        &'ctx self,
-        r: usize,
-        builder: &'a Builder,
-        state_ptr: &'a PointerValue,
-    ) -> GuestRegRef<'a>
-    where
-        'ctx: 'a,
-    {
-        let gep_inds = [
-            self.i32_ll().const_int(0, false),
-            self.i32_ll().const_int(r as u64, false),
-        ];
-        let ptr = unsafe {
-            builder
-                .build_gep(
-                    self.state_ll(),
-                    *state_ptr,
-                    &gep_inds,
-                    &format!("r{}_ptr", r),
-                )
-                .unwrap()
-        };
-        let r = builder
-            .build_load(self.context.i32_type(), ptr, &format!("r{}", r))
-            .unwrap()
-            .into_int_value();
+    // fn load_registers<'a>(&self, state_ptr: &'a PointerValue, regs: &'a mut Vec<GuestRegRef<'a>>)
+    // where
+    //     'ctx: 'a,
+    // {
+    //     todo!();
+    // }
 
-        GuestRegRef { ptr, value: r }
-    }
-
-    pub fn compile_test(&'ctx mut self) -> Option<JitFunction<CompiledBlock>> {
+    pub fn compile_test<'ctx>(&mut self, ll: &mut LlvmComponents<'ctx>) {
+        // ) -> Option<JitFunction<'a, CompiledBlock>> {
         let name = format!("block_{}", self.func_count);
         self.func_count += 1;
-        let function = self.module.add_function(&name, self.fn_ll(), None);
-        let basic_block = self.context.append_basic_block(function, "start");
-        let builder = self.context.create_builder();
-        builder.position_at_end(basic_block);
+        let function = ll.module.add_function(&name, ll.fn_type, None);
+        let basic_block = ll.context.append_basic_block(function, "start");
+        ll.builder.position_at_end(basic_block);
 
         let state_ptr = function.get_nth_param(0).unwrap().into_pointer_value();
         let mut regs = Vec::new();
         for r in 0..17usize {
-            regs.push(self.load_reg(r, &builder, &state_ptr));
+            let gep_inds = [
+                ll.i32_type.const_zero(),
+                ll.i32_type.const_zero(),
+                ll.i32_type.const_int(r as u64, false),
+            ];
+            let ptr = unsafe {
+                ll.builder
+                    .build_gep(ll.state_type, state_ptr, &gep_inds, &format!("r{}_ptr", r))
+                    .unwrap()
+            };
+            let r = ll
+                .builder
+                .build_load(ll.context.i32_type(), ptr, &format!("r{}", r))
+                .unwrap()
+                .into_int_value();
+
+            regs.push(GuestRegRef { ptr, value: r });
         }
 
         // TODO - emit code here, stop at some point. Update regs as we go.
 
         for r in regs {
-            builder.build_store(r.ptr, r.value).unwrap();
+            ll.builder.build_store(r.ptr, r.value).unwrap();
         }
-
-        builder.build_return(None).unwrap();
+        ll.builder.build_return(None).unwrap();
 
         if function.verify(true) {
-            return unsafe {
-                self.module
-                    .create_execution_engine()
-                    .unwrap()
-                    .get_function(&name)
-                    .ok()
-            };
+            ll.function = unsafe { Some(ll.execution_engine.get_function(&name).unwrap()) };
         }
-        None
     }
 }

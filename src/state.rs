@@ -44,8 +44,4 @@ impl GuestState {
         let regs = [0; 17];
         Self { regs, mem }
     }
-
-    pub fn pc(&self) -> &u32 {
-        &self.regs[15]
-    }
 }

@@ -4,7 +4,10 @@ pub mod state;
 use anyhow::Result;
 use capstone::Capstone;
 use capstone::arch::BuildsCapstone;
-use std::sync::Arc;
+use codegen::LlvmComponents;
+use inkwell::builder::Builder;
+use inkwell::execution_engine::ExecutionEngine;
+use inkwell::module::Module;
 
 use codegen::Compiler;
 use state::GuestState;
@@ -15,43 +18,56 @@ use std::fs::File;
 use std::io::Read;
 
 /// Am I sticking with this name?
-struct Grimlet<'ctx> {
-    compiler: Compiler<'ctx>,
+struct Grimlet<'a> {
     cs: Capstone,
+    ll: LlvmComponents<'a>,
     state: GuestState,
+    context: Context,
 }
 
-impl<'ctx> Grimlet<'ctx> {
-    pub fn new(context: &'ctx Context, bios_path: &str) -> Result<Self> {
-        let compiler = Compiler::new(context)?;
+impl<'a> Grimlet<'a> {
+    pub fn new(ll: LlvmComponents<'a>, bios_path: &str) -> Result<Self> {
         let cs = Capstone::new()
             .arm()
             .mode(capstone::arch::arm::ArchMode::Arm)
             .detail(true)
             .build()?;
+
         let mut state = GuestState::new();
 
         let mut f = File::open(bios_path)?;
         f.read_exact(&mut *state.mem)?;
 
+        let context = Context::create();
+
         Ok(Self {
-            compiler,
             cs,
+            ll,
             state,
+            context,
         })
+    }
+
+    pub fn run(&mut self) {
+        let mut compiler = Compiler::new();
+        compiler.compile_test(&mut self.ll);
+        unsafe {
+            self.ll.function.clone().unwrap().call(&mut self.state);
+        }
     }
 }
 
 fn main() -> Result<()> {
-    let context = Arc::new(Context::create());
+    let context = Context::create();
+    let ll = LlvmComponents::new(&context);
+
     let bios_path = env::args().into_iter().next().unwrap();
-    let mut grimlet = Grimlet::new(&context, &bios_path)?;
+    let mut grimlet = Grimlet::new(ll, &bios_path)?;
     grimlet.state.regs[0] = 12;
-    let f = grimlet.compiler.compile_test().unwrap();
+
     println!("{:?}", grimlet.state.regs);
-    unsafe {
-        f.call(&mut grimlet.state);
-    }
+    grimlet.run();
+
     println!("{:?}", grimlet.state.regs);
     Ok(())
 }
