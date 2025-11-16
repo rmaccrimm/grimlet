@@ -1,12 +1,11 @@
-pub mod codegen;
+pub mod compiler;
 pub mod state;
 
 use anyhow::Result;
 use capstone::Capstone;
 use capstone::arch::BuildsCapstone;
-use codegen::LlvmComponents;
+use compiler::Compiler;
 
-use codegen::Compiler;
 use state::GuestState;
 use std::env;
 
@@ -17,12 +16,12 @@ use std::io::Read;
 /// Am I sticking with this name?
 struct Grimlet<'a> {
     cs: Capstone,
-    ll: LlvmComponents<'a>,
+    compiler: Compiler<'a>,
     state: GuestState,
 }
 
 impl<'a> Grimlet<'a> {
-    pub fn new(ll: LlvmComponents<'a>, bios_path: &str) -> Result<Self> {
+    pub fn new(compiler: Compiler<'a>, bios_path: &str) -> Result<Self> {
         let cs = Capstone::new()
             .arm()
             .mode(capstone::arch::arm::ArchMode::Arm)
@@ -31,22 +30,29 @@ impl<'a> Grimlet<'a> {
         let mut state = GuestState::new();
         let mut f = File::open(bios_path)?;
         f.read_exact(&mut *state.mem)?;
-        Ok(Self { cs, ll, state })
+        Ok(Self {
+            cs,
+            compiler,
+            state,
+        })
     }
 
     pub fn run(&mut self) {
-        let mut compiler = Compiler::new();
-        compiler.compile(&mut self.ll);
+        self.compiler.compile();
         println!("");
         unsafe {
-            self.ll.function.clone().unwrap().call(&mut self.state);
+            self.compiler
+                .function
+                .clone()
+                .unwrap()
+                .call(&mut self.state);
         }
     }
 }
 
 fn main() -> Result<()> {
     let context = Context::create();
-    let ll = LlvmComponents::new(&context);
+    let ll = Compiler::new(&context);
 
     let bios_path = env::args().into_iter().next().unwrap();
     let mut grimlet = Grimlet::new(ll, &bios_path)?;
