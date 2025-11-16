@@ -1,5 +1,6 @@
 mod alu;
 mod branch;
+mod compile;
 mod ldstr;
 
 use std::collections::HashMap;

@@ -1,3 +1,8 @@
+use anyhow::{Result, anyhow};
+use std::fs;
+use std::fs::File;
+use std::io::Read;
+
 #[repr(C)]
 pub struct MainMemory {
     pub bios: Vec<u8>,
@@ -36,13 +41,27 @@ pub enum Reg {
 #[repr(C)]
 pub struct ArmState {
     pub regs: [u32; 17],
-    pub mem: Box<[u8; 0x4000]>,
+    // pub mem: Box<[u8; 0x4000]>,
+    pub mem: Vec<u8>,
 }
 
 impl ArmState {
     pub fn new() -> Self {
-        let mem = Box::new([0; 0x4000]);
         let regs = [0; 17];
+        let mem = vec![0; 0x4000];
         Self { regs, mem }
+    }
+
+    pub fn with_bios(bios_path: &str) -> Result<Self> {
+        let regs = [0; 17];
+        let mut mem = Vec::new();
+
+        if !fs::exists(bios_path)? {
+            return Err(anyhow!("BIOS file not found"));
+        }
+        let mut f = File::open(bios_path)?;
+        f.read_to_end(&mut mem)?;
+
+        Ok(Self { regs, mem })
     }
 }
