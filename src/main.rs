@@ -4,8 +4,9 @@ pub mod state;
 use anyhow::Result;
 use capstone::Capstone;
 use capstone::arch::BuildsCapstone;
+use std::sync::Arc;
 
-use codegen::CodeGen;
+use codegen::Compiler;
 use state::GuestState;
 use std::env;
 
@@ -15,14 +16,14 @@ use std::io::Read;
 
 /// Am I sticking with this name?
 struct Grimlet<'ctx> {
-    codegen: CodeGen<'ctx>,
+    compiler: Compiler<'ctx>,
     cs: Capstone,
     state: GuestState,
 }
 
 impl<'ctx> Grimlet<'ctx> {
     pub fn new(context: &'ctx Context, bios_path: &str) -> Result<Self> {
-        let codegen = CodeGen::new(context)?;
+        let compiler = Compiler::new(context)?;
         let cs = Capstone::new()
             .arm()
             .mode(capstone::arch::arm::ArchMode::Arm)
@@ -33,20 +34,20 @@ impl<'ctx> Grimlet<'ctx> {
         let mut f = File::open(bios_path)?;
         f.read_exact(&mut *state.mem)?;
 
-        Ok(Self { codegen, cs, state })
-    }
-
-    pub fn run(&mut self) {
-        let pc = println!("Running!");
+        Ok(Self {
+            compiler,
+            cs,
+            state,
+        })
     }
 }
 
 fn main() -> Result<()> {
-    let context = Context::create();
+    let context = Arc::new(Context::create());
     let bios_path = env::args().into_iter().next().unwrap();
     let mut grimlet = Grimlet::new(&context, &bios_path)?;
     grimlet.state.regs[0] = 12;
-    let f = grimlet.codegen.compile_test().unwrap();
+    let f = grimlet.compiler.compile_test().unwrap();
     println!("{:?}", grimlet.state.regs);
     unsafe {
         f.call(&mut grimlet.state);
