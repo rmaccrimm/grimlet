@@ -109,40 +109,35 @@ impl<'a> Grimlet<'a> {
     }
 
     pub fn run(&mut self) -> Result<()> {
-        'top: loop {
+        loop {
             let curr_pc = self.state.pc();
-            // 0. Check if curr_pc exists in function cache
+            let func = match self.compiler.func_cache.get(&curr_pc) {
+                Some(func) => func,
+                None => {
+                    let func = self.compiler.new_function(0);
+                    for insn in
+                        self.disasm
+                            .iter_insns(&self.state.mem, curr_pc as u64, ArmMode::ARM)
+                    {
+                        println!("{}", insn);
+                        // let should_exit = func.append_insn(insn);
+                        let should_exit = true;
+                        self.compiler.append_insn(&func, 0);
 
-            // 1. If not, emit function prologue (create func, block, load registers, etc.)
-            for insn in self
-                .disasm
-                .iter_insns(&self.state.mem, curr_pc as u64, ArmMode::ARM)
-            {
-                println!("{}", insn);
-
-                // 2. compile instruction. It may return an exit code
-                if insn.opcode == ArmInsn::ARM_INS_BX {
-                    break 'top;
+                        if should_exit {
+                            break;
+                        }
+                    }
+                    self.compiler.compile(func).unwrap()
                 }
-
-                // 3. Retrieve JIT function and call
-                // - As part of this call, we may have hooked into the state interpreter, and
-                //   updated the PC, which means we will pick up at the branch point, compile, and
-                //  continue.
-                // - If the branch point was compiled already, we will just have called it from
-                //   within the JIT function
+            };
+            unsafe {
+                // TODO set the call target and call indirectly with some wrapper to perform
+                // the context switch? Or maybe we just pass all the values directly?
+                func.call(&mut self.state);
             }
+
             break;
-        }
-
-        let func = self.compiler.new_function(0);
-        self.compiler.append_insn(&func, 0);
-        self.compiler.compile(func);
-        self.compiler.dump("output.ll");
-
-        let f = self.compiler.func_cache.get(&0).unwrap();
-        unsafe {
-            f.call(&mut self.state);
         }
         Ok(())
     }

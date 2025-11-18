@@ -141,16 +141,16 @@ impl<'ctx> Compiler<'ctx> {
         }
     }
 
-    pub fn append_insn(&mut self, lctx: &LlvmFunction, addr: u32) {
+    pub fn append_insn(&mut self, func: &LlvmFunction, addr: u32) {
         // TODO - emit code here, stop at some point. Update regs as we go.
         // let interp = &ArmState::jump_to;
-        self.store_registers(&lctx.regs);
+        self.store_registers(&func.regs);
         let interp_fn = self.module.get_function("ArmState::jump_to").unwrap();
         self.builder
             .build_call(
                 interp_fn,
                 &[
-                    lctx.state_ptr.into(),
+                    func.state_ptr.into(),
                     self.i32_type.const_int(99, false).into(),
                 ],
                 "fn_result",
@@ -160,14 +160,18 @@ impl<'ctx> Compiler<'ctx> {
         self.builder.build_return(None).unwrap();
     }
 
-    pub fn compile(&mut self, func: LlvmFunction) {
+    pub fn compile(&mut self, func: LlvmFunction) -> Result<&CompiledFunc<'ctx>> {
         if func.f.verify(true) {
             let jit_func = unsafe {
                 self.execution_engine
                     .get_function(&func.f.get_name().to_str().unwrap())
                     .unwrap()
             };
-            self.func_cache.insert(func.addr as u32, jit_func);
+            let k = func.addr as u32;
+            self.func_cache.insert(k, jit_func);
+            Ok(&self.func_cache.get(&k).unwrap())
+        } else {
+            Err(anyhow!("Compilation failed"))
         }
     }
 
