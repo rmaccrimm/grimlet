@@ -3,16 +3,17 @@ mod branch;
 mod compile;
 mod ldstr;
 
+use crate::arm::cpu::ArmState;
+use anyhow::{Result, anyhow};
 use std::collections::HashMap;
-
-use crate::cpu::ArmState;
+use std::ops::Add;
 
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::execution_engine::{ExecutionEngine, JitFunction};
-use inkwell::module::Module;
+use inkwell::module::{Linkage, Module};
 use inkwell::types::{FunctionType, IntType, PointerType, StructType};
-use inkwell::values::{IntValue, PointerValue};
+use inkwell::values::{FunctionValue, IntValue, PointerValue};
 use inkwell::{AddressSpace, OptimizationLevel};
 
 type CompiledFunc<'a> = JitFunction<'a, unsafe extern "C" fn(*mut ArmState)>;
@@ -20,6 +21,14 @@ type CompiledFunc<'a> = JitFunction<'a, unsafe extern "C" fn(*mut ArmState)>;
 struct RegMap<'a> {
     ptr: PointerValue<'a>,
     value: IntValue<'a>,
+}
+
+pub struct LlvmFunction<'a> {
+    context: &'a Context,
+    addr: u64,
+    regs: Vec<RegMap<'a>>,
+    f: FunctionValue<'a>,
+    state_ptr: PointerValue<'a>,
 }
 
 pub struct Compiler<'ctx> {
@@ -32,7 +41,6 @@ pub struct Compiler<'ctx> {
     ptr_type: PointerType<'ctx>,
     fn_type: FunctionType<'ctx>,
     state_type: StructType<'ctx>,
-    func_count: u32,
 }
 
 impl<'ctx> Compiler<'ctx> {
@@ -49,6 +57,16 @@ impl<'ctx> Compiler<'ctx> {
         let field_types = [i32_type.array_type(17).into(), ptr_type.into()];
         let state_type = context.struct_type(&field_types, false);
 
+        // Link to external ARM interpreter functions
+        let args = [
+            context.ptr_type(AddressSpace::default()).into(),
+            i32_type.into(),
+        ];
+        let interp_fn_type = context.void_type().fn_type(&args, false);
+        let interp_fn =
+            module.add_function("ArmState::jump_to", interp_fn_type, Some(Linkage::External));
+        execution_engine.add_global_mapping(&interp_fn, ArmState::jump_to as usize);
+
         Self {
             func_cache: HashMap::new(),
             context,
@@ -59,7 +77,6 @@ impl<'ctx> Compiler<'ctx> {
             ptr_type,
             fn_type,
             state_type,
-            func_count: 0,
         }
     }
 
@@ -97,38 +114,64 @@ impl<'ctx> Compiler<'ctx> {
         regs
     }
 
-    pub fn compile(&mut self, addr: u32) {
-        let name = format!("block_{}", self.func_count);
-        self.func_count += 1;
-        let function = self.module.add_function(&name, self.fn_type, None);
-        let basic_block = self.context.append_basic_block(function, "start");
-        self.builder.position_at_end(basic_block);
-
-        let state_ptr = function.get_nth_param(0).unwrap().into_pointer_value();
-        let mut regs = self.load_registers(state_ptr.clone());
-
-        // TODO - emit code here, stop at some point. Update regs as we go.
-        regs[0].value = self
-            .builder
-            .build_int_add(regs[0].value, regs[1].value, "v0")
-            .unwrap();
-        regs[0].value = self
-            .builder
-            .build_int_add(regs[0].value, regs[2].value, "v1")
-            .unwrap();
-        regs[0].value = self
-            .builder
-            .build_int_mul(regs[0].value, regs[3].value, "v2")
-            .unwrap();
-
+    fn store_registers(&self, regs: &Vec<RegMap>) {
         for r in regs {
             self.builder.build_store(r.ptr, r.value).unwrap();
         }
-        self.builder.build_return(None).unwrap();
+    }
 
-        if function.verify(true) {
-            let f = unsafe { self.execution_engine.get_function(&name).unwrap() };
-            self.func_cache.insert(addr, f);
+    pub fn new_function<'a>(&mut self, addr: u32) -> LlvmFunction<'a>
+    where
+        'ctx: 'a,
+    {
+        let name = format!("fn_{:#010x}", addr);
+        let f = self.module.add_function(&name, self.fn_type, None);
+        let basic_block = self.context.append_basic_block(f, "start");
+        self.builder.position_at_end(basic_block);
+
+        let state_ptr = f.get_nth_param(0).unwrap().into_pointer_value();
+        let regs = self.load_registers(state_ptr.clone());
+
+        LlvmFunction {
+            context: self.context,
+            addr: addr as u64,
+            regs,
+            f,
+            state_ptr,
         }
+    }
+
+    pub fn append_insn(&mut self, lctx: &LlvmFunction, addr: u32) {
+        // TODO - emit code here, stop at some point. Update regs as we go.
+        // let interp = &ArmState::jump_to;
+        self.store_registers(&lctx.regs);
+        let interp_fn = self.module.get_function("ArmState::jump_to").unwrap();
+        self.builder
+            .build_call(
+                interp_fn,
+                &[
+                    lctx.state_ptr.into(),
+                    self.i32_type.const_int(99, false).into(),
+                ],
+                "fn_result",
+            )
+            .unwrap();
+
+        self.builder.build_return(None).unwrap();
+    }
+
+    pub fn compile(&mut self, func: LlvmFunction) {
+        if func.f.verify(true) {
+            let jit_func = unsafe {
+                self.execution_engine
+                    .get_function(&func.f.get_name().to_str().unwrap())
+                    .unwrap()
+            };
+            self.func_cache.insert(func.addr as u32, jit_func);
+        }
+    }
+
+    pub fn dump(&self, path: &str) {
+        self.module.print_to_file(path).unwrap()
     }
 }

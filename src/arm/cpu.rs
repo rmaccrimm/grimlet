@@ -37,7 +37,7 @@ pub enum Reg {
     CPSR = 16,
 }
 
-/// Emulated CPU state
+/// Emulated CPU state and interpreter
 #[repr(C)]
 pub struct ArmState {
     pub regs: [u32; 17],
@@ -63,5 +63,13 @@ impl ArmState {
         f.read_to_end(&mut mem)?;
 
         Ok(Self { regs, mem })
+    }
+
+    pub fn pc(&self) -> u32 {
+        self.regs[Reg::PC as usize]
+    }
+
+    pub fn jump_to(&mut self, addr: u32) {
+        self.regs[Reg::PC as usize] = addr;
     }
 }
