@@ -1,4 +1,4 @@
-use super::{Compiler, RegMap};
+use super::Compiler;
 use capstone::Insn;
 use capstone::arch::arm::ArmInsn;
 use inkwell::values::IntValue;

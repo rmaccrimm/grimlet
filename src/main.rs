@@ -109,8 +109,10 @@ impl<'a> Grimlet<'a> {
     }
 
     pub fn run(&mut self) -> Result<()> {
+        let entry_point = self.compiler.build_entry_point();
         loop {
             let curr_pc = self.state.pc();
+
             let func = match self.compiler.func_cache.get(&curr_pc) {
                 Some(func) => func,
                 None => {
@@ -131,12 +133,7 @@ impl<'a> Grimlet<'a> {
                     self.compiler.compile(func).unwrap()
                 }
             };
-            unsafe {
-                // TODO set the call target and call indirectly with some wrapper to perform
-                // the context switch? Or maybe we just pass all the values directly?
-                func.call(&mut self.state);
-            }
-
+            self.compiler.dump();
             break;
         }
         Ok(())
@@ -144,9 +141,9 @@ impl<'a> Grimlet<'a> {
 }
 
 fn main() -> Result<()> {
-    let bios_path = env::args().into_iter().skip(1).next().unwrap();
+    // let bios_path = env::args().into_iter().skip(1).next().unwrap();
     let context = Context::create();
-    let mut grimlet = Grimlet::new(&context, &bios_path)?;
+    let mut grimlet = Grimlet::new(&context, "gba_bios.bin")?;
 
     for i in 0..17 {
         grimlet.state.regs[i] = i as u32;
