@@ -16,11 +16,11 @@ use inkwell::types::{ArrayType, FunctionType, IntType, PointerType, StructType, 
 use inkwell::values::{BasicMetadataValueEnum, FunctionValue, IntValue, PointerValue};
 use inkwell::{AddressSpace, OptimizationLevel};
 
-type JumpTarget = unsafe extern "C" fn(*const i32);
+type JumpTarget = unsafe extern "C" fn(*mut ArmState, *const i32);
 
 type CompiledFunc<'a> = JitFunction<'a, JumpTarget>;
 
-type EntryPoint<'a> = JitFunction<'a, unsafe extern "C" fn(*mut ArmState, *const JumpTarget)>;
+type EntryPoint<'a> = JitFunction<'a, unsafe extern "C" fn(*mut ArmState, JumpTarget)>;
 
 pub struct LlvmFunction<'a> {
     addr: u64,
@@ -29,6 +29,7 @@ pub struct LlvmFunction<'a> {
     module_ind: usize,
     ee_ind: usize,
     func: FunctionValue<'a>,
+    state_ptr: PointerValue<'a>,
 }
 
 pub struct Compiler<'ctx> {
@@ -47,13 +48,13 @@ pub struct Compiler<'ctx> {
 
 impl<'ctx> Compiler<'ctx> {
     pub fn new(context: &'ctx Context) -> Self {
-        let mut modules = Vec::new();
-        modules.push(context.create_module("m_global"));
-        let module = modules.last().unwrap();
+        let modules = Vec::new();
+        // modules.push(context.create_module("m_global"));
+        // let module = modules.last().unwrap();
 
-        let mut engines = Vec::new();
-        engines.push(module.create_execution_engine().unwrap());
-        let ee = engines.last().unwrap();
+        let engines = Vec::new();
+        // engines.push(module.create_execution_engine().unwrap());
+        // let ee = engines.last().unwrap();
 
         let builder = context.create_builder();
         let i32_t = context.i32_type();
@@ -61,18 +62,7 @@ impl<'ctx> Compiler<'ctx> {
         let void_t = context.void_type();
         let regs_t = i32_t.array_type(17);
         let arm_state_t = context.struct_type(&[regs_t.into(), ptr_t.into()], false);
-        let fn_t = void_t.fn_type(&[ptr_t.into()], false);
-
-        // Link to external ARM interpreter functions
-        let args = [
-            context.ptr_type(AddressSpace::default()).into(),
-            i32_t.into(),
-        ];
-        let interp_fn_type = context.void_type().fn_type(&args, false);
-        let interp_fn =
-            modules[0].add_function("ArmState::jump_to", interp_fn_type, Some(Linkage::External));
-
-        ee.add_global_mapping(&interp_fn, ArmState::jump_to as usize);
+        let fn_t = void_t.fn_type(&[ptr_t.into(), ptr_t.into()], false);
 
         Self {
             func_cache: HashMap::new(),
@@ -136,19 +126,24 @@ impl<'ctx> Compiler<'ctx> {
                 .into_int_value();
 
             let gep_inds = [
-                // self.i32_t.const_zero(),
+                self.i32_t.const_zero(),
                 self.i32_t.const_int(r as u64, false),
             ];
             let name = format!("r{}_array_ptr", r);
             let arr_ptr = unsafe {
                 builder
-                    .build_gep(self.i32_t, call_args, &gep_inds, &name)
+                    .build_gep(self.regs_t, call_args, &gep_inds, &name)
                     .unwrap()
             };
             builder.build_store(arr_ptr, value).unwrap();
         }
         builder
-            .build_indirect_call(self.fn_t, fn_ptr, &[call_args.into()], "call")
+            .build_indirect_call(
+                self.fn_t,
+                fn_ptr,
+                &[state_ptr.into(), call_args.into()],
+                "call",
+            )
             .unwrap();
         builder.build_return(None).unwrap();
         assert!(f.verify(true));
@@ -161,9 +156,10 @@ impl<'ctx> Compiler<'ctx> {
     where
         'ctx: 'a,
     {
-        let name = format!("fn_{:#010x}", addr);
+        let ctx = self.llvm_ctx;
+        let func_name = format!("fn_{:#010x}", addr);
         self.modules
-            .push(self.llvm_ctx.create_module(&format!("m_{}", &name)));
+            .push(self.llvm_ctx.create_module(&format!("m_{}", &func_name)));
         let module = self.modules.last().unwrap();
 
         self.engines.push(
@@ -171,24 +167,34 @@ impl<'ctx> Compiler<'ctx> {
                 .create_jit_execution_engine(OptimizationLevel::None)
                 .unwrap(),
         );
-        // let ee = self.engines.last().unwrap();
+        let ee = self.engines.last().unwrap();
 
-        let func = module.add_function(&name, self.fn_t, None);
+        let interp_fn_type = ctx.void_type().fn_type(
+            &[
+                ctx.ptr_type(AddressSpace::default()).into(),
+                self.i32_t.into(),
+            ],
+            false,
+        );
+        let interp_fn =
+            module.add_function("ArmState::jump_to", interp_fn_type, Some(Linkage::External));
+
+        ee.add_global_mapping(&interp_fn, ArmState::jump_to as usize);
+
+        let func = module.add_function(&func_name, self.fn_t, None);
         let basic_block = self.llvm_ctx.append_basic_block(func, "start");
         self.builder.position_at_end(basic_block);
 
+        let state_ptr = func.get_nth_param(0).unwrap().into_pointer_value();
+        let base_ptr = func.get_nth_param(1).unwrap().into_pointer_value();
+
         let reg_map = (0..17)
             .map(|i| {
-                let arr = func.get_nth_param(0).unwrap().into_pointer_value();
                 let name = format!("r{}_elem_ptr", i);
+                let gep_inds = [self.i32_t.const_zero(), self.i32_t.const_int(i, false)];
                 let ptr = unsafe {
                     self.builder
-                        .build_gep(
-                            self.regs_t,
-                            arr,
-                            &[self.i32_t.const_zero(), self.i32_t.const_int(i, false)],
-                            &name,
-                        )
+                        .build_gep(self.regs_t, base_ptr, &gep_inds, &name)
                         .unwrap()
                 };
                 let name = format!("r{}", i);
@@ -201,37 +207,17 @@ impl<'ctx> Compiler<'ctx> {
 
         LlvmFunction {
             addr: addr as u64,
-            name,
+            name: func_name,
             reg_map,
             module_ind: self.modules.len() - 1,
             ee_ind: self.engines.len() - 1,
             func,
+            state_ptr,
         }
     }
 
     pub fn append_insn(&mut self, func: &LlvmFunction, addr: u32) {
         todo!();
-        // TODO - emit code here, stop at some point. Update regs as we go.
-        // let interp = &ArmState::jump_to;
-        // let regs_ptr = func.module.get_global("regs").unwrap().as_pointer_value();
-        // self.store_registers(&func.regs);
-        // let module = &self.modules[func.module_ind];
-
-        // let interp_fn = module.get_function("ArmState::jump_to").unwrap();
-        // self.load_registers(&module.get_global("regs").unwrap().as_pointer_value());
-        //     self.builder
-        //         .build_call(
-        //             interp_fn,
-        //             &[
-        //                 func.state_ptr.into(),
-        //                 self.i32_t.const_int(99, false).into(),
-        //             ],
-        //             "fn_result",
-        //         )
-        //         .unwrap();
-
-        //     self.builder.build_return(None).unwrap();
-        // }
     }
 
     pub fn compile(&mut self, func: LlvmFunction) -> Result<&CompiledFunc<'ctx>> {
@@ -265,12 +251,26 @@ mod tests {
 
         let entry = comp.build_entry_point();
         let func = comp.new_function(0);
-        let compiled = comp.compile(func).unwrap();
-        comp.dump();
 
+        // Run a single instruction (call `jump_to` func)
+        let module = &comp.modules[func.module_ind];
+        let interp_fn = module.get_function("ArmState::jump_to").unwrap();
+
+        comp.builder
+            .build_call(
+                interp_fn,
+                &[
+                    func.state_ptr.into(),
+                    comp.i32_t.const_int(99, false).into(),
+                ],
+                "fn_result",
+            )
+            .unwrap();
+
+        let compiled = comp.compile(func).unwrap();
         unsafe {
-            // compiled.call(&mut state);
-            // entry.call(&mut state, &mut compiled.as_raw());
+            entry.call(&mut state, compiled.as_raw());
         }
+        assert_eq!(state.pc(), 99);
     }
 }

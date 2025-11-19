@@ -70,6 +70,7 @@ impl ArmState {
     }
 
     pub fn jump_to(&mut self, addr: u32) {
+        println!("JUMPING TO: {}", addr);
         self.regs[Reg::PC as usize] = addr;
     }
 }
