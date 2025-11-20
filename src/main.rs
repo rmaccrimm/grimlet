@@ -109,14 +109,14 @@ impl<'a> Grimlet<'a> {
     }
 
     pub fn run(&mut self) -> Result<()> {
-        let entry_point = self.compiler.build_entry_point();
+        let entry_point = self.compiler.build_entry_point()?;
         loop {
             let curr_pc = self.state.pc();
 
             let func = match self.compiler.func_cache.get(&curr_pc) {
                 Some(func) => func,
                 None => {
-                    let func = self.compiler.new_function(0);
+                    let func = self.compiler.new_function(0)?;
                     for insn in
                         self.disasm
                             .iter_insns(&self.state.mem, curr_pc as u64, ArmMode::ARM)

@@ -13,7 +13,9 @@ use inkwell::context::Context;
 use inkwell::execution_engine::{self, ExecutionEngine, JitFunction};
 use inkwell::module::{Linkage, Module};
 use inkwell::types::{ArrayType, FunctionType, IntType, PointerType, StructType, VoidType};
-use inkwell::values::{BasicMetadataValueEnum, FunctionValue, IntValue, PointerValue};
+use inkwell::values::{
+    BasicMetadataValueEnum, BasicValueEnum, FunctionValue, IntValue, PointerValue,
+};
 use inkwell::{AddressSpace, OptimizationLevel};
 
 type JumpTarget = unsafe extern "C" fn(*mut ArmState, *const i32);
@@ -27,9 +29,20 @@ pub struct LlvmFunction<'a> {
     name: String,
     reg_map: Vec<IntValue<'a>>,
     module_ind: usize,
-    ee_ind: usize,
     func: FunctionValue<'a>,
     state_ptr: PointerValue<'a>,
+}
+
+/// Helper that converts the LLVMString into an anyhow error
+fn get_ptr_param<'a>(func: &FunctionValue<'a>, i: usize) -> Result<PointerValue<'a>> {
+    Ok(func
+        .get_nth_param(i as u32)
+        .ok_or(anyhow!(
+            "{} signature has no parameter {}",
+            func.get_name().to_str()?,
+            i
+        ))?
+        .into_pointer_value())
 }
 
 pub struct Compiler<'ctx> {
@@ -49,13 +62,7 @@ pub struct Compiler<'ctx> {
 impl<'ctx> Compiler<'ctx> {
     pub fn new(context: &'ctx Context) -> Self {
         let modules = Vec::new();
-        // modules.push(context.create_module("m_global"));
-        // let module = modules.last().unwrap();
-
         let engines = Vec::new();
-        // engines.push(module.create_execution_engine().unwrap());
-        // let ee = engines.last().unwrap();
-
         let builder = context.create_builder();
         let i32_t = context.i32_type();
         let ptr_t = context.ptr_type(AddressSpace::default());
@@ -79,103 +86,122 @@ impl<'ctx> Compiler<'ctx> {
         }
     }
 
-    pub fn build_entry_point(&mut self) -> EntryPoint<'ctx> {
-        let ctx = self.llvm_ctx;
-        let builder = &self.builder;
-
-        self.modules.push(ctx.create_module("m_entrypoint"));
+    fn create_module(&mut self, name: &str) -> Result<usize> {
+        self.modules.push(self.llvm_ctx.create_module(name));
         let module = self.modules.last().unwrap();
-
         self.engines.push(
             module
                 .create_jit_execution_engine(OptimizationLevel::None)
-                .unwrap(),
+                .map_err(|s| {
+                    let er = s
+                        .to_str()
+                        .map(String::from)
+                        .unwrap_or("Failed to create execution engine".into());
+                    anyhow!(er)
+                })?,
         );
-        let ee = self.engines.last().unwrap();
+        Ok(self.modules.len() - 1)
+    }
 
-        let entry_type = ctx
+    pub fn build_entry_point(&mut self) -> Result<EntryPoint<'ctx>> {
+        let i = self.create_module("m_entrypoint")?;
+        let module = &self.modules[i];
+        let ee = &self.engines[i];
+
+        // First global function - trampoline()
+        // Simply performs an indirect call to the provided function pointer, passing array arg
+        // forward.
+        let trampoline_t = self.void_t.fn_type(
+            &[self.ptr_t.into(), self.ptr_t.into(), self.ptr_t.into()],
+            false,
+        );
+
+        let trampoline = module.add_function("trampoline", trampoline_t, None);
+        let basic_block = self.llvm_ctx.append_basic_block(trampoline, "start");
+        self.builder.position_at_end(basic_block);
+
+        let fn_ptr_arg = get_ptr_param(&trampoline, 0)?;
+        let state_ptr_arg = get_ptr_param(&trampoline, 1)?;
+        let array_ptr_arg = get_ptr_param(&trampoline, 2)?;
+
+        self.builder.build_indirect_call(
+            self.fn_t,
+            fn_ptr_arg,
+            &[state_ptr_arg.into(), array_ptr_arg.into()],
+            "call",
+        )?;
+        self.builder.build_return(None)?;
+
+        // Second global function - entry_point
+        // Performs context switch from guest machine to LLVM code and jumps to provided function
+        let entry_type = self
+            .llvm_ctx
             .void_type()
             .fn_type(&[self.ptr_t.into(), self.ptr_t.into()], false);
-        let f = module.add_function("fn_entry_point", entry_type, None);
-        let basic_block = ctx.append_basic_block(f, "start");
-        builder.position_at_end(basic_block);
+        let f = module.add_function("entry_point", entry_type, None);
+        let basic_block = self.llvm_ctx.append_basic_block(f, "start");
+        self.builder.position_at_end(basic_block);
 
-        // First arg - pointer to ARM guest state, 2nd arg - function to jump to
-        let state_ptr = f.get_nth_param(0).unwrap().into_pointer_value();
-        let fn_ptr = f.get_nth_param(1).unwrap().into_pointer_value();
+        let state_ptr_arg = get_ptr_param(&f, 0)?;
+        let fn_ptr_arg = get_ptr_param(&f, 1)?;
 
-        let call_args = builder
-            .build_alloca(self.i32_t.array_type(17), "reg_values")
-            .unwrap();
+        let call_arg = self
+            .builder
+            .build_alloca(self.i32_t.array_type(17), "reg_values_ptr")?;
 
         for r in 0..17usize {
             let gep_inds = [
-                ctx.i32_type().const_zero(),
-                ctx.i32_type().const_zero(),
-                ctx.i32_type().const_int(r as u64, false),
+                self.i32_t.const_zero(),
+                self.i32_t.const_zero(),
+                self.i32_t.const_int(r as u64, false),
             ];
             let name = format!("r{}_guest_ptr", r);
             let guest_ptr = unsafe {
-                builder
-                    .build_gep(self.arm_state_t, state_ptr, &gep_inds, &name)
-                    .unwrap()
+                self.builder
+                    .build_gep(self.arm_state_t, state_ptr_arg, &gep_inds, &name)?
             };
-            let value = builder
-                .build_load(ctx.i32_type(), guest_ptr, &format!("r{}", r))
-                .unwrap()
+            let value = self
+                .builder
+                .build_load(self.i32_t, guest_ptr, &format!("r{}", r))?
                 .into_int_value();
 
             let gep_inds = [
                 self.i32_t.const_zero(),
                 self.i32_t.const_int(r as u64, false),
             ];
-            let name = format!("r{}_array_ptr", r);
+            let name = format!("r{}_ptr", r);
             let arr_ptr = unsafe {
-                builder
-                    .build_gep(self.regs_t, call_args, &gep_inds, &name)
-                    .unwrap()
+                self.builder
+                    .build_gep(self.regs_t, call_arg, &gep_inds, &name)?
             };
-            builder.build_store(arr_ptr, value).unwrap();
+            self.builder.build_store(arr_ptr, value)?;
         }
-        builder
-            .build_indirect_call(
-                self.fn_t,
-                fn_ptr,
-                &[state_ptr.into(), call_args.into()],
-                "call",
-            )
-            .unwrap();
-        builder.build_return(None).unwrap();
+
+        self.builder.build_call(
+            trampoline,
+            &[fn_ptr_arg.into(), state_ptr_arg.into(), call_arg.into()],
+            "call",
+        )?;
+        self.builder.build_return(None)?;
         assert!(f.verify(true));
 
-        let entry_point = unsafe { ee.get_function("fn_entry_point").unwrap() };
-        entry_point
+        let entry_point = unsafe { ee.get_function("entry_point")? };
+        Ok(entry_point)
     }
 
-    pub fn new_function<'a>(&mut self, addr: u32) -> LlvmFunction<'a>
+    pub fn new_function<'a>(&mut self, addr: u32) -> Result<LlvmFunction<'a>>
     where
         'ctx: 'a,
     {
-        let ctx = self.llvm_ctx;
         let func_name = format!("fn_{:#010x}", addr);
-        self.modules
-            .push(self.llvm_ctx.create_module(&format!("m_{}", &func_name)));
-        let module = self.modules.last().unwrap();
+        let i = self.create_module(&format!("m_{}", &func_name))?;
 
-        self.engines.push(
-            module
-                .create_jit_execution_engine(OptimizationLevel::None)
-                .unwrap(),
-        );
-        let ee = self.engines.last().unwrap();
+        let module = &self.modules[i];
+        let ee = &self.engines[i];
 
-        let interp_fn_type = ctx.void_type().fn_type(
-            &[
-                ctx.ptr_type(AddressSpace::default()).into(),
-                self.i32_t.into(),
-            ],
-            false,
-        );
+        let interp_fn_type = self
+            .void_t
+            .fn_type(&[self.ptr_t.into(), self.i32_t.into()], false);
         let interp_fn =
             module.add_function("ArmState::jump_to", interp_fn_type, Some(Linkage::External));
 
@@ -185,8 +211,8 @@ impl<'ctx> Compiler<'ctx> {
         let basic_block = self.llvm_ctx.append_basic_block(func, "start");
         self.builder.position_at_end(basic_block);
 
-        let state_ptr = func.get_nth_param(0).unwrap().into_pointer_value();
-        let base_ptr = func.get_nth_param(1).unwrap().into_pointer_value();
+        let state_ptr = get_ptr_param(&func, 0)?;
+        let base_ptr = get_ptr_param(&func, 1)?;
 
         let reg_map = (0..17)
             .map(|i| {
@@ -205,15 +231,14 @@ impl<'ctx> Compiler<'ctx> {
             })
             .collect();
 
-        LlvmFunction {
+        Ok(LlvmFunction {
             addr: addr as u64,
             name: func_name,
             reg_map,
             module_ind: self.modules.len() - 1,
-            ee_ind: self.engines.len() - 1,
             func,
             state_ptr,
-        }
+        })
     }
 
     pub fn append_insn(&mut self, func: &LlvmFunction, addr: u32) {
@@ -223,7 +248,11 @@ impl<'ctx> Compiler<'ctx> {
     pub fn compile(&mut self, func: LlvmFunction) -> Result<&CompiledFunc<'ctx>> {
         self.builder.build_return(None).unwrap();
         if func.func.verify(true) {
-            let jit_func = unsafe { self.engines[func.ee_ind].get_function(&func.name).unwrap() };
+            let jit_func = unsafe {
+                self.engines[func.module_ind]
+                    .get_function(&func.name)
+                    .unwrap()
+            };
             let k = func.addr as u32;
             self.func_cache.insert(k, jit_func);
             Ok(&self.func_cache.get(&k).unwrap())
@@ -244,14 +273,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_compile() {
+    fn test_jump_to_external() {
         let mut state = ArmState::new();
         let context = Context::create();
         let mut comp = Compiler::new(&context);
 
-        let entry = comp.build_entry_point();
-        let func = comp.new_function(0);
+        let entry = comp.build_entry_point().unwrap();
 
+        let func = comp.new_function(0).unwrap();
         // Run a single instruction (call `jump_to` func)
         let module = &comp.modules[func.module_ind];
         let interp_fn = module.get_function("ArmState::jump_to").unwrap();
@@ -268,9 +297,13 @@ mod tests {
             .unwrap();
 
         let compiled = comp.compile(func).unwrap();
+
+        // comp.dump();
+        println!("{:?}", state.regs);
         unsafe {
             entry.call(&mut state, compiled.as_raw());
         }
+        println!("{:?}", state.regs);
         assert_eq!(state.pc(), 99);
     }
 }
