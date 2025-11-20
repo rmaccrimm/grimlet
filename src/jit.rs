@@ -24,6 +24,8 @@ type CompiledFunc<'a> = JitFunction<'a, JumpTarget>;
 
 type EntryPoint<'a> = JitFunction<'a, unsafe extern "C" fn(*mut ArmState, JumpTarget)>;
 
+type Trampoline<'a> = JitFunction<'a, unsafe extern "C" fn(JumpTarget, *mut ArmState, *const i32)>;
+
 pub struct LlvmFunction<'a> {
     addr: u64,
     name: String,
@@ -145,9 +147,7 @@ impl<'ctx> Compiler<'ctx> {
         let state_ptr_arg = get_ptr_param(&f, 0)?;
         let fn_ptr_arg = get_ptr_param(&f, 1)?;
 
-        let call_arg = self
-            .builder
-            .build_alloca(self.i32_t.array_type(17), "reg_values_ptr")?;
+        let call_arg = self.builder.build_alloca(self.regs_t, "reg_values_ptr")?;
 
         for r in 0..17usize {
             let gep_inds = [
@@ -206,6 +206,21 @@ impl<'ctx> Compiler<'ctx> {
             module.add_function("ArmState::jump_to", interp_fn_type, Some(Linkage::External));
 
         ee.add_global_mapping(&interp_fn, ArmState::jump_to as usize);
+
+        let trampoline_fn_t = self.void_t.fn_type(
+            &[self.ptr_t.into(), self.ptr_t.into(), self.ptr_t.into()],
+            false,
+        );
+        let trampoline_fn =
+            module.add_function("trampoline", trampoline_fn_t, Some(Linkage::External));
+
+        let globals_ee = &self.engines[0];
+        let trampoline_compiled: Trampoline<'ctx> =
+            unsafe { globals_ee.get_function("trampoline")? };
+
+        unsafe {
+            ee.add_global_mapping(&trampoline_fn, trampoline_compiled.as_raw() as usize);
+        }
 
         let func = module.add_function(&func_name, self.fn_t, None);
         let basic_block = self.llvm_ctx.append_basic_block(func, "start");
@@ -305,5 +320,69 @@ mod tests {
         }
         println!("{:?}", state.regs);
         assert_eq!(state.pc(), 99);
+    }
+
+    #[test]
+    fn test_cross_module_calls() {
+        let mut state = ArmState::new();
+        let context = Context::create();
+        let mut comp = Compiler::new(&context);
+
+        let entry = comp.build_entry_point().unwrap();
+
+        // 1st Func - Run a single instruction (call `jump_to` func)
+        let func = comp.new_function(0).unwrap();
+        let module = &comp.modules[func.module_ind];
+        let interp_fn = module.get_function("ArmState::jump_to").unwrap();
+        comp.builder
+            .build_call(
+                interp_fn,
+                &[
+                    func.state_ptr.into(),
+                    comp.i32_t.const_int(99, false).into(),
+                ],
+                "fn_result",
+            )
+            .unwrap();
+        comp.compile(func).unwrap();
+
+        // 2nd Func - Just calls 1st
+        let func = comp.new_function(0).unwrap();
+        let compiled_1 = comp.func_cache.get(&0).unwrap();
+        let module = &comp.modules[func.module_ind];
+        let ee = &comp.engines[func.module_ind];
+
+        let state_param = get_ptr_param(&func.func, 0).unwrap();
+        let regs_param = get_ptr_param(&func.func, 1).unwrap();
+
+        let trampoline = module.get_function("trampoline").unwrap();
+
+        unsafe {
+            let func_ptr_param = comp
+                .builder
+                .build_int_to_ptr(
+                    context
+                        .ptr_sized_int_type(ee.get_target_data(), None)
+                        .const_int(compiled_1.as_raw() as u64, false),
+                    comp.ptr_t,
+                    "raw_fn_pointer",
+                )
+                .unwrap();
+            comp.builder
+                .build_call(
+                    trampoline,
+                    &[func_ptr_param.into(), state_param.into(), regs_param.into()],
+                    "call",
+                )
+                .unwrap();
+        }
+        let compiled_2 = comp.compile(func).unwrap();
+
+        // comp.dump();
+        println!("{:?}", state.regs);
+        unsafe {
+            entry.call(&mut state, compiled_2.as_raw());
+        }
+        println!("{:?}", state.regs);
     }
 }
