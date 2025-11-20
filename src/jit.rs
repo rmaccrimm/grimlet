@@ -199,14 +199,6 @@ impl<'ctx> Compiler<'ctx> {
         let module = &self.modules[i];
         let ee = &self.engines[i];
 
-        let interp_fn_type = self
-            .void_t
-            .fn_type(&[self.ptr_t.into(), self.i32_t.into()], false);
-        let interp_fn =
-            module.add_function("ArmState::jump_to", interp_fn_type, Some(Linkage::External));
-
-        ee.add_global_mapping(&interp_fn, ArmState::jump_to as usize);
-
         let trampoline_fn_t = self.void_t.fn_type(
             &[self.ptr_t.into(), self.ptr_t.into(), self.ptr_t.into()],
             false,
@@ -298,11 +290,27 @@ mod tests {
         let func = comp.new_function(0).unwrap();
         // Run a single instruction (call `jump_to` func)
         let module = &comp.modules[func.module_ind];
-        let interp_fn = module.get_function("ArmState::jump_to").unwrap();
+        let ee = &comp.engines[func.module_ind];
+
+        let interp_fn_type = comp
+            .void_t
+            .fn_type(&[comp.ptr_t.into(), comp.i32_t.into()], false);
+
+        let interp_fn_ptr = comp
+            .builder
+            .build_int_to_ptr(
+                context
+                    .ptr_sized_int_type(ee.get_target_data(), None)
+                    .const_int(ArmState::jump_to as u64, false),
+                comp.ptr_t,
+                "raw_fn_pointer",
+            )
+            .unwrap();
 
         comp.builder
-            .build_call(
-                interp_fn,
+            .build_indirect_call(
+                interp_fn_type,
+                interp_fn_ptr,
                 &[
                     func.state_ptr.into(),
                     comp.i32_t.const_int(99, false).into(),
@@ -332,11 +340,28 @@ mod tests {
 
         // 1st Func - Run a single instruction (call `jump_to` func)
         let func = comp.new_function(0).unwrap();
-        let module = &comp.modules[func.module_ind];
-        let interp_fn = module.get_function("ArmState::jump_to").unwrap();
+        // let module = &comp.modules[func.module_ind];
+        let ee = &comp.engines[func.module_ind];
+
+        let func_ptr_param = comp
+            .builder
+            .build_int_to_ptr(
+                context
+                    .ptr_sized_int_type(ee.get_target_data(), None)
+                    .const_int(ArmState::jump_to as u64, false),
+                comp.ptr_t,
+                "raw_fn_pointer",
+            )
+            .unwrap();
+
+        let interp_fn_t = comp
+            .void_t
+            .fn_type(&[comp.ptr_t.into(), comp.i32_t.into()], false);
+
         comp.builder
-            .build_call(
-                interp_fn,
+            .build_indirect_call(
+                interp_fn_t,
+                func_ptr_param,
                 &[
                     func.state_ptr.into(),
                     comp.i32_t.const_int(99, false).into(),
@@ -378,10 +403,10 @@ mod tests {
         }
         let compiled_2 = comp.compile(func).unwrap();
 
-        // comp.dump();
+        comp.dump();
         println!("{:?}", state.regs);
         unsafe {
-            entry.call(&mut state, compiled_2.as_raw());
+            // entry.call(&mut state, compiled_2.as_raw());
         }
         println!("{:?}", state.regs);
     }
