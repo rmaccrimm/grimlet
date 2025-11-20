@@ -219,23 +219,6 @@ impl<'ctx> Compiler<'ctx> {
         let i = self.create_module(&format!("m_{}", &func_name))?;
 
         let module = &self.modules[i];
-        let ee = &self.engines[i];
-
-        let trampoline_fn_t = self.void_t.fn_type(
-            &[self.ptr_t.into(), self.ptr_t.into(), self.ptr_t.into()],
-            false,
-        );
-        let trampoline_fn =
-            module.add_function("trampoline", trampoline_fn_t, Some(Linkage::External));
-
-        let globals_ee = &self.engines[0];
-        let trampoline_compiled: Trampoline<'ctx> =
-            unsafe { globals_ee.get_function("trampoline")? };
-
-        unsafe {
-            ee.add_global_mapping(&trampoline_fn, trampoline_compiled.as_raw() as usize);
-        }
-
         let func = module.add_function(&func_name, self.fn_t, None);
         let basic_block = self.llvm_ctx.append_basic_block(func, "start");
         self.builder.position_at_end(basic_block);
@@ -289,10 +272,6 @@ impl<'ctx> Compiler<'ctx> {
         Ok(())
     }
 
-    fn call_trampoline(&self) {
-        todo!()
-    }
-
     pub fn append_insn(&mut self, func: &LlvmFunction, addr: u32) {
         todo!();
     }
@@ -324,15 +303,27 @@ impl<'ctx> Compiler<'ctx> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::iter::repeat_n;
 
     #[test]
     fn test_jump_to_external() {
+        // End result is:
+        // pc <- r15 + r9
         let mut state = ArmState::new();
+        for i in 0..17u32 {
+            state.regs[i as usize] = i * i;
+        }
+
         let context = Context::create();
         let mut comp = Compiler::new(&context).unwrap();
 
         let func = comp.new_function(0).unwrap();
         let ee = &comp.engines[func.module_ind];
+
+        let add_res = comp
+            .builder
+            .build_int_add(func.reg_map[15], func.reg_map[9], "add_res")
+            .unwrap();
 
         let interp_fn_type = comp
             .void_t
@@ -353,10 +344,7 @@ mod tests {
             .build_indirect_call(
                 interp_fn_type,
                 interp_fn_ptr,
-                &[
-                    func.state_ptr.into(),
-                    comp.i32_t.const_int(99, false).into(),
-                ],
+                &[func.state_ptr.into(), add_res.into()],
                 "fn_result",
             )
             .unwrap();
@@ -366,18 +354,36 @@ mod tests {
         println!("{:?}", state.regs);
         comp.call_function(key, &mut state).unwrap();
         println!("{:?}", state.regs);
-        assert_eq!(state.pc(), 99);
+        assert_eq!(state.pc(), 306);
     }
 
     #[test]
     fn test_cross_module_calls() {
+        // f1:
+        //      pc <- r0 - r3 - r2
+        // f2:
+        //      r0 <- 999
+        //      f1()
+        // (don't yet write registers besides PC pack to state)
         let mut state = ArmState::new();
+        for i in 0..17u32 {
+            state.regs[i as usize] = i * i;
+        }
+
         let context = Context::create();
         let mut comp = Compiler::new(&context).unwrap();
 
-        // 1st Func - Run a single instruction (call `jump_to` func)
         let func = comp.new_function(0).unwrap();
         let ee = &comp.engines[func.module_ind];
+
+        let v0 = comp
+            .builder
+            .build_int_add(func.reg_map[3], func.reg_map[2], "v0")
+            .unwrap();
+        let v1 = comp
+            .builder
+            .build_int_sub(func.reg_map[0], v0, "v1")
+            .unwrap();
 
         let func_ptr_param = comp
             .builder
@@ -398,10 +404,7 @@ mod tests {
             .build_indirect_call(
                 interp_fn_t,
                 func_ptr_param,
-                &[
-                    func.state_ptr.into(),
-                    comp.i32_t.const_int(99, false).into(),
-                ],
+                &[func.state_ptr.into(), v1.into()],
                 "fn_result",
             )
             .unwrap();
@@ -410,15 +413,30 @@ mod tests {
         // 2nd Func - Just calls 1st
         let func = comp.new_function(0).unwrap();
         let compiled_1 = comp.func_cache.get(&FuncCacheKey(0)).unwrap();
-        let module = &comp.modules[func.module_ind];
         let ee = &comp.engines[func.module_ind];
 
         let state_param = get_ptr_param(&func.func, 0).unwrap();
         let regs_param = get_ptr_param(&func.func, 1).unwrap();
 
-        let trampoline = module.get_function("trampoline").unwrap();
-
         unsafe {
+            // This will later be part of a build_call method
+            // 1. store latest version of each register back on the stack. Can probably optimize
+            //    this later by only storing those that actually change (or maybe LLVM does this?)
+            //    Only doing r0 for this test
+            let r0_elem_ptr = comp
+                .builder
+                .build_gep(
+                    comp.i32_t.array_type(17),
+                    regs_param,
+                    &[comp.i32_t.const_zero(), comp.i32_t.const_zero()],
+                    "r0_elem_ptr",
+                )
+                .unwrap();
+            comp.builder
+                .build_store(r0_elem_ptr, comp.i32_t.const_int(999, false))
+                .unwrap();
+
+            // 2. Construct the function pointer using raw pointer obtained from function cache
             let func_ptr_param = comp
                 .builder
                 .build_int_to_ptr(
@@ -429,10 +447,13 @@ mod tests {
                     "raw_fn_pointer",
                 )
                 .unwrap();
+
+            // 3. Perform indirect call through pointer
             comp.builder
-                .build_call(
-                    trampoline,
-                    &[func_ptr_param.into(), state_param.into(), regs_param.into()],
+                .build_indirect_call(
+                    comp.fn_t,
+                    func_ptr_param,
+                    &[state_param.into(), regs_param.into()],
                     "call",
                 )
                 .unwrap();
@@ -443,5 +464,6 @@ mod tests {
         println!("{:?}", state.regs);
         comp.call_function(key, &mut state).unwrap();
         println!("{:?}", state.regs);
+        assert_eq!(state.pc(), 986);
     }
 }
