@@ -4,8 +4,9 @@ mod compile;
 mod ldstr;
 
 use crate::arm::cpu::ArmState;
-use anyhow::{Result, anyhow};
+use anyhow::{Context as _, Result, anyhow};
 use std::collections::HashMap;
+use std::collections::btree_map::Entry;
 use std::ops::Add;
 
 use inkwell::builder::Builder;
@@ -47,8 +48,13 @@ fn get_ptr_param<'a>(func: &FunctionValue<'a>, i: usize) -> Result<PointerValue<
         .into_pointer_value())
 }
 
+#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq)]
+pub struct FuncCacheKey(u32);
+
 pub struct Compiler<'ctx> {
-    pub func_cache: HashMap<u32, CompiledFunc<'ctx>>,
+    func_cache: HashMap<FuncCacheKey, CompiledFunc<'ctx>>,
+    entry_point: Option<EntryPoint<'ctx>>,
+    trampoline: Option<Trampoline<'ctx>>,
     llvm_ctx: &'ctx Context,
     builder: Builder<'ctx>,
     modules: Vec<Module<'ctx>>,
@@ -62,7 +68,7 @@ pub struct Compiler<'ctx> {
 }
 
 impl<'ctx> Compiler<'ctx> {
-    pub fn new(context: &'ctx Context) -> Self {
+    pub fn new(context: &'ctx Context) -> Result<Self> {
         let modules = Vec::new();
         let engines = Vec::new();
         let builder = context.create_builder();
@@ -73,9 +79,11 @@ impl<'ctx> Compiler<'ctx> {
         let arm_state_t = context.struct_type(&[regs_t.into(), ptr_t.into()], false);
         let fn_t = void_t.fn_type(&[ptr_t.into(), ptr_t.into()], false);
 
-        Self {
+        let mut comp = Self {
             func_cache: HashMap::new(),
             llvm_ctx: context,
+            entry_point: None,
+            trampoline: None,
             modules,
             engines,
             builder,
@@ -85,7 +93,17 @@ impl<'ctx> Compiler<'ctx> {
             ptr_t,
             regs_t,
             void_t,
-        }
+        };
+        let i = comp.create_module("m_entrypoint")?;
+        comp.build_trampoline()
+            .context("Failed to compile trampoline")?;
+        comp.build_entry_point()
+            .context("Failed to compile entry point")?;
+
+        let ee = &comp.engines[i];
+        comp.trampoline = Some(unsafe { ee.get_function("trampoline")? });
+        comp.entry_point = Some(unsafe { ee.get_function("entry_point")? });
+        Ok(comp)
     }
 
     fn create_module(&mut self, name: &str) -> Result<usize> {
@@ -105,14 +123,11 @@ impl<'ctx> Compiler<'ctx> {
         Ok(self.modules.len() - 1)
     }
 
-    pub fn build_entry_point(&mut self) -> Result<EntryPoint<'ctx>> {
-        let i = self.create_module("m_entrypoint")?;
-        let module = &self.modules[i];
-        let ee = &self.engines[i];
-
-        // First global function - trampoline()
-        // Simply performs an indirect call to the provided function pointer, passing array arg
-        // forward.
+    // First global function - trampoline()
+    // Simply performs an indirect call to the provided function pointer, passing array arg forward.
+    fn build_trampoline(&mut self) -> Result<()> {
+        let module = &self.modules[0];
+        let ee = &self.engines[0];
         let trampoline_t = self.void_t.fn_type(
             &[self.ptr_t.into(), self.ptr_t.into(), self.ptr_t.into()],
             false,
@@ -133,9 +148,14 @@ impl<'ctx> Compiler<'ctx> {
             "call",
         )?;
         self.builder.build_return(None)?;
+        Ok(())
+    }
 
-        // Second global function - entry_point
-        // Performs context switch from guest machine to LLVM code and jumps to provided function
+    // Second global function - entry_point
+    // Performs context switch from guest machine to LLVM code and jumps to provided function
+    fn build_entry_point(&mut self) -> Result<EntryPoint<'ctx>> {
+        let module = &self.modules[0];
+        let ee = &self.engines[0];
         let entry_type = self
             .llvm_ctx
             .void_type()
@@ -178,7 +198,9 @@ impl<'ctx> Compiler<'ctx> {
         }
 
         self.builder.build_call(
-            trampoline,
+            module
+                .get_function("trampoline")
+                .ok_or(anyhow!("trampoline has not been compiled"))?,
             &[fn_ptr_arg.into(), state_ptr_arg.into(), call_arg.into()],
             "call",
         )?;
@@ -248,11 +270,34 @@ impl<'ctx> Compiler<'ctx> {
         })
     }
 
+    pub fn lookup_function(&self, addr: u32) -> Option<FuncCacheKey> {
+        let k = FuncCacheKey(addr);
+        match self.func_cache.get(&k) {
+            Some(_) => Some(k),
+            None => None,
+        }
+    }
+
+    pub fn call_function(&self, k: FuncCacheKey, state: &mut ArmState) -> Result<()> {
+        let func = self.func_cache.get(&k).expect("Nonexistent function key!");
+        unsafe {
+            self.entry_point
+                .as_ref()
+                .expect("Entry point is missing")
+                .call(state, func.as_raw());
+        }
+        Ok(())
+    }
+
+    fn call_trampoline(&self) {
+        todo!()
+    }
+
     pub fn append_insn(&mut self, func: &LlvmFunction, addr: u32) {
         todo!();
     }
 
-    pub fn compile(&mut self, func: LlvmFunction) -> Result<&CompiledFunc<'ctx>> {
+    pub fn compile(&mut self, func: LlvmFunction) -> Result<FuncCacheKey> {
         self.builder.build_return(None).unwrap();
         if func.func.verify(true) {
             let jit_func = unsafe {
@@ -260,9 +305,10 @@ impl<'ctx> Compiler<'ctx> {
                     .get_function(&func.name)
                     .unwrap()
             };
-            let k = func.addr as u32;
+            let k = FuncCacheKey(func.addr as u32);
+            // TODO - notify if this is a replacement?
             self.func_cache.insert(k, jit_func);
-            Ok(&self.func_cache.get(&k).unwrap())
+            Ok(k)
         } else {
             Err(anyhow!("Compilation failed"))
         }
@@ -283,13 +329,9 @@ mod tests {
     fn test_jump_to_external() {
         let mut state = ArmState::new();
         let context = Context::create();
-        let mut comp = Compiler::new(&context);
-
-        let entry = comp.build_entry_point().unwrap();
+        let mut comp = Compiler::new(&context).unwrap();
 
         let func = comp.new_function(0).unwrap();
-        // Run a single instruction (call `jump_to` func)
-        let module = &comp.modules[func.module_ind];
         let ee = &comp.engines[func.module_ind];
 
         let interp_fn_type = comp
@@ -319,13 +361,10 @@ mod tests {
             )
             .unwrap();
 
-        let compiled = comp.compile(func).unwrap();
-
+        let key = comp.compile(func).unwrap();
         // comp.dump();
         println!("{:?}", state.regs);
-        unsafe {
-            entry.call(&mut state, compiled.as_raw());
-        }
+        comp.call_function(key, &mut state).unwrap();
         println!("{:?}", state.regs);
         assert_eq!(state.pc(), 99);
     }
@@ -334,13 +373,10 @@ mod tests {
     fn test_cross_module_calls() {
         let mut state = ArmState::new();
         let context = Context::create();
-        let mut comp = Compiler::new(&context);
-
-        let entry = comp.build_entry_point().unwrap();
+        let mut comp = Compiler::new(&context).unwrap();
 
         // 1st Func - Run a single instruction (call `jump_to` func)
         let func = comp.new_function(0).unwrap();
-        // let module = &comp.modules[func.module_ind];
         let ee = &comp.engines[func.module_ind];
 
         let func_ptr_param = comp
@@ -373,7 +409,7 @@ mod tests {
 
         // 2nd Func - Just calls 1st
         let func = comp.new_function(0).unwrap();
-        let compiled_1 = comp.func_cache.get(&0).unwrap();
+        let compiled_1 = comp.func_cache.get(&FuncCacheKey(0)).unwrap();
         let module = &comp.modules[func.module_ind];
         let ee = &comp.engines[func.module_ind];
 
@@ -401,13 +437,11 @@ mod tests {
                 )
                 .unwrap();
         }
-        let compiled_2 = comp.compile(func).unwrap();
+        let key = comp.compile(func).unwrap();
 
         comp.dump();
         println!("{:?}", state.regs);
-        unsafe {
-            // entry.call(&mut state, compiled_2.as_raw());
-        }
+        comp.call_function(key, &mut state).unwrap();
         println!("{:?}", state.regs);
     }
 }

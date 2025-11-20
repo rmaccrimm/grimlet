@@ -2,7 +2,7 @@ pub mod arm;
 pub mod jit;
 
 use crate::arm::cpu::ArmState;
-use crate::jit::Compiler;
+use crate::jit::{Compiler, FuncCacheKey};
 use anyhow::{Result, anyhow};
 use capstone::arch::arm::{ArmInsn, ArmOperand};
 use capstone::arch::{ArchOperand, BuildsCapstone};
@@ -99,21 +99,19 @@ impl<'a> Grimlet<'a> {
     pub fn new(context: &'a Context, bios_path: &str) -> Result<Self> {
         let state = ArmState::with_bios(bios_path)?;
         let disasm = Disassembler::new()?;
-        let comp = Compiler::new(&context);
+        let compiler = Compiler::new(&context)?;
 
         Ok(Self {
             state,
             disasm,
-            compiler: comp,
+            compiler,
         })
     }
 
     pub fn run(&mut self) -> Result<()> {
-        let entry_point = self.compiler.build_entry_point()?;
         loop {
             let curr_pc = self.state.pc();
-
-            let func = match self.compiler.func_cache.get(&curr_pc) {
+            let func_key = match self.compiler.lookup_function(curr_pc) {
                 Some(func) => func,
                 None => {
                     let func = self.compiler.new_function(0)?;
@@ -130,9 +128,10 @@ impl<'a> Grimlet<'a> {
                             break;
                         }
                     }
-                    self.compiler.compile(func).unwrap()
+                    self.compiler.compile(func)?
                 }
             };
+            self.compiler.call_function(func_key, &mut self.state)?;
             self.compiler.dump();
             break;
         }
