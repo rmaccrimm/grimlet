@@ -6,17 +6,13 @@ mod ldstr;
 use crate::arm::cpu::ArmState;
 use anyhow::{Context as _, Result, anyhow};
 use std::collections::HashMap;
-use std::collections::btree_map::Entry;
-use std::ops::Add;
 
 use inkwell::builder::Builder;
 use inkwell::context::Context;
-use inkwell::execution_engine::{self, ExecutionEngine, JitFunction};
-use inkwell::module::{Linkage, Module};
+use inkwell::execution_engine::{ExecutionEngine, JitFunction};
+use inkwell::module::Module;
 use inkwell::types::{ArrayType, FunctionType, IntType, PointerType, StructType, VoidType};
-use inkwell::values::{
-    BasicMetadataValueEnum, BasicValueEnum, FunctionValue, IntValue, PointerValue,
-};
+use inkwell::values::{FunctionValue, IntValue, PointerValue};
 use inkwell::{AddressSpace, OptimizationLevel};
 
 type JumpTarget = unsafe extern "C" fn(*mut ArmState, *const i32);
@@ -25,8 +21,8 @@ type CompiledFunc<'a> = JitFunction<'a, JumpTarget>;
 
 type EntryPoint<'a> = JitFunction<'a, unsafe extern "C" fn(*mut ArmState, JumpTarget)>;
 
-type Trampoline<'a> = JitFunction<'a, unsafe extern "C" fn(JumpTarget, *mut ArmState, *const i32)>;
-
+/// State needed to build a new function. Returned by Compiler so you cannot attempt to compile
+/// something that has not been initialized.
 pub struct LlvmFunction<'a> {
     addr: u64,
     name: String,
@@ -36,7 +32,7 @@ pub struct LlvmFunction<'a> {
     state_ptr: PointerValue<'a>,
 }
 
-/// Helper that converts the LLVMString into an anyhow error
+/// Helper that converts the LLVMString error message into an anyhow error
 fn get_ptr_param<'a>(func: &FunctionValue<'a>, i: usize) -> Result<PointerValue<'a>> {
     Ok(func
         .get_nth_param(i as u32)
@@ -48,13 +44,16 @@ fn get_ptr_param<'a>(func: &FunctionValue<'a>, i: usize) -> Result<PointerValue<
         .into_pointer_value())
 }
 
+/// Maps a guest machine address to a compiled LLVM function
 #[derive(Debug, Copy, Clone, Hash, Eq, PartialEq)]
 pub struct FuncCacheKey(u32);
 
+/// Core struct responsible for translating ARM instructions to LLVM and managing the compiled
+/// executable code.
 pub struct Compiler<'ctx> {
     func_cache: HashMap<FuncCacheKey, CompiledFunc<'ctx>>,
     entry_point: Option<EntryPoint<'ctx>>,
-    trampoline: Option<Trampoline<'ctx>>,
+    active_func: bool,
     llvm_ctx: &'ctx Context,
     builder: Builder<'ctx>,
     modules: Vec<Module<'ctx>>,
@@ -83,7 +82,7 @@ impl<'ctx> Compiler<'ctx> {
             func_cache: HashMap::new(),
             llvm_ctx: context,
             entry_point: None,
-            trampoline: None,
+            active_func: false,
             modules,
             engines,
             builder,
@@ -95,15 +94,107 @@ impl<'ctx> Compiler<'ctx> {
             void_t,
         };
         let i = comp.create_module("m_entrypoint")?;
-        comp.build_trampoline()
-            .context("Failed to compile trampoline")?;
         comp.build_entry_point()
             .context("Failed to compile entry point")?;
 
         let ee = &comp.engines[i];
-        comp.trampoline = Some(unsafe { ee.get_function("trampoline")? });
         comp.entry_point = Some(unsafe { ee.get_function("entry_point")? });
         Ok(comp)
+    }
+
+    pub fn new_function<'a>(&mut self, addr: u32) -> Result<LlvmFunction<'a>>
+    where
+        'ctx: 'a,
+    {
+        if self.active_func {
+            return Err(anyhow!(
+                "Compile current function before beginning a new one"
+            ));
+        }
+        let func_name = format!("fn_{:#010x}", addr);
+        let i = self.create_module(&format!("m_{}", &func_name))?;
+
+        let module = &self.modules[i];
+        let func = module.add_function(&func_name, self.fn_t, None);
+        let basic_block = self.llvm_ctx.append_basic_block(func, "start");
+        self.builder.position_at_end(basic_block);
+
+        let state_ptr = get_ptr_param(&func, 0)?;
+        let base_ptr = get_ptr_param(&func, 1)?;
+
+        let reg_map = (0..17)
+            .map(|i| {
+                let name = format!("r{}_elem_ptr", i);
+                let gep_inds = [self.i32_t.const_zero(), self.i32_t.const_int(i, false)];
+                let ptr = unsafe {
+                    self.builder
+                        .build_gep(self.regs_t, base_ptr, &gep_inds, &name)
+                        .unwrap()
+                };
+                let name = format!("r{}", i);
+                self.builder
+                    .build_load(self.i32_t, ptr, &name)
+                    .unwrap()
+                    .into_int_value()
+            })
+            .collect();
+
+        self.active_func = true;
+        Ok(LlvmFunction {
+            addr: addr as u64,
+            name: func_name,
+            reg_map,
+            module_ind: self.modules.len() - 1,
+            func,
+            state_ptr,
+        })
+    }
+
+    pub fn lookup_function(&self, addr: u32) -> Option<FuncCacheKey> {
+        let k = FuncCacheKey(addr);
+        match self.func_cache.get(&k) {
+            Some(_) => Some(k),
+            None => None,
+        }
+    }
+
+    pub fn call_function(&self, k: FuncCacheKey, state: &mut ArmState) -> Result<()> {
+        let func = self.func_cache.get(&k).expect("Nonexistent function key!");
+        unsafe {
+            self.entry_point
+                .as_ref()
+                .expect("Entry point is missing")
+                .call(state, func.as_raw());
+        }
+        Ok(())
+    }
+
+    pub fn append_insn(&mut self, _func: &LlvmFunction, _addr: u32) {
+        todo!();
+    }
+
+    pub fn compile(&mut self, func: LlvmFunction) -> Result<FuncCacheKey> {
+        self.builder.build_return(None).unwrap();
+        if func.func.verify(true) {
+            let jit_func = unsafe {
+                self.engines[func.module_ind]
+                    .get_function(&func.name)
+                    .unwrap()
+            };
+            let k = FuncCacheKey(func.addr as u32);
+            // TODO - notify if this is a replacement?
+            self.func_cache.insert(k, jit_func);
+            self.active_func = false;
+            Ok(k)
+        } else {
+            Err(anyhow!("Compilation failed"))
+        }
+    }
+
+    pub fn dump(&self) {
+        for (i, m) in self.modules.iter().enumerate() {
+            m.print_to_file(&format!("mod_{}.ll", i)).unwrap();
+        }
     }
 
     fn create_module(&mut self, name: &str) -> Result<usize> {
@@ -123,35 +214,6 @@ impl<'ctx> Compiler<'ctx> {
         Ok(self.modules.len() - 1)
     }
 
-    // First global function - trampoline()
-    // Simply performs an indirect call to the provided function pointer, passing array arg forward.
-    fn build_trampoline(&mut self) -> Result<()> {
-        let module = &self.modules[0];
-        let ee = &self.engines[0];
-        let trampoline_t = self.void_t.fn_type(
-            &[self.ptr_t.into(), self.ptr_t.into(), self.ptr_t.into()],
-            false,
-        );
-
-        let trampoline = module.add_function("trampoline", trampoline_t, None);
-        let basic_block = self.llvm_ctx.append_basic_block(trampoline, "start");
-        self.builder.position_at_end(basic_block);
-
-        let fn_ptr_arg = get_ptr_param(&trampoline, 0)?;
-        let state_ptr_arg = get_ptr_param(&trampoline, 1)?;
-        let array_ptr_arg = get_ptr_param(&trampoline, 2)?;
-
-        self.builder.build_indirect_call(
-            self.fn_t,
-            fn_ptr_arg,
-            &[state_ptr_arg.into(), array_ptr_arg.into()],
-            "call",
-        )?;
-        self.builder.build_return(None)?;
-        Ok(())
-    }
-
-    // Second global function - entry_point
     // Performs context switch from guest machine to LLVM code and jumps to provided function
     fn build_entry_point(&mut self) -> Result<EntryPoint<'ctx>> {
         let module = &self.modules[0];
@@ -197,11 +259,10 @@ impl<'ctx> Compiler<'ctx> {
             self.builder.build_store(arr_ptr, value)?;
         }
 
-        self.builder.build_call(
-            module
-                .get_function("trampoline")
-                .ok_or(anyhow!("trampoline has not been compiled"))?,
-            &[fn_ptr_arg.into(), state_ptr_arg.into(), call_arg.into()],
+        self.builder.build_indirect_call(
+            self.fn_t,
+            fn_ptr_arg,
+            &[state_ptr_arg.into(), call_arg.into()],
             "call",
         )?;
         self.builder.build_return(None)?;
@@ -210,100 +271,11 @@ impl<'ctx> Compiler<'ctx> {
         let entry_point = unsafe { ee.get_function("entry_point")? };
         Ok(entry_point)
     }
-
-    pub fn new_function<'a>(&mut self, addr: u32) -> Result<LlvmFunction<'a>>
-    where
-        'ctx: 'a,
-    {
-        let func_name = format!("fn_{:#010x}", addr);
-        let i = self.create_module(&format!("m_{}", &func_name))?;
-
-        let module = &self.modules[i];
-        let func = module.add_function(&func_name, self.fn_t, None);
-        let basic_block = self.llvm_ctx.append_basic_block(func, "start");
-        self.builder.position_at_end(basic_block);
-
-        let state_ptr = get_ptr_param(&func, 0)?;
-        let base_ptr = get_ptr_param(&func, 1)?;
-
-        let reg_map = (0..17)
-            .map(|i| {
-                let name = format!("r{}_elem_ptr", i);
-                let gep_inds = [self.i32_t.const_zero(), self.i32_t.const_int(i, false)];
-                let ptr = unsafe {
-                    self.builder
-                        .build_gep(self.regs_t, base_ptr, &gep_inds, &name)
-                        .unwrap()
-                };
-                let name = format!("r{}", i);
-                self.builder
-                    .build_load(self.i32_t, ptr, &name)
-                    .unwrap()
-                    .into_int_value()
-            })
-            .collect();
-
-        Ok(LlvmFunction {
-            addr: addr as u64,
-            name: func_name,
-            reg_map,
-            module_ind: self.modules.len() - 1,
-            func,
-            state_ptr,
-        })
-    }
-
-    pub fn lookup_function(&self, addr: u32) -> Option<FuncCacheKey> {
-        let k = FuncCacheKey(addr);
-        match self.func_cache.get(&k) {
-            Some(_) => Some(k),
-            None => None,
-        }
-    }
-
-    pub fn call_function(&self, k: FuncCacheKey, state: &mut ArmState) -> Result<()> {
-        let func = self.func_cache.get(&k).expect("Nonexistent function key!");
-        unsafe {
-            self.entry_point
-                .as_ref()
-                .expect("Entry point is missing")
-                .call(state, func.as_raw());
-        }
-        Ok(())
-    }
-
-    pub fn append_insn(&mut self, func: &LlvmFunction, addr: u32) {
-        todo!();
-    }
-
-    pub fn compile(&mut self, func: LlvmFunction) -> Result<FuncCacheKey> {
-        self.builder.build_return(None).unwrap();
-        if func.func.verify(true) {
-            let jit_func = unsafe {
-                self.engines[func.module_ind]
-                    .get_function(&func.name)
-                    .unwrap()
-            };
-            let k = FuncCacheKey(func.addr as u32);
-            // TODO - notify if this is a replacement?
-            self.func_cache.insert(k, jit_func);
-            Ok(k)
-        } else {
-            Err(anyhow!("Compilation failed"))
-        }
-    }
-
-    pub fn dump(&self) {
-        for (i, m) in self.modules.iter().enumerate() {
-            m.print_to_file(&format!("mod_{}.ll", i)).unwrap();
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::iter::repeat_n;
 
     #[test]
     fn test_jump_to_external() {
@@ -408,11 +380,10 @@ mod tests {
                 "fn_result",
             )
             .unwrap();
-        comp.compile(func).unwrap();
+        let k1 = comp.compile(func).unwrap();
 
-        // 2nd Func - Just calls 1st
         let func = comp.new_function(0).unwrap();
-        let compiled_1 = comp.func_cache.get(&FuncCacheKey(0)).unwrap();
+        let compiled_1 = comp.func_cache.get(&k1).unwrap();
         let ee = &comp.engines[func.module_ind];
 
         let state_param = get_ptr_param(&func.func, 0).unwrap();

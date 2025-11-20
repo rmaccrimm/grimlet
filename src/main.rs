@@ -1,18 +1,18 @@
+#![allow(dead_code)]
+
 pub mod arm;
 pub mod jit;
 
 use crate::arm::cpu::ArmState;
-use crate::jit::{Compiler, FuncCacheKey};
-use anyhow::{Result, anyhow};
+use crate::jit::Compiler;
+use anyhow::Result;
 use capstone::arch::arm::{ArmInsn, ArmOperand};
 use capstone::arch::{ArchOperand, BuildsCapstone};
 use capstone::{Capstone, Insn};
-use inkwell::basic_block::InstructionIter;
+
 use inkwell::context::Context;
+use std::env;
 use std::fmt::Display;
-use std::fs::File;
-use std::io::Read;
-use std::{env, fs};
 
 /// Am I sticking with this name?
 struct Grimlet<'a> {
@@ -140,9 +140,9 @@ impl<'a> Grimlet<'a> {
 }
 
 fn main() -> Result<()> {
-    // let bios_path = env::args().into_iter().skip(1).next().unwrap();
+    let bios_path = env::args().into_iter().skip(1).next().unwrap();
     let context = Context::create();
-    let mut grimlet = Grimlet::new(&context, "gba_bios.bin")?;
+    let mut grimlet = Grimlet::new(&context, &bios_path)?;
 
     for i in 0..17 {
         grimlet.state.regs[i] = i as u32;

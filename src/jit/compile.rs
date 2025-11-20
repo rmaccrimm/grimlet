@@ -1,8 +1,6 @@
 use super::Compiler;
 use capstone::Insn;
 use capstone::arch::arm::ArmInsn;
-use inkwell::values::IntValue;
-use inkwell::values::PointerValue;
 
 impl<'ctx> Compiler<'ctx> {
     fn compile_arm(&self, insn: &Insn) {
