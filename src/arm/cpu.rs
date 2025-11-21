@@ -5,7 +5,7 @@ use std::io::Read;
 
 #[repr(C)]
 pub struct MainMemory {
-    pub bios: Vec<u8>,
+    bios: Vec<u8>,
 }
 
 impl MainMemory {
@@ -14,6 +14,11 @@ impl MainMemory {
         let bios = vec![0; 0x4000];
         Self { bios }
     }
+}
+
+pub enum ArmMode {
+    ARM,
+    THUMB,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -40,29 +45,30 @@ pub enum Reg {
 /// Emulated CPU state and interpreter
 #[repr(C)]
 pub struct ArmState {
+    pub mode: ArmMode,
     pub regs: [u32; 17],
-    // pub mem: Box<[u8; 0x4000]>,
-    pub mem: Vec<u8>,
+    pub mem: Box<MainMemory>,
 }
 
 impl ArmState {
     pub fn new() -> Self {
-        let regs = [0; 17];
-        let mem = vec![0; 0x4000];
-        Self { regs, mem }
+        Self {
+            mode: ArmMode::ARM,
+            regs: [0; 17],
+            mem: Box::new(MainMemory::new()),
+        }
     }
 
     pub fn with_bios(bios_path: &str) -> Result<Self> {
-        let regs = [0; 17];
-        let mut mem = Vec::new();
+        let mut st = ArmState::new();
 
         if !fs::exists(bios_path)? {
             return Err(anyhow!("BIOS file not found"));
         }
         let mut f = File::open(bios_path)?;
-        f.read_to_end(&mut mem)?;
+        f.read_to_end(&mut st.mem.bios)?;
 
-        Ok(Self { regs, mem })
+        Ok(st)
     }
 
     pub fn pc(&self) -> u32 {

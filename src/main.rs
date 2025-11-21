@@ -3,7 +3,8 @@
 pub mod arm;
 pub mod jit;
 
-use crate::arm::cpu::ArmState;
+use crate::arm::cpu::{ArmMode, ArmState};
+use crate::arm::disasm::ArmDisasm;
 use crate::jit::Compiler;
 use anyhow::Result;
 use capstone::arch::arm::{ArmInsn, ArmOperand};
@@ -19,46 +20,6 @@ struct Grimlet<'a> {
     state: ArmState,
     disasm: Disassembler,
     compiler: Compiler<'a>,
-}
-
-#[derive(Clone, Debug)]
-struct ArmDisasm {
-    opcode: ArmInsn,
-    operands: Vec<ArmOperand>,
-    addr: u64,
-    repr: String,
-}
-
-impl ArmDisasm {
-    fn from_cs_insn(cs: &Capstone, insn: &Insn) -> Result<Self> {
-        Ok(Self {
-            opcode: ArmInsn::from(insn.id().0),
-            operands: cs
-                .insn_detail(&insn)?
-                .arch_detail()
-                .operands()
-                .into_iter()
-                .map(|a| match a {
-                    ArchOperand::ArmOperand(op) => op,
-                    _ => panic!("unexpected operand"),
-                })
-                .collect(),
-
-            addr: insn.address(),
-            repr: insn.to_string(),
-        })
-    }
-}
-
-impl Display for ArmDisasm {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.repr)
-    }
-}
-
-enum ArmMode {
-    ARM,
-    THUMB,
 }
 
 struct Disassembler {
