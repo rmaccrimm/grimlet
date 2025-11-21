@@ -1,3 +1,4 @@
+use anyhow::Result;
 use capstone::arch::arm::ArmInsn;
 use inkwell::values::PointerValue;
 
@@ -9,7 +10,7 @@ use crate::{
 use super::Compiler;
 
 impl<'a> Compiler<'a> {
-    fn build(&self, instr: &ArmDisasm) {
+    fn build(&self, func: &LlvmFunction, instr: &ArmDisasm) -> Result<()> {
         match instr.opcode {
             ArmInsn::ARM_INS_INVALID => todo!(),
             ArmInsn::ARM_INS_ADC => todo!(),
@@ -22,15 +23,15 @@ impl<'a> Compiler<'a> {
             ArmInsn::ARM_INS_AESMC => todo!(),
             ArmInsn::ARM_INS_AND => todo!(),
             ArmInsn::ARM_INS_ASR => todo!(),
-            ArmInsn::ARM_INS_B => self.arm_b(instr),
+            ArmInsn::ARM_INS_B => self.arm_b(func, instr),
             ArmInsn::ARM_INS_BFC => todo!(),
             ArmInsn::ARM_INS_BFI => todo!(),
             ArmInsn::ARM_INS_BIC => todo!(),
             ArmInsn::ARM_INS_BKPT => todo!(),
-            ArmInsn::ARM_INS_BL => self.arm_bl(instr),
+            ArmInsn::ARM_INS_BL => todo!(),
             ArmInsn::ARM_INS_BLX => panic!("Unsupported ARMv5 insruction BXL"),
             ArmInsn::ARM_INS_BLXNS => todo!(),
-            ArmInsn::ARM_INS_BX => self.arm_bx(instr),
+            ArmInsn::ARM_INS_BX => todo!(),
             ArmInsn::ARM_INS_BXJ => todo!(),
             ArmInsn::ARM_INS_BXNS => todo!(),
             ArmInsn::ARM_INS_CBNZ => todo!(),

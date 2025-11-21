@@ -82,13 +82,13 @@ impl<'a> Grimlet<'a> {
                             .iter_insns(&self.state.mem, curr_pc as u64, ArmMode::ARM)
                     {
                         println!("{}", insn);
+                        break;
                         // let should_exit = func.append_insn(insn);
-                        let should_exit = true;
-                        self.compiler.append_insn(&func, 0);
 
-                        if should_exit {
-                            break;
-                        }
+                        // if insn.opcode == ArmInsn::ARM_INS_B {
+                        //     println!("{:?}", insn);
+                        //     break;
+                        // }
                     }
                     self.compiler.compile(func)?
                 }

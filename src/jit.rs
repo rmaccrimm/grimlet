@@ -310,26 +310,36 @@ impl<'ctx> Compiler<'ctx> {
         Ok(entry_point)
     }
 
-    fn get_compiled_func_pointer(&self, key: FuncCacheKey) -> Option<PointerValue<'ctx>> {
+    fn get_external_func_pointer(&self, func_addr: u64) -> Result<PointerValue<'ctx>> {
+        let ee = &self.engines[0];
+        let func_ptr = self.builder.build_int_to_ptr(
+            self.llvm_ctx
+                .ptr_sized_int_type(ee.get_target_data(), None)
+                .const_int(func_addr as u64, false),
+            self.ptr_t,
+            &format!("extern_ptr"),
+        )?;
+        Ok(func_ptr)
+    }
+
+    fn get_compiled_func_pointer(&self, key: FuncCacheKey) -> Result<Option<PointerValue<'ctx>>> {
         // TODO sort out which int type to use where
         match self.func_cache.get(&key) {
             Some(f) => {
                 // pretty sure it doesn't matter which we look at
                 let ee = &self.engines[0];
                 let func_ptr = unsafe {
-                    self.builder
-                        .build_int_to_ptr(
-                            self.llvm_ctx
-                                .ptr_sized_int_type(ee.get_target_data(), None)
-                                .const_int(f.as_raw() as u64, false),
-                            self.ptr_t,
-                            &format!("{}_ptr", func_name(key.0 as i32)),
-                        )
-                        .unwrap()
+                    self.builder.build_int_to_ptr(
+                        self.llvm_ctx
+                            .ptr_sized_int_type(ee.get_target_data(), None)
+                            .const_int(f.as_raw() as u64, false),
+                        self.ptr_t,
+                        &format!("{}_ptr", func_name(key.0 as i32)),
+                    )?
                 };
-                Some(func_ptr)
+                Ok(Some(func_ptr))
             }
-            None => None,
+            None => Ok(None),
         }
     }
 }
@@ -363,16 +373,8 @@ mod tests {
             .fn_type(&[comp.ptr_t.into(), comp.i32_t.into()], false);
 
         let interp_fn_ptr = comp
-            .builder
-            .build_int_to_ptr(
-                context
-                    .ptr_sized_int_type(ee.get_target_data(), None)
-                    .const_int(ArmState::jump_to as u64, false),
-                comp.ptr_t,
-                "raw_fn_pointer",
-            )
+            .get_external_func_pointer(ArmState::jump_to as u64)
             .unwrap();
-
         let call = comp
             .builder
             .build_indirect_call(
@@ -420,15 +422,9 @@ mod tests {
 
         // Perform context switch out before jumping to ArmState code
         comp.context_switch_out(f1.state_ptr, f1.regs_ptr).unwrap();
+
         let func_ptr_param = comp
-            .builder
-            .build_int_to_ptr(
-                context
-                    .ptr_sized_int_type(ee.get_target_data(), None)
-                    .const_int(ArmState::jump_to as u64, false),
-                comp.ptr_t,
-                "raw_fn_pointer",
-            )
+            .get_external_func_pointer(ArmState::jump_to as u64)
             .unwrap();
 
         let interp_fn_t = comp
@@ -449,9 +445,6 @@ mod tests {
         let k1 = comp.compile(f1).unwrap();
 
         let f2 = comp.new_function(0).unwrap();
-        let compiled_1 = comp.func_cache.get(&k1).unwrap();
-        let ee = &comp.engines[f2.module_ind];
-
         unsafe {
             // This will later be part of a build_call method
             // 1. store latest version of each register back on the stack. Can probably optimize
@@ -471,7 +464,7 @@ mod tests {
                 .unwrap();
 
             // 2. Construct the function pointer using raw pointer obtained from function cache
-            let func_ptr_param = comp.get_compiled_func_pointer(k1).unwrap();
+            let func_ptr_param = comp.get_compiled_func_pointer(k1).unwrap().unwrap();
 
             // 3. Perform indirect call through pointer
             let call = comp
