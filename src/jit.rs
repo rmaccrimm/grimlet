@@ -30,6 +30,7 @@ pub struct LlvmFunction<'a> {
     module_ind: usize,
     func: FunctionValue<'a>,
     state_ptr: PointerValue<'a>,
+    regs_ptr: PointerValue<'a>,
 }
 
 /// Helper that converts the LLVMString error message into an anyhow error
@@ -121,14 +122,14 @@ impl<'ctx> Compiler<'ctx> {
         bd.position_at_end(basic_block);
 
         let state_ptr = get_ptr_param(&func, 0)?;
-        let base_ptr = get_ptr_param(&func, 1)?;
+        let regs_ptr = get_ptr_param(&func, 1)?;
 
         let reg_map = (0..17)
             .map(|i| {
                 let name = format!("r{}_elem_ptr", i);
                 let gep_inds = [self.i32_t.const_zero(), self.i32_t.const_int(i, false)];
                 let ptr = unsafe {
-                    bd.build_gep(self.regs_t, base_ptr, &gep_inds, &name)
+                    bd.build_gep(self.regs_t, regs_ptr, &gep_inds, &name)
                         .unwrap()
                 };
                 let name = format!("r{}", i);
@@ -146,6 +147,7 @@ impl<'ctx> Compiler<'ctx> {
             module_ind: self.modules.len() - 1,
             func,
             state_ptr,
+            regs_ptr,
         })
     }
 
@@ -370,25 +372,24 @@ mod tests {
         //      f1()
         // (don't yet write registers besides PC pack to state)
         let mut state = ArmState::new();
-        for i in 0..17u32 {
-            state.regs[i as usize] = i * i;
+        for i in 0..NUM_REGS {
+            state.regs[i as usize] = (i * i) as u32;
         }
 
         let context = Context::create();
         let mut comp = Compiler::new(&context).unwrap();
 
-        let func = comp.new_function(0).unwrap();
-        let ee = &comp.engines[func.module_ind];
+        let f1 = comp.new_function(0).unwrap();
+        let ee = &comp.engines[f1.module_ind];
 
         let v0 = comp
             .builder
-            .build_int_add(func.reg_map[3], func.reg_map[2], "v0")
+            .build_int_add(f1.reg_map[3], f1.reg_map[2], "v0")
             .unwrap();
-        let v1 = comp
-            .builder
-            .build_int_sub(func.reg_map[0], v0, "v1")
-            .unwrap();
+        let v1 = comp.builder.build_int_sub(f1.reg_map[0], v0, "v1").unwrap();
 
+        // Perform context switch out before jumping to ArmState code
+        comp.context_switch_out(f1.state_ptr, f1.regs_ptr).unwrap();
         let func_ptr_param = comp
             .builder
             .build_int_to_ptr(
@@ -408,18 +409,15 @@ mod tests {
             .build_indirect_call(
                 interp_fn_t,
                 func_ptr_param,
-                &[func.state_ptr.into(), v1.into()],
+                &[f1.state_ptr.into(), v1.into()],
                 "fn_result",
             )
             .unwrap();
-        let k1 = comp.compile(func).unwrap();
+        let k1 = comp.compile(f1).unwrap();
 
-        let func = comp.new_function(0).unwrap();
+        let f2 = comp.new_function(0).unwrap();
         let compiled_1 = comp.func_cache.get(&k1).unwrap();
-        let ee = &comp.engines[func.module_ind];
-
-        let state_param = get_ptr_param(&func.func, 0).unwrap();
-        let regs_param = get_ptr_param(&func.func, 1).unwrap();
+        let ee = &comp.engines[f2.module_ind];
 
         unsafe {
             // This will later be part of a build_call method
@@ -430,7 +428,7 @@ mod tests {
                 .builder
                 .build_gep(
                     comp.i32_t.array_type(17),
-                    regs_param,
+                    f2.regs_ptr,
                     &[comp.i32_t.const_zero(), comp.i32_t.const_zero()],
                     "r0_elem_ptr",
                 )
@@ -456,17 +454,23 @@ mod tests {
                 .build_indirect_call(
                     comp.fn_t,
                     func_ptr_param,
-                    &[state_param.into(), regs_param.into()],
+                    &[f2.state_ptr.into(), f2.regs_ptr.into()],
                     "call",
                 )
                 .unwrap();
         }
-        let key = comp.compile(func).unwrap();
+        let key = comp.compile(f2).unwrap();
 
         comp.dump();
         println!("{:?}", state.regs);
         comp.call_function(key, &mut state).unwrap();
         println!("{:?}", state.regs);
-        assert_eq!(state.pc(), 986);
+
+        assert_eq!(
+            state.regs,
+            [
+                999, 1, 4, 9, 16, 25, 36, 49, 64, 81, 100, 121, 144, 169, 196, 986, 256
+            ]
+        );
     }
 }
