@@ -113,11 +113,12 @@ impl<'ctx> Compiler<'ctx> {
         }
         let func_name = format!("fn_{:#010x}", addr);
         let i = self.create_module(&format!("m_{}", &func_name))?;
+        let bd = &self.builder;
 
         let module = &self.modules[i];
         let func = module.add_function(&func_name, self.fn_t, None);
         let basic_block = self.llvm_ctx.append_basic_block(func, "start");
-        self.builder.position_at_end(basic_block);
+        bd.position_at_end(basic_block);
 
         let state_ptr = get_ptr_param(&func, 0)?;
         let base_ptr = get_ptr_param(&func, 1)?;
@@ -127,13 +128,11 @@ impl<'ctx> Compiler<'ctx> {
                 let name = format!("r{}_elem_ptr", i);
                 let gep_inds = [self.i32_t.const_zero(), self.i32_t.const_int(i, false)];
                 let ptr = unsafe {
-                    self.builder
-                        .build_gep(self.regs_t, base_ptr, &gep_inds, &name)
+                    bd.build_gep(self.regs_t, base_ptr, &gep_inds, &name)
                         .unwrap()
                 };
                 let name = format!("r{}", i);
-                self.builder
-                    .build_load(self.i32_t, ptr, &name)
+                bd.build_load(self.i32_t, ptr, &name)
                     .unwrap()
                     .into_int_value()
             })
@@ -214,58 +213,61 @@ impl<'ctx> Compiler<'ctx> {
         Ok(self.modules.len() - 1)
     }
 
+    fn context_switch_in<'a>(
+        &self,
+        arm_state_ptr: PointerValue<'a>,
+        regs_ptr: PointerValue<'a>,
+    ) -> Result<()> {
+        let bd = &self.builder;
+        let z = self.i32_t.const_zero();
+        for r in 0..17usize {
+            let reg_ind = self.i32_t.const_int(r as u64, false);
+            let gep_inds = [z, z, reg_ind];
+            let name = format!("arm_state_r{}_ptr", r);
+            // Pointer to the register in the guest machine (ArmState object)
+            let arm_state_elem_ptr =
+                unsafe { bd.build_gep(self.arm_state_t, arm_state_ptr, &gep_inds, &name)? };
+            let value = bd
+                .build_load(self.i32_t, arm_state_elem_ptr, &format!("r{}", r))?
+                .into_int_value();
+
+            let gep_inds = [z, reg_ind];
+            let name = format!("reg_arr_r{}_ptr", r);
+            // Pointer to the local register (i32 array)
+            let reg_arr_elem_ptr =
+                unsafe { bd.build_gep(self.regs_t, regs_ptr, &gep_inds, &name)? };
+            bd.build_store(reg_arr_elem_ptr, value)?;
+        }
+        Ok(())
+    }
+
     // Performs context switch from guest machine to LLVM code and jumps to provided function
     fn build_entry_point(&mut self) -> Result<EntryPoint<'ctx>> {
+        let bd = &self.builder;
         let module = &self.modules[0];
         let ee = &self.engines[0];
+
         let entry_type = self
             .llvm_ctx
             .void_type()
             .fn_type(&[self.ptr_t.into(), self.ptr_t.into()], false);
         let f = module.add_function("entry_point", entry_type, None);
         let basic_block = self.llvm_ctx.append_basic_block(f, "start");
-        self.builder.position_at_end(basic_block);
+        bd.position_at_end(basic_block);
 
-        let state_ptr_arg = get_ptr_param(&f, 0)?;
+        let arm_state_ptr = get_ptr_param(&f, 0)?;
         let fn_ptr_arg = get_ptr_param(&f, 1)?;
 
-        let call_arg = self.builder.build_alloca(self.regs_t, "reg_values_ptr")?;
+        let regs_ptr = bd.build_alloca(self.regs_t, "regs_ptr")?;
+        self.context_switch_in(arm_state_ptr, regs_ptr)?;
 
-        for r in 0..17usize {
-            let gep_inds = [
-                self.i32_t.const_zero(),
-                self.i32_t.const_zero(),
-                self.i32_t.const_int(r as u64, false),
-            ];
-            let name = format!("r{}_guest_ptr", r);
-            let guest_ptr = unsafe {
-                self.builder
-                    .build_gep(self.arm_state_t, state_ptr_arg, &gep_inds, &name)?
-            };
-            let value = self
-                .builder
-                .build_load(self.i32_t, guest_ptr, &format!("r{}", r))?
-                .into_int_value();
-
-            let gep_inds = [
-                self.i32_t.const_zero(),
-                self.i32_t.const_int(r as u64, false),
-            ];
-            let name = format!("r{}_ptr", r);
-            let arr_ptr = unsafe {
-                self.builder
-                    .build_gep(self.regs_t, call_arg, &gep_inds, &name)?
-            };
-            self.builder.build_store(arr_ptr, value)?;
-        }
-
-        self.builder.build_indirect_call(
+        bd.build_indirect_call(
             self.fn_t,
             fn_ptr_arg,
-            &[state_ptr_arg.into(), call_arg.into()],
+            &[arm_state_ptr.into(), regs_ptr.into()],
             "call",
         )?;
-        self.builder.build_return(None)?;
+        bd.build_return(None)?;
         assert!(f.verify(true));
 
         let entry_point = unsafe { ee.get_function("entry_point")? };
