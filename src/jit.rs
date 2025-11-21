@@ -75,7 +75,7 @@ impl<'ctx> Compiler<'ctx> {
         let ptr_t = context.ptr_type(AddressSpace::default());
         let void_t = context.void_type();
         let regs_t = i32_t.array_type(17);
-        let arm_state_t = context.struct_type(&[regs_t.into(), ptr_t.into()], false);
+        let arm_state_t = ArmState::get_llvm_type(context);
         let fn_t = void_t.fn_type(&[ptr_t.into(), ptr_t.into()], false);
 
         let mut comp = Self {
@@ -219,10 +219,11 @@ impl<'ctx> Compiler<'ctx> {
         regs_ptr: PointerValue<'a>,
     ) -> Result<()> {
         let bd = &self.builder;
-        let z = self.i32_t.const_zero();
+        let zero = self.i32_t.const_zero();
+        let one = self.i32_t.const_int(1, false);
         for r in 0..17usize {
             let reg_ind = self.i32_t.const_int(r as u64, false);
-            let gep_inds = [z, z, reg_ind];
+            let gep_inds = [zero, one, reg_ind];
             let name = format!("arm_state_r{}_ptr", r);
             // Pointer to the register in the guest machine (ArmState object)
             let arm_state_elem_ptr =
@@ -231,7 +232,7 @@ impl<'ctx> Compiler<'ctx> {
                 .build_load(self.i32_t, arm_state_elem_ptr, &format!("r{}", r))?
                 .into_int_value();
 
-            let gep_inds = [z, reg_ind];
+            let gep_inds = [zero, reg_ind];
             let name = format!("reg_arr_r{}_ptr", r);
             // Pointer to the local register (i32 array)
             let reg_arr_elem_ptr =

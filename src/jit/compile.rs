@@ -1,12 +1,16 @@
-use super::Compiler;
-use capstone::Insn;
 use capstone::arch::arm::ArmInsn;
+use inkwell::values::PointerValue;
 
-impl<'ctx> Compiler<'ctx> {
-    fn compile_arm(&self, insn: &Insn) {
-        let op = ArmInsn::from(insn.id().0);
+use crate::{
+    arm::{cpu::ArmState, disasm::ArmDisasm},
+    jit::LlvmFunction,
+};
 
-        match op {
+use super::Compiler;
+
+impl<'a> Compiler<'a> {
+    fn build(&self, instr: &ArmDisasm) {
+        match instr.opcode {
             ArmInsn::ARM_INS_INVALID => todo!(),
             ArmInsn::ARM_INS_ADC => todo!(),
             ArmInsn::ARM_INS_ADD => todo!(),
@@ -18,15 +22,15 @@ impl<'ctx> Compiler<'ctx> {
             ArmInsn::ARM_INS_AESMC => todo!(),
             ArmInsn::ARM_INS_AND => todo!(),
             ArmInsn::ARM_INS_ASR => todo!(),
-            ArmInsn::ARM_INS_B => todo!(),
+            ArmInsn::ARM_INS_B => self.arm_b(instr),
             ArmInsn::ARM_INS_BFC => todo!(),
             ArmInsn::ARM_INS_BFI => todo!(),
             ArmInsn::ARM_INS_BIC => todo!(),
             ArmInsn::ARM_INS_BKPT => todo!(),
-            ArmInsn::ARM_INS_BL => todo!(),
-            ArmInsn::ARM_INS_BLX => todo!(),
+            ArmInsn::ARM_INS_BL => self.arm_bl(instr),
+            ArmInsn::ARM_INS_BLX => panic!("Unsupported ARMv5 insruction BXL"),
             ArmInsn::ARM_INS_BLXNS => todo!(),
-            ArmInsn::ARM_INS_BX => todo!(),
+            ArmInsn::ARM_INS_BX => self.arm_bx(instr),
             ArmInsn::ARM_INS_BXJ => todo!(),
             ArmInsn::ARM_INS_BXNS => todo!(),
             ArmInsn::ARM_INS_CBNZ => todo!(),
@@ -484,6 +488,7 @@ impl<'ctx> Compiler<'ctx> {
     }
 
     fn compile_thumb() {
+        // Is it just the same set of instructions?
         todo!();
     }
 }

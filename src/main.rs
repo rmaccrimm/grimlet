@@ -3,7 +3,7 @@
 pub mod arm;
 pub mod jit;
 
-use crate::arm::cpu::{ArmMode, ArmState};
+use crate::arm::cpu::{ArmMode, ArmState, MainMemory};
 use crate::arm::disasm::ArmDisasm;
 use crate::jit::Compiler;
 use anyhow::Result;
@@ -38,11 +38,12 @@ impl Disassembler {
 
     pub fn iter_insns(
         &self,
-        mem: &Vec<u8>,
+        mem: &MainMemory,
         start_addr: u64,
         _mode: ArmMode,
     ) -> impl Iterator<Item = ArmDisasm> {
-        mem.chunks(4)
+        mem.bios
+            .chunks(4)
             .skip(start_addr as usize)
             .enumerate()
             .map(move |(i, ch)| {

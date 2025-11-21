@@ -1,11 +1,14 @@
 use anyhow::{Result, anyhow};
+use inkwell::AddressSpace;
+use inkwell::context::Context;
+use inkwell::types::StructType;
 use std::fs;
 use std::fs::File;
 use std::io::Read;
 
 #[repr(C)]
 pub struct MainMemory {
-    bios: Vec<u8>,
+    pub bios: Vec<u8>,
 }
 
 impl MainMemory {
@@ -57,6 +60,23 @@ impl ArmState {
             regs: [0; 17],
             mem: Box::new(MainMemory::new()),
         }
+    }
+
+    // The compiler code that performs lookups into this object needs to be kept in sync with
+    // the actual definition so define its corresponding LLVM type here.
+    pub fn get_llvm_type<'ctx>(llvm_ctx: &'ctx Context) -> StructType<'ctx> {
+        assert_eq!(size_of::<ArmMode>(), 1);
+        llvm_ctx.struct_type(
+            &[
+                // mode
+                llvm_ctx.i8_type().into(),
+                // regs
+                llvm_ctx.i32_type().array_type(17).into(),
+                // mem
+                llvm_ctx.ptr_type(AddressSpace::default()).into(),
+            ],
+            false,
+        )
     }
 
     pub fn with_bios(bios_path: &str) -> Result<Self> {
