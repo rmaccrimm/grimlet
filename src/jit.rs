@@ -3,7 +3,7 @@ mod branch;
 mod compile;
 mod ldstr;
 
-use crate::arm::cpu::ArmState;
+use crate::arm::cpu::{ArmState, NUM_REGS, Reg};
 use anyhow::{Context as _, Result, anyhow};
 use std::collections::HashMap;
 
@@ -242,6 +242,35 @@ impl<'ctx> Compiler<'ctx> {
         Ok(())
     }
 
+    fn context_switch_out<'a>(
+        &self,
+        arm_state_ptr: PointerValue<'a>,
+        regs_ptr: PointerValue<'a>,
+    ) -> Result<()> {
+        let bd = &self.builder;
+        let zero = self.i32_t.const_zero();
+        let one = self.i32_t.const_int(1, false);
+        for r in 0..NUM_REGS {
+            let reg_ind = self.i32_t.const_int(r as u64, false);
+            let gep_inds = [zero, reg_ind];
+            let name = format!("reg_arr_r{}_ptr", r);
+            // Pointer to the local register (i32 array)
+            let reg_arr_elem_ptr =
+                unsafe { bd.build_gep(self.regs_t, regs_ptr, &gep_inds, &name)? };
+            let value = bd
+                .build_load(self.i32_t, reg_arr_elem_ptr, &format!("r{}", r))?
+                .into_int_value();
+
+            let gep_inds = [zero, one, reg_ind];
+            let name = format!("arm_state_r{}_ptr", r);
+            // Pointer to the register in the guest machine (ArmState object)
+            let arm_state_elem_ptr =
+                unsafe { bd.build_gep(self.arm_state_t, arm_state_ptr, &gep_inds, &name)? };
+            bd.build_store(arm_state_elem_ptr, value)?;
+        }
+        Ok(())
+    }
+
     // Performs context switch from guest machine to LLVM code and jumps to provided function
     fn build_entry_point(&mut self) -> Result<EntryPoint<'ctx>> {
         let bd = &self.builder;
@@ -285,8 +314,8 @@ mod tests {
         // End result is:
         // pc <- r15 + r9
         let mut state = ArmState::new();
-        for i in 0..17u32 {
-            state.regs[i as usize] = i * i;
+        for i in 0..NUM_REGS {
+            state.regs[i as usize] = (i * i) as u32;
         }
 
         let context = Context::create();

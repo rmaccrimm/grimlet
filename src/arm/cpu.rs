@@ -45,6 +45,8 @@ pub enum Reg {
     CPSR = 16,
 }
 
+pub const NUM_REGS: usize = 17;
+
 /// Emulated CPU state and interpreter
 #[repr(C)]
 pub struct ArmState {
@@ -57,7 +59,7 @@ impl ArmState {
     pub fn new() -> Self {
         Self {
             mode: ArmMode::ARM,
-            regs: [0; 17],
+            regs: [0; NUM_REGS],
             mem: Box::new(MainMemory::new()),
         }
     }
@@ -71,7 +73,7 @@ impl ArmState {
                 // mode
                 llvm_ctx.i8_type().into(),
                 // regs
-                llvm_ctx.i32_type().array_type(17).into(),
+                llvm_ctx.i32_type().array_type(NUM_REGS as u32).into(),
                 // mem
                 llvm_ctx.ptr_type(AddressSpace::default()).into(),
             ],
