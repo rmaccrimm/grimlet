@@ -45,6 +45,10 @@ fn get_ptr_param<'a>(func: &FunctionValue<'a>, i: usize) -> Result<PointerValue<
         .into_pointer_value())
 }
 
+fn func_name(addr: i32) -> String {
+    format!("fn_{:#010x}", addr)
+}
+
 /// Maps a guest machine address to a compiled LLVM function
 #[derive(Debug, Copy, Clone, Hash, Eq, PartialEq)]
 pub struct FuncCacheKey(u32);
@@ -112,12 +116,12 @@ impl<'ctx> Compiler<'ctx> {
                 "Compile current function before beginning a new one"
             ));
         }
-        let func_name = format!("fn_{:#010x}", addr);
-        let i = self.create_module(&format!("m_{}", &func_name))?;
+        let fname = func_name(addr as i32);
+        let i = self.create_module(&format!("m_{}", &fname))?;
         let bd = &self.builder;
 
         let module = &self.modules[i];
-        let func = module.add_function(&func_name, self.fn_t, None);
+        let func = module.add_function(&fname, self.fn_t, None);
         let basic_block = self.llvm_ctx.append_basic_block(func, "start");
         bd.position_at_end(basic_block);
 
@@ -142,7 +146,7 @@ impl<'ctx> Compiler<'ctx> {
         self.active_func = true;
         Ok(LlvmFunction {
             addr: addr as u64,
-            name: func_name,
+            name: fname,
             reg_map,
             module_ind: self.modules.len() - 1,
             func,
@@ -175,7 +179,6 @@ impl<'ctx> Compiler<'ctx> {
     }
 
     pub fn compile(&mut self, func: LlvmFunction) -> Result<FuncCacheKey> {
-        self.builder.build_return(None).unwrap();
         if func.func.verify(true) {
             let jit_func = unsafe {
                 self.engines[func.module_ind]
@@ -293,17 +296,41 @@ impl<'ctx> Compiler<'ctx> {
         let regs_ptr = bd.build_alloca(self.regs_t, "regs_ptr")?;
         self.context_switch_in(arm_state_ptr, regs_ptr)?;
 
-        bd.build_indirect_call(
+        let call = bd.build_indirect_call(
             self.fn_t,
             fn_ptr_arg,
             &[arm_state_ptr.into(), regs_ptr.into()],
             "call",
         )?;
+        call.set_tail_call(true);
         bd.build_return(None)?;
         assert!(f.verify(true));
 
         let entry_point = unsafe { ee.get_function("entry_point")? };
         Ok(entry_point)
+    }
+
+    fn get_compiled_func_pointer(&self, key: FuncCacheKey) -> Option<PointerValue<'ctx>> {
+        // TODO sort out which int type to use where
+        match self.func_cache.get(&key) {
+            Some(f) => {
+                // pretty sure it doesn't matter which we look at
+                let ee = &self.engines[0];
+                let func_ptr = unsafe {
+                    self.builder
+                        .build_int_to_ptr(
+                            self.llvm_ctx
+                                .ptr_sized_int_type(ee.get_target_data(), None)
+                                .const_int(f.as_raw() as u64, false),
+                            self.ptr_t,
+                            &format!("{}_ptr", func_name(key.0 as i32)),
+                        )
+                        .unwrap()
+                };
+                Some(func_ptr)
+            }
+            None => None,
+        }
     }
 }
 
@@ -346,7 +373,8 @@ mod tests {
             )
             .unwrap();
 
-        comp.builder
+        let call = comp
+            .builder
             .build_indirect_call(
                 interp_fn_type,
                 interp_fn_ptr,
@@ -354,6 +382,8 @@ mod tests {
                 "fn_result",
             )
             .unwrap();
+        call.set_tail_call(true);
+        comp.builder.build_return(None).unwrap();
 
         let key = comp.compile(func).unwrap();
         // comp.dump();
@@ -405,7 +435,8 @@ mod tests {
             .void_t
             .fn_type(&[comp.ptr_t.into(), comp.i32_t.into()], false);
 
-        comp.builder
+        let call = comp
+            .builder
             .build_indirect_call(
                 interp_fn_t,
                 func_ptr_param,
@@ -413,6 +444,8 @@ mod tests {
                 "fn_result",
             )
             .unwrap();
+        call.set_tail_call(true);
+        comp.builder.build_return(None).unwrap();
         let k1 = comp.compile(f1).unwrap();
 
         let f2 = comp.new_function(0).unwrap();
@@ -438,19 +471,11 @@ mod tests {
                 .unwrap();
 
             // 2. Construct the function pointer using raw pointer obtained from function cache
-            let func_ptr_param = comp
-                .builder
-                .build_int_to_ptr(
-                    context
-                        .ptr_sized_int_type(ee.get_target_data(), None)
-                        .const_int(compiled_1.as_raw() as u64, false),
-                    comp.ptr_t,
-                    "raw_fn_pointer",
-                )
-                .unwrap();
+            let func_ptr_param = comp.get_compiled_func_pointer(k1).unwrap();
 
             // 3. Perform indirect call through pointer
-            comp.builder
+            let call = comp
+                .builder
                 .build_indirect_call(
                     comp.fn_t,
                     func_ptr_param,
@@ -458,6 +483,8 @@ mod tests {
                     "call",
                 )
                 .unwrap();
+            call.set_tail_call(true);
+            comp.builder.build_return(None).unwrap();
         }
         let key = comp.compile(f2).unwrap();
 
