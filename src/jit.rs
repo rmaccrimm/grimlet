@@ -35,8 +35,80 @@ pub struct LlvmFunction<'a> {
 }
 
 impl<'a> LlvmFunction<'a> {
+    fn update(&mut self, reg: Reg, value: IntValue<'a>) {
+        self.reg_map[reg as usize] = value;
+    }
+
+    fn reg(&self, reg: Reg) -> IntValue<'a> {
+        self.reg_map[reg as usize]
+    }
+
+    fn r0(&self) -> IntValue<'a> {
+        self.reg(Reg::R0)
+    }
+
+    fn r1(&self) -> IntValue<'a> {
+        self.reg(Reg::R1)
+    }
+
+    fn r3(&self) -> IntValue<'a> {
+        self.reg(Reg::CPSR)
+    }
+
+    fn r2(&self) -> IntValue<'a> {
+        self.reg(Reg::R2)
+    }
+
+    fn r4(&self) -> IntValue<'a> {
+        self.reg(Reg::R4)
+    }
+
+    fn r5(&self) -> IntValue<'a> {
+        self.reg(Reg::R5)
+    }
+
+    fn r6(&self) -> IntValue<'a> {
+        self.reg(Reg::R6)
+    }
+
+    fn r7(&self) -> IntValue<'a> {
+        self.reg(Reg::R7)
+    }
+
+    fn r8(&self) -> IntValue<'a> {
+        self.reg(Reg::R8)
+    }
+
+    fn r9(&self) -> IntValue<'a> {
+        self.reg(Reg::R9)
+    }
+
+    fn r10(&self) -> IntValue<'a> {
+        self.reg(Reg::R10)
+    }
+
+    fn r11(&self) -> IntValue<'a> {
+        self.reg(Reg::R11)
+    }
+
+    fn r12(&self) -> IntValue<'a> {
+        self.reg(Reg::R12)
+    }
+
+    fn sp(&self) -> IntValue<'a> {
+        self.reg(Reg::SP)
+    }
+
+    fn lr(&self) -> IntValue<'a> {
+        self.reg(Reg::LR)
+    }
+
+    fn pc(&self) -> IntValue<'a> {
+        self.reg(Reg::PC)
+    }
+
     fn cpsr(&self) -> IntValue<'a> {
-        self.reg_map[Reg::CPSR as usize]
+        self.reg(Reg::CPSR)
     }
 }
 
@@ -254,31 +326,19 @@ impl<'ctx> Compiler<'ctx> {
         Ok(())
     }
 
-    fn context_switch_out<'a>(
-        &self,
-        arm_state_ptr: PointerValue<'a>,
-        regs_ptr: PointerValue<'a>,
-    ) -> Result<()> {
+    /// Write out the most recent values (reg_map) to the guest state
+    fn context_switch_out<'a>(&self, func: &LlvmFunction<'a>) -> Result<()> {
         let bd = &self.builder;
         let zero = self.i32_t.const_zero();
         let one = self.i32_t.const_int(1, false);
         for r in 0..NUM_REGS {
             let reg_ind = self.i32_t.const_int(r as u64, false);
-            let gep_inds = [zero, reg_ind];
-            let name = format!("reg_arr_r{}_ptr", r);
-            // Pointer to the local register (i32 array)
-            let reg_arr_elem_ptr =
-                unsafe { bd.build_gep(self.regs_t, regs_ptr, &gep_inds, &name)? };
-            let value = bd
-                .build_load(self.i32_t, reg_arr_elem_ptr, &format!("r{}", r))?
-                .into_int_value();
-
             let gep_inds = [zero, one, reg_ind];
             let name = format!("arm_state_r{}_ptr", r);
             // Pointer to the register in the guest machine (ArmState object)
             let arm_state_elem_ptr =
-                unsafe { bd.build_gep(self.arm_state_t, arm_state_ptr, &gep_inds, &name)? };
-            bd.build_store(arm_state_elem_ptr, value)?;
+                unsafe { bd.build_gep(self.arm_state_t, func.state_ptr, &gep_inds, &name)? };
+            bd.build_store(arm_state_elem_ptr, func.reg_map[r])?;
         }
         Ok(())
     }
