@@ -14,7 +14,6 @@ fn test_jump_to_external() {
     let mut comp = Compiler::new(&context).unwrap();
 
     let func = comp.new_function(0).unwrap();
-    let ee = &comp.engines[func.module_ind];
 
     let add_res = comp
         .builder
@@ -65,7 +64,6 @@ fn test_cross_module_calls() {
     let mut comp = Compiler::new(&context).unwrap();
 
     let f1 = comp.new_function(0).unwrap();
-    let ee = &comp.engines[f1.module_ind];
 
     let v0 = comp
         .builder
@@ -74,7 +72,7 @@ fn test_cross_module_calls() {
     let v1 = comp.builder.build_int_sub(f1.reg_map[0], v0, "v1").unwrap();
 
     // Perform context switch out before jumping to ArmState code
-    comp.context_switch_out(f1.state_ptr, f1.regs_ptr).unwrap();
+    comp.context_switch_out(&f1).unwrap();
 
     let func_ptr_param = comp
         .get_external_func_pointer(ArmState::jump_to as u64)
