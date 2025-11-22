@@ -7,6 +7,7 @@ mod tests;
 use crate::arm::cpu::{ArmState, NUM_REGS, Reg};
 use anyhow::{Context as _, Result, anyhow};
 use std::collections::HashMap;
+use std::ops::Add;
 
 use inkwell::builder::Builder;
 use inkwell::context::Context;
@@ -21,6 +22,8 @@ type JumpTarget = unsafe extern "C" fn(*mut ArmState, *const i32);
 type CompiledFunc<'a> = JitFunction<'a, JumpTarget>;
 
 type EntryPoint<'a> = JitFunction<'a, unsafe extern "C" fn(*mut ArmState, JumpTarget)>;
+
+type FuncCache<'ctx> = HashMap<FuncCacheKey, CompiledFunc<'ctx>>;
 
 pub struct RegMap<'a> {
     llvm_values: Vec<IntValue<'a>>,
@@ -134,9 +137,6 @@ pub struct FuncCacheKey(u64);
 /// Core struct responsible for translating ARM instructions to LLVM and managing the compiled
 /// executable code.
 pub struct Compiler<'ctx> {
-    func_cache: HashMap<FuncCacheKey, CompiledFunc<'ctx>>,
-    entry_point: Option<EntryPoint<'ctx>>,
-    active_func: bool,
     llvm_ctx: &'ctx Context,
     builder: Builder<'ctx>,
     modules: Vec<Module<'ctx>>,
@@ -150,10 +150,7 @@ impl<'ctx> Compiler<'ctx> {
         let builder = context.create_builder();
 
         let mut comp = Self {
-            func_cache: HashMap::new(),
             llvm_ctx: context,
-            entry_point: None,
-            active_func: false,
             modules,
             engines,
             builder,
@@ -167,60 +164,44 @@ impl<'ctx> Compiler<'ctx> {
         Ok(comp)
     }
 
-    pub fn new_function<'a>(&'a mut self, addr: u64) -> Result<LlvmFunction<'ctx, 'a>>
+    pub fn new_function<'a>(
+        &'a mut self,
+        addr: u64,
+        func_cache: &'a FuncCache<'ctx>,
+    ) -> Result<LlvmFunction<'ctx, 'a>>
     where
         'ctx: 'a,
     {
-        if self.active_func {
-            return Err(anyhow!(
-                "Compile current function before beginning a new one"
-            ));
-        }
-
         let i = self.create_module(&format!("m_{}", addr))?;
-        self.active_func = true;
         let lf = LlvmFunction::new(
             addr,
             self.llvm_ctx,
             &self.builder,
             &self.modules[i],
             &self.engines[i],
-            &self.func_cache,
+            func_cache,
         )?;
         Ok(lf)
     }
 
-    pub fn lookup_function(&self, addr: u64) -> Option<FuncCacheKey> {
-        let k = FuncCacheKey(addr);
-        match self.func_cache.get(&k) {
-            Some(_) => Some(k),
-            None => None,
-        }
-    }
+    // pub fn lookup_function(&self, addr: u64) -> Option<FuncCacheKey> {
+    //     let k = FuncCacheKey(addr);
+    //     match self.func_cache.get(&k) {
+    //         Some(_) => Some(k),
+    //         None => None,
+    //     }
+    // }
 
-    pub fn call_function(&self, k: FuncCacheKey, state: &mut ArmState) -> Result<()> {
-        let func = self.func_cache.get(&k).expect("Nonexistent function key!");
-        unsafe {
-            self.entry_point
-                .as_ref()
-                .expect("Entry point is missing")
-                .call(state, func.as_raw());
-        }
-        Ok(())
-    }
-
-    pub fn compile<'a>(&'a mut self, func: LlvmFunction<'ctx, 'a>) -> Result<FuncCacheKey> {
-        if func.func.verify(true) {
-            let jit_func = unsafe { func.execution_engine.get_function(&func.name).unwrap() };
-            let k = FuncCacheKey(func.addr);
-            // TODO - notify if this is a replacement?
-            self.func_cache.insert(k, jit_func);
-            self.active_func = false;
-            Ok(k)
-        } else {
-            Err(anyhow!("Compilation failed"))
-        }
-    }
+    // pub fn call_function(&self, k: FuncCacheKey, state: &mut ArmState) -> Result<()> {
+    //     let func = self.func_cache.get(&k).expect("Nonexistent function key!");
+    //     unsafe {
+    //         self.entry_point
+    //             .as_ref()
+    //             .expect("Entry point is missing")
+    //             .call(state, func.as_raw());
+    //     }
+    //     Ok(())
+    // }
 
     pub fn dump(&self) {
         for (i, m) in self.modules.iter().enumerate() {
@@ -245,68 +226,69 @@ impl<'ctx> Compiler<'ctx> {
         Ok(self.modules.len() - 1)
     }
 
-    // fn context_switch_in(
-    //     &self,
-    //     arm_state_ptr: PointerValue<'ctx>,
-    //     regs_ptr: PointerValue<'ctx>,
-    // ) -> Result<()> {
-    //     let bd = &self.builder;
-    //     let zero = self.i32_t.const_zero();
-    //     let one = self.i32_t.const_int(1, false);
-    //     for r in 0..17usize {
-    //         let reg_ind = self.i32_t.const_int(r as u64, false);
-    //         let gep_inds = [zero, one, reg_ind];
-    //         let name = format!("arm_state_r{}_ptr", r);
-    //         // Pointer to the register in the guest machine (ArmState object)
-    //         let arm_state_elem_ptr =
-    //             unsafe { bd.build_gep(self.arm_state_t, arm_state_ptr, &gep_inds, &name)? };
-    //         let value = bd
-    //             .build_load(self.i32_t, arm_state_elem_ptr, &format!("r{}", r))?
-    //             .into_int_value();
+    // Performs context switch from guest machine to LLVM code and jumps to provided function
+    fn build_entry_point(&mut self) -> Result<EntryPoint<'ctx>> {
+        let i = self.create_module("m_entrypoint")?;
+        let ctx = self.llvm_ctx;
+        let bd = &self.builder;
+        let module = &self.modules[i];
+        let ee = &self.engines[i];
 
-    //         let gep_inds = [zero, reg_ind];
-    //         let name = format!("reg_arr_r{}_ptr", r);
-    //         // Pointer to the local register (i32 array)
-    //         let reg_arr_elem_ptr =
-    //             unsafe { bd.build_gep(self.regs_t, regs_ptr, &gep_inds, &name)? };
-    //         bd.build_store(reg_arr_elem_ptr, value)?;
-    //     }
-    //     Ok(())
-    // }
+        let i32_t = ctx.i32_type();
+        let ptr_t = ctx.ptr_type(AddressSpace::default());
+        let void_t = ctx.void_type();
+        let regs_t = i32_t.array_type(17);
+        let arm_state_t = ArmState::get_llvm_type(ctx);
+        let fn_t = void_t.fn_type(&[ptr_t.into(), ptr_t.into()], false);
 
-    // // Performs context switch from guest machine to LLVM code and jumps to provided function
-    // fn build_entry_point(&mut self) -> Result<EntryPoint<'ctx>> {
-    //     let bd = &self.builder;
-    //     let module = &self.modules[0];
-    //     let ee = &self.engines[0];
+        let entry_type = self
+            .llvm_ctx
+            .void_type()
+            .fn_type(&[ptr_t.into(), ptr_t.into()], false);
+        let f = module.add_function("entry_point", entry_type, None);
+        let basic_block = self.llvm_ctx.append_basic_block(f, "start");
+        bd.position_at_end(basic_block);
 
-    //     let entry_type = self
-    //         .llvm_ctx
-    //         .void_type()
-    //         .fn_type(&[self.ptr_t.into(), self.ptr_t.into()], false);
-    //     let f = module.add_function("entry_point", entry_type, None);
-    //     let basic_block = self.llvm_ctx.append_basic_block(f, "start");
-    //     bd.position_at_end(basic_block);
+        let arm_state_ptr = get_ptr_param(&f, 0)?;
+        let fn_ptr_arg = get_ptr_param(&f, 1)?;
 
-    //     let arm_state_ptr = get_ptr_param(&f, 0)?;
-    //     let fn_ptr_arg = get_ptr_param(&f, 1)?;
+        let regs_ptr = bd.build_alloca(regs_t, "regs_ptr")?;
 
-    //     let regs_ptr = bd.build_alloca(self.regs_t, "regs_ptr")?;
-    //     self.context_switch_in(arm_state_ptr, regs_ptr)?;
+        // Perform context switch in, i.e. copy guest machine state into an array
+        let zero = i32_t.const_zero();
+        let one = i32_t.const_int(1, false);
+        for r in 0..17usize {
+            let reg_ind = i32_t.const_int(r as u64, false);
+            let gep_inds = [zero, one, reg_ind];
+            let name = format!("arm_state_r{}_ptr", r);
+            // Pointer to the register in the guest machine (ArmState object)
+            let arm_state_elem_ptr =
+                unsafe { bd.build_gep(arm_state_t, arm_state_ptr, &gep_inds, &name)? };
+            let value = bd
+                .build_load(i32_t, arm_state_elem_ptr, &format!("r{}", r))?
+                .into_int_value();
 
-    //     let call = bd.build_indirect_call(
-    //         self.fn_t,
-    //         fn_ptr_arg,
-    //         &[arm_state_ptr.into(), regs_ptr.into()],
-    //         "call",
-    //     )?;
-    //     call.set_tail_call(true);
-    //     bd.build_return(None)?;
-    //     assert!(f.verify(true));
+            let gep_inds = [zero, reg_ind];
+            let name = format!("reg_arr_r{}_ptr", r);
+            // Pointer to the local register (i32 array)
+            let reg_arr_elem_ptr = unsafe { bd.build_gep(regs_t, regs_ptr, &gep_inds, &name)? };
+            bd.build_store(reg_arr_elem_ptr, value)?;
+        }
 
-    //     let entry_point = unsafe { ee.get_function("entry_point")? };
-    //     Ok(entry_point)
-    // }
+        // Call the actual processing func
+        let call = bd.build_indirect_call(
+            fn_t,
+            fn_ptr_arg,
+            &[arm_state_ptr.into(), regs_ptr.into()],
+            "call",
+        )?;
+        call.set_tail_call(true);
+        bd.build_return(None)?;
+        assert!(f.verify(true));
+
+        let entry_point = unsafe { ee.get_function("entry_point")? };
+        Ok(entry_point)
+    }
 }
 
 /// State needed to build a new function. Returned by Compiler so you cannot attempt to compile
@@ -324,7 +306,6 @@ where
     name: String,
     func: FunctionValue<'a>,
     reg_map: RegMap<'ctx>,
-    // module_ind: usize,
     arm_state_ptr: PointerValue<'a>,
     reg_array_ptr: PointerValue<'a>,
     arm_state_t: StructType<'a>,
@@ -395,6 +376,18 @@ impl<'ctx, 'a> LlvmFunction<'ctx, 'a> {
         })
     }
 
+    pub fn compile(self) -> Result<CompiledFunc<'ctx>> {
+        if self.func.verify(true) {
+            let jit_func = unsafe { self.execution_engine.get_function(&self.name)? };
+            // let k = FuncCacheKey(func.addr);
+            // // TODO - notify if this is a replacement?
+            // self.func_cache.insert(k, jit_func);
+            Ok(jit_func)
+        } else {
+            Err(anyhow!("Compilation failed"))
+        }
+    }
+
     fn get_external_func_pointer(&self, func_addr: u64) -> Result<PointerValue<'a>> {
         let ee = &self.execution_engine;
         let func_ptr = self.builder.build_int_to_ptr(
@@ -429,7 +422,7 @@ impl<'ctx, 'a> LlvmFunction<'ctx, 'a> {
     }
 
     /// Write out the most recent values (reg_map) to the guest state
-    fn context_switch_out(&self) -> Result<()> {
+    fn write_state_out(&self) -> Result<()> {
         let bd = &self.builder;
         let zero = self.i32_t.const_zero();
         let one = self.i32_t.const_int(1, false);
