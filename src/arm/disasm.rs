@@ -1,9 +1,10 @@
 use anyhow::Result;
+use anyhow::anyhow;
 use capstone::{
     Capstone, Insn,
     arch::{
         ArchOperand,
-        arm::{ArmInsn, ArmOperand},
+        arm::{ArmInsn, ArmOperand, ArmOperandType},
     },
 };
 use std::fmt::Display;
@@ -34,6 +35,32 @@ impl ArmDisasm {
             addr: insn.address(),
             repr: insn.to_string(),
         })
+    }
+
+    pub fn get_reg_op(&self, ind: usize) -> Result<usize> {
+        if let ArmOperandType::Reg(reg_id) = self
+            .operands
+            .get(ind)
+            .ok_or(anyhow!("missing operand {}", ind))?
+            .op_type
+        {
+            Ok(reg_id.0 as usize)
+        } else {
+            Err(anyhow!("Bad operand: not a register"))
+        }
+    }
+
+    pub fn get_imm_op(&self, ind: usize) -> Result<i32> {
+        if let ArmOperandType::Imm(i) = self
+            .operands
+            .get(ind)
+            .ok_or(anyhow!("missing operand {}", ind))?
+            .op_type
+        {
+            Ok(i)
+        } else {
+            Err(anyhow!("Bad operand: not a register"))
+        }
     }
 }
 
