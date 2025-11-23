@@ -5,7 +5,7 @@ pub mod jit;
 
 use crate::arm::cpu::{ArmMode, ArmState, MainMemory};
 use crate::arm::disasm::ArmDisasm;
-use crate::jit::Compiler;
+use crate::jit::{Compiler, EntryPoint, FunctionCache};
 use anyhow::Result;
 use capstone::arch::arm::{ArmInsn, ArmOperand};
 use capstone::arch::{ArchOperand, BuildsCapstone};
@@ -16,10 +16,12 @@ use std::env;
 use std::fmt::Display;
 
 /// Am I sticking with this name?
-struct Grimlet<'a> {
+struct Grimlet<'ctx> {
     state: ArmState,
     disasm: Disassembler,
-    compiler: Compiler<'a>,
+    compiler: Compiler<'ctx>,
+    entry_point: EntryPoint<'ctx>,
+    func_cache: FunctionCache<'ctx>,
 }
 
 struct Disassembler {
@@ -57,44 +59,43 @@ impl Disassembler {
     }
 }
 
-impl<'a> Grimlet<'a> {
-    pub fn new(context: &'a Context, bios_path: &str) -> Result<Self> {
+impl<'ctx> Grimlet<'ctx> {
+    pub fn new(context: &'ctx Context, bios_path: &str) -> Result<Self> {
         let state = ArmState::with_bios(bios_path)?;
         let disasm = Disassembler::new()?;
-        let compiler = Compiler::new(&context)?;
+        let mut compiler = Compiler::new(&context)?;
+        let entry_point = compiler.compile_entry_point()?;
+        let func_cache = FunctionCache::new();
 
         Ok(Self {
             state,
             disasm,
             compiler,
+            entry_point,
+            func_cache,
         })
     }
 
     pub fn run(&mut self) -> Result<()> {
         loop {
-            let curr_pc = self.state.pc();
-            let func_key = match self.compiler.lookup_function(curr_pc) {
+            let curr_pc = self.state.pc() as u64;
+            let func = match self.func_cache.get(&curr_pc) {
                 Some(func) => func,
                 None => {
-                    let func = self.compiler.new_function(0)?;
+                    let func = self.compiler.new_function(curr_pc, &self.func_cache)?;
                     for insn in
                         self.disasm
                             .iter_insns(&self.state.mem, curr_pc as u64, ArmMode::ARM)
                     {
                         println!("{}", insn);
                         break;
-                        // let should_exit = func.append_insn(insn);
-
-                        // if insn.opcode == ArmInsn::ARM_INS_B {
-                        //     println!("{:?}", insn);
-                        //     break;
-                        // }
                     }
-                    self.compiler.compile(func)?
+                    let compiled = func.compile()?;
+                    self.func_cache.insert(curr_pc, compiled);
+                    self.func_cache.get(&curr_pc).unwrap()
                 }
             };
-            self.compiler.call_function(func_key, &mut self.state)?;
-            self.compiler.dump();
+            unsafe { self.entry_point.call(&mut self.state, func.as_raw()) };
             break;
         }
         Ok(())
@@ -111,7 +112,7 @@ fn main() -> Result<()> {
     }
 
     println!("{:?}", grimlet.state.regs);
-    grimlet.run()?;
+    // grimlet.run()?;
 
     println!("{:?}", grimlet.state.regs);
     assert_eq!(grimlet.state.pc(), 99);
