@@ -19,11 +19,11 @@ use inkwell::{AddressSpace, OptimizationLevel};
 
 type JumpTarget = unsafe extern "C" fn(*mut ArmState, *const i32);
 
-type CompiledFunc<'a> = JitFunction<'a, JumpTarget>;
+pub type CompiledFunction<'a> = JitFunction<'a, JumpTarget>;
 
-type EntryPoint<'a> = JitFunction<'a, unsafe extern "C" fn(*mut ArmState, JumpTarget)>;
+pub type EntryPoint<'a> = JitFunction<'a, unsafe extern "C" fn(*mut ArmState, JumpTarget)>;
 
-type FuncCache<'ctx> = HashMap<FuncCacheKey, CompiledFunc<'ctx>>;
+pub type FunctionCache<'ctx> = HashMap<u64, CompiledFunction<'ctx>>;
 
 pub struct RegMap<'a> {
     llvm_values: Vec<IntValue<'a>>,
@@ -130,10 +130,6 @@ fn func_name(addr: u64) -> String {
     format!("fn_{:#010x}", addr)
 }
 
-/// Maps a guest machine address to a compiled LLVM function
-#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq)]
-pub struct FuncCacheKey(u64);
-
 /// Core struct responsible for translating ARM instructions to LLVM and managing the compiled
 /// executable code.
 pub struct Compiler<'ctx> {
@@ -160,7 +156,7 @@ impl<'ctx> Compiler<'ctx> {
     pub fn new_function<'a>(
         &'a mut self,
         addr: u64,
-        func_cache: &'a FuncCache<'ctx>,
+        func_cache: &'a FunctionCache<'ctx>,
     ) -> Result<LlvmFunction<'ctx, 'a>>
     where
         'ctx: 'a,
@@ -176,25 +172,6 @@ impl<'ctx> Compiler<'ctx> {
         )?;
         Ok(lf)
     }
-
-    // pub fn lookup_function(&self, addr: u64) -> Option<FuncCacheKey> {
-    //     let k = FuncCacheKey(addr);
-    //     match self.func_cache.get(&k) {
-    //         Some(_) => Some(k),
-    //         None => None,
-    //     }
-    // }
-
-    // pub fn call_function(&self, k: FuncCacheKey, state: &mut ArmState) -> Result<()> {
-    //     let func = self.func_cache.get(&k).expect("Nonexistent function key!");
-    //     unsafe {
-    //         self.entry_point
-    //             .as_ref()
-    //             .expect("Entry point is missing")
-    //             .call(state, func.as_raw());
-    //     }
-    //     Ok(())
-    // }
 
     pub fn dump(&self) {
         for (i, m) in self.modules.iter().enumerate() {
@@ -220,7 +197,7 @@ impl<'ctx> Compiler<'ctx> {
     }
 
     // Performs context switch from guest machine to LLVM code and jumps to provided function
-    fn compile_entry_point(&mut self) -> Result<EntryPoint<'ctx>> {
+    pub fn compile_entry_point(&mut self) -> Result<EntryPoint<'ctx>> {
         let i = self.create_module("m_entrypoint")?;
         let ctx = self.llvm_ctx;
         let bd = &self.builder;
@@ -268,14 +245,14 @@ impl<'ctx> Compiler<'ctx> {
             bd.build_store(reg_arr_elem_ptr, value)?;
         }
 
-        // Call the actual processing func
-        let call = bd.build_indirect_call(
+        // Call the actual processing func. Note this is not a tail call as the stack becomes
+        // corrupted (presumably because the regs_ptr array gets freed)
+        bd.build_indirect_call(
             fn_t,
             fn_ptr_arg,
             &[arm_state_ptr.into(), regs_ptr.into()],
             "call",
         )?;
-        // call.set_tail_call(true);
         bd.build_return(None)?;
         assert!(f.verify(true));
 
@@ -293,7 +270,7 @@ where
     builder: &'a Builder<'ctx>,
     module: &'a Module<'ctx>,
     execution_engine: &'a ExecutionEngine<'ctx>,
-    func_cache: &'a HashMap<FuncCacheKey, CompiledFunc<'ctx>>,
+    func_cache: &'a FunctionCache<'ctx>,
     addr: u64,
     name: String,
     func: FunctionValue<'a>,
@@ -315,7 +292,7 @@ impl<'ctx, 'a> LlvmFunction<'ctx, 'a> {
         builder: &'a Builder<'ctx>,
         module: &'a Module<'ctx>,
         execution_engine: &'a ExecutionEngine<'ctx>,
-        func_cache: &'a HashMap<FuncCacheKey, CompiledFunc<'ctx>>,
+        func_cache: &'a FunctionCache<'ctx>,
     ) -> Result<Self> {
         let name = func_name(addr);
         let ctx = llvm_ctx;
@@ -368,12 +345,10 @@ impl<'ctx, 'a> LlvmFunction<'ctx, 'a> {
         })
     }
 
-    pub fn compile(self) -> Result<CompiledFunc<'ctx>> {
+    pub fn compile(self) -> Result<CompiledFunction<'ctx>> {
+        self.builder.build_return(None)?;
         if self.func.verify(true) {
             let jit_func = unsafe { self.execution_engine.get_function(&self.name)? };
-            // let k = FuncCacheKey(func.addr);
-            // // TODO - notify if this is a replacement?
-            // self.func_cache.insert(k, jit_func);
             Ok(jit_func)
         } else {
             Err(anyhow!("Compilation failed"))
@@ -392,7 +367,7 @@ impl<'ctx, 'a> LlvmFunction<'ctx, 'a> {
         Ok(func_ptr)
     }
 
-    fn get_compiled_func_pointer(&self, key: FuncCacheKey) -> Result<Option<PointerValue<'a>>> {
+    fn get_compiled_func_pointer(&self, key: u64) -> Result<Option<PointerValue<'a>>> {
         // TODO sort out which int type to use where
         match self.func_cache.get(&key) {
             Some(f) => {
@@ -404,7 +379,7 @@ impl<'ctx, 'a> LlvmFunction<'ctx, 'a> {
                             .ptr_sized_int_type(ee.get_target_data(), None)
                             .const_int(f.as_raw() as u64, false),
                         self.ptr_t,
-                        &format!("{}_ptr", func_name(key.0)),
+                        &format!("{}_ptr", func_name(key)),
                     )?
                 };
                 Ok(Some(func_ptr))

@@ -106,16 +106,6 @@ fn main() -> Result<()> {
     let bios_path = env::args().into_iter().skip(1).next().unwrap();
     let context = Context::create();
     let mut grimlet = Grimlet::new(&context, &bios_path)?;
-
-    for i in 0..17 {
-        grimlet.state.regs[i] = i as u32;
-    }
-
-    println!("{:?}", grimlet.state.regs);
-    // grimlet.run()?;
-
-    println!("{:?}", grimlet.state.regs);
-    assert_eq!(grimlet.state.pc(), 99);
-
+    grimlet.run()?;
     Ok(())
 }
