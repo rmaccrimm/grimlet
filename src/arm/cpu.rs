@@ -45,6 +45,31 @@ pub enum Reg {
     CPSR = 16,
 }
 
+impl From<usize> for Reg {
+    fn from(value: usize) -> Self {
+        match value {
+            0 => Reg::R0,
+            1 => Reg::R1,
+            2 => Reg::R2,
+            3 => Reg::R3,
+            4 => Reg::R4,
+            5 => Reg::R5,
+            6 => Reg::R6,
+            7 => Reg::R7,
+            8 => Reg::R8,
+            9 => Reg::R9,
+            10 => Reg::R10,
+            11 => Reg::R11,
+            12 => Reg::R12,
+            13 => Reg::SP,
+            14 => Reg::LR,
+            15 => Reg::PC,
+            16 => Reg::CPSR,
+            _ => panic!("invalid register index: {}", value),
+        }
+    }
+}
+
 pub const NUM_REGS: usize = 17;
 
 /// Emulated CPU state and interpreter
