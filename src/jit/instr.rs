@@ -7,9 +7,7 @@ use crate::{
     jit::LlvmFunction,
 };
 
-use super::Compiler;
-
-impl<'a> Compiler<'a> {
+impl<'ctx, 'a> LlvmFunction<'ctx, 'a> {
     fn build(&self, func: &LlvmFunction, instr: &ArmDisasm) -> Result<()> {
         match instr.opcode {
             ArmInsn::ARM_INS_INVALID => todo!(),
@@ -23,7 +21,7 @@ impl<'a> Compiler<'a> {
             ArmInsn::ARM_INS_AESMC => todo!(),
             ArmInsn::ARM_INS_AND => todo!(),
             ArmInsn::ARM_INS_ASR => todo!(),
-            ArmInsn::ARM_INS_B => self.arm_b(func, instr),
+            ArmInsn::ARM_INS_B => self.arm_b(instr),
             ArmInsn::ARM_INS_BFC => todo!(),
             ArmInsn::ARM_INS_BFI => todo!(),
             ArmInsn::ARM_INS_BIC => todo!(),
