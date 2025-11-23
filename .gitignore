@@ -1,5 +1,7 @@
 /target
+/llvm
 *.bin
 *.ll
 /.scratch
 *.DS_Store
+/.vscode
