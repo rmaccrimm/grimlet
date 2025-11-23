@@ -24,7 +24,7 @@ impl ArmDisasm {
         Ok(Self {
             opcode: ArmInsn::from(insn.id().0),
             operands: cs
-                .insn_detail(&insn)?
+                .insn_detail(insn)?
                 .arch_detail()
                 .operands()
                 .into_iter()

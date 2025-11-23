@@ -48,8 +48,8 @@ impl<'ctx, 'a> LlvmFunction<'ctx, 'a> {
         let n =
             bd.build_int_compare(IntPredicate::SLT, last_value, self.i32_t.const_zero(), "z")?;
         let cpsr0 = self.set_flag(Flag::Z, self.reg_map.cpsr(), z)?;
-        // let cpsr1 = self.set_flag(Flag::N, cpsr0, n)?;
-        self.reg_map.update(Reg::CPSR, cpsr0);
+        let cpsr1 = self.set_flag(Flag::N, cpsr0, n)?;
+        self.reg_map.update(Reg::CPSR, cpsr1);
         Ok(())
     }
 
@@ -68,10 +68,7 @@ impl<'ctx, 'a> LlvmFunction<'ctx, 'a> {
 mod tests {
     use std::collections::HashMap;
 
-    use crate::{
-        arm::cpu::{ArmState, NUM_REGS},
-        jit::Compiler,
-    };
+    use crate::{arm::cpu::ArmState, jit::Compiler};
     use anyhow::Result;
     use inkwell::context::Context;
 
@@ -79,7 +76,7 @@ mod tests {
 
     #[test]
     fn test_set_flags() -> Result<()> {
-        let mut state = ArmState::new();
+        let mut state = ArmState::default();
         for i in 0..8 {
             state.regs[i] = i as u32;
         }

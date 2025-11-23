@@ -5,9 +5,9 @@ use super::*;
 fn test_jump_to_external() {
     // End result is:
     // pc <- r15 + r9
-    let mut state = ArmState::new();
+    let mut state = ArmState::default();
     for i in 0..NUM_REGS {
-        state.regs[i as usize] = (i * i) as u32;
+        state.regs[i] = (i * i) as u32;
     }
 
     let context = Context::create();
@@ -23,7 +23,7 @@ fn test_jump_to_external() {
     let interp_fn_type = f.void_t.fn_type(&[f.ptr_t.into(), f.i32_t.into()], false);
 
     let interp_fn_ptr = f
-        .get_external_func_pointer(ArmState::jump_to as u64)
+        .get_external_func_pointer(ArmState::jump_to as usize)
         .unwrap();
 
     let call = f
@@ -46,14 +46,13 @@ fn test_jump_to_external() {
 #[test]
 fn test_cross_module_calls() {
     // f1:
-    //  pc <- r0 - r3 - r2
+    //   pc <- r0 - r3 - r2
     // f2:
-    //  r0 <- 999
-    //  f1()
-    // (don't yet write registers besides PC pack to state)
-    let mut state = ArmState::new();
+    //   r0 <- 999
+    //   f1()
+    let mut state = ArmState::default();
     for i in 0..NUM_REGS {
-        state.regs[i as usize] = (i * i) as u32;
+        state.regs[i] = (i * i) as u32;
     }
 
     let context = Context::create();
@@ -78,7 +77,7 @@ fn test_cross_module_calls() {
     f1.write_state_out().unwrap();
 
     let func_ptr_param = f1
-        .get_external_func_pointer(ArmState::jump_to as u64)
+        .get_external_func_pointer(ArmState::jump_to as usize)
         .unwrap();
 
     let interp_fn_t = f1

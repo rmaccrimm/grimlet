@@ -1,14 +1,9 @@
+use crate::{arm::disasm::ArmDisasm, jit::LlvmFunction};
 use anyhow::Result;
 use capstone::arch::arm::ArmInsn;
-use inkwell::values::PointerValue;
-
-use crate::{
-    arm::{cpu::ArmState, disasm::ArmDisasm},
-    jit::LlvmFunction,
-};
 
 impl<'ctx, 'a> LlvmFunction<'ctx, 'a> {
-    fn build(&self, func: &LlvmFunction, instr: &ArmDisasm) -> Result<()> {
+    fn build(&self, instr: &ArmDisasm) -> Result<()> {
         match instr.opcode {
             ArmInsn::ARM_INS_INVALID => todo!(),
             ArmInsn::ARM_INS_ADC => todo!(),

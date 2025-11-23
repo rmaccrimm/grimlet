@@ -1,3 +1,4 @@
+#[macro_export]
 /// Convenience macro for testing single functions
 macro_rules! compile_and_run {
     ($compiler:ident, $func:ident, $state:ident) => {
@@ -186,7 +187,7 @@ impl<'ctx> Compiler<'ctx> {
 
     pub fn dump(&self) {
         for (i, m) in self.modules.iter().enumerate() {
-            m.print_to_file(&format!("mod_{}.ll", i)).unwrap();
+            m.print_to_file(format!("mod_{}.ll", i)).unwrap();
         }
     }
 
@@ -336,8 +337,8 @@ impl<'ctx, 'a> LlvmFunction<'ctx, 'a> {
         }
 
         Ok(LlvmFunction {
-            addr: addr as u64,
-            name: name,
+            addr,
+            name,
             reg_map: RegMap::new(reg_map),
             func,
             arm_state_ptr,
@@ -366,14 +367,14 @@ impl<'ctx, 'a> LlvmFunction<'ctx, 'a> {
         }
     }
 
-    fn get_external_func_pointer(&self, func_addr: u64) -> Result<PointerValue<'a>> {
+    fn get_external_func_pointer(&self, func_addr: usize) -> Result<PointerValue<'a>> {
         let ee = &self.execution_engine;
         let func_ptr = self.builder.build_int_to_ptr(
             self.llvm_ctx
                 .ptr_sized_int_type(ee.get_target_data(), None)
                 .const_int(func_addr as u64, false),
             self.ptr_t,
-            &format!("extern_ptr"),
+            "extern_ptr",
         )?;
         Ok(func_ptr)
     }
@@ -388,7 +389,9 @@ impl<'ctx, 'a> LlvmFunction<'ctx, 'a> {
                     self.builder.build_int_to_ptr(
                         self.llvm_ctx
                             .ptr_sized_int_type(ee.get_target_data(), None)
-                            .const_int(f.as_raw() as u64, false),
+                            // Double cast since usize ensures correct pointer size but inkwell
+                            // expects u64
+                            .const_int((f.as_raw() as usize) as u64, false),
                         self.ptr_t,
                         &format!("{}_ptr", func_name(key)),
                     )?

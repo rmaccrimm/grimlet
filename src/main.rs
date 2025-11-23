@@ -7,13 +7,11 @@ use crate::arm::cpu::{ArmMode, ArmState, MainMemory};
 use crate::arm::disasm::ArmDisasm;
 use crate::jit::{Compiler, EntryPoint, FunctionCache};
 use anyhow::Result;
-use capstone::arch::arm::{ArmInsn, ArmOperand};
-use capstone::arch::{ArchOperand, BuildsCapstone};
-use capstone::{Capstone, Insn};
+use capstone::Capstone;
+use capstone::arch::BuildsCapstone;
 
 use inkwell::context::Context;
 use std::env;
-use std::fmt::Display;
 
 /// Am I sticking with this name?
 struct Grimlet<'ctx> {
@@ -54,7 +52,7 @@ impl Disassembler {
                     .disasm_count(ch, start_addr + 4 * i as u64, 1)
                     .unwrap();
                 let i = instructions.as_ref().iter().next().unwrap();
-                ArmDisasm::from_cs_insn(&self.cs, &i).unwrap()
+                ArmDisasm::from_cs_insn(&self.cs, i).unwrap()
             })
     }
 }
@@ -63,7 +61,7 @@ impl<'ctx> Grimlet<'ctx> {
     pub fn new(context: &'ctx Context, bios_path: &str) -> Result<Self> {
         let state = ArmState::with_bios(bios_path)?;
         let disasm = Disassembler::new()?;
-        let mut compiler = Compiler::new(&context)?;
+        let mut compiler = Compiler::new(context)?;
         let entry_point = compiler.compile_entry_point()?;
         let func_cache = FunctionCache::new();
 
@@ -77,33 +75,31 @@ impl<'ctx> Grimlet<'ctx> {
     }
 
     pub fn run(&mut self) -> Result<()> {
-        loop {
-            let curr_pc = self.state.pc() as u64;
-            let func = match self.func_cache.get(&curr_pc) {
-                Some(func) => func,
-                None => {
-                    let func = self.compiler.new_function(curr_pc, &self.func_cache)?;
-                    for insn in
-                        self.disasm
-                            .iter_insns(&self.state.mem, curr_pc as u64, ArmMode::ARM)
-                    {
-                        println!("{}", insn);
-                        break;
-                    }
-                    let compiled = func.compile()?;
-                    self.func_cache.insert(curr_pc, compiled);
-                    self.func_cache.get(&curr_pc).unwrap()
-                }
-            };
-            unsafe { self.entry_point.call(&mut self.state, func.as_raw()) };
-            break;
-        }
+        let curr_pc = self.state.pc() as u64;
+        let func = match self.func_cache.get(&curr_pc) {
+            Some(func) => func,
+            None => {
+                let func = self.compiler.new_function(curr_pc, &self.func_cache)?;
+                let insn = self
+                    .disasm
+                    .iter_insns(&self.state.mem, curr_pc, ArmMode::ARM)
+                    .next()
+                    .unwrap();
+
+                println!("{}", insn);
+                let compiled = func.compile()?;
+                self.func_cache.insert(curr_pc, compiled);
+                self.func_cache.get(&curr_pc).unwrap()
+            }
+        };
+        unsafe { self.entry_point.call(&mut self.state, func.as_raw()) };
+
         Ok(())
     }
 }
 
 fn main() -> Result<()> {
-    let bios_path = env::args().into_iter().skip(1).next().unwrap();
+    let bios_path = env::args().nth(1).unwrap();
     let context = Context::create();
     let mut grimlet = Grimlet::new(&context, &bios_path)?;
     grimlet.run()?;

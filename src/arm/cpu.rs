@@ -11,8 +11,8 @@ pub struct MainMemory {
     pub bios: Vec<u8>,
 }
 
-impl MainMemory {
-    pub fn new() -> Self {
+impl Default for MainMemory {
+    fn default() -> Self {
         // 16 kB
         let bios = vec![0; 0x4000];
         Self { bios }
@@ -80,15 +80,17 @@ pub struct ArmState {
     pub mem: Box<MainMemory>,
 }
 
-impl ArmState {
-    pub fn new() -> Self {
+impl Default for ArmState {
+    fn default() -> Self {
         Self {
             mode: ArmMode::ARM,
             regs: [0; NUM_REGS],
-            mem: Box::new(MainMemory::new()),
+            mem: Box::new(MainMemory::default()),
         }
     }
+}
 
+impl ArmState {
     // The compiler code that performs lookups into this object needs to be kept in sync with
     // the actual definition so define its corresponding LLVM type here.
     pub fn get_llvm_type<'ctx>(llvm_ctx: &'ctx Context) -> StructType<'ctx> {
@@ -107,7 +109,7 @@ impl ArmState {
     }
 
     pub fn with_bios(bios_path: &str) -> Result<Self> {
-        let mut st = ArmState::new();
+        let mut st = ArmState::default();
 
         if !fs::exists(bios_path)? {
             return Err(anyhow!("BIOS file not found"));
