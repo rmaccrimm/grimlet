@@ -1,7 +1,7 @@
-// mod alu;
-// mod branch;
-// mod compile;
-// mod ldstr;
+mod alu;
+mod branch;
+mod instr;
+mod ldstr;
 mod tests;
 
 use crate::arm::cpu::{ArmState, NUM_REGS, Reg};
@@ -274,14 +274,14 @@ where
     addr: u64,
     name: String,
     func: FunctionValue<'a>,
-    reg_map: RegMap<'ctx>,
+    reg_map: RegMap<'a>,
     arm_state_ptr: PointerValue<'a>,
     reg_array_ptr: PointerValue<'a>,
     arm_state_t: StructType<'a>,
+    reg_array_t: ArrayType<'a>,
     fn_t: FunctionType<'a>,
     i32_t: IntType<'a>,
     ptr_t: PointerType<'a>,
-    regs_t: ArrayType<'a>,
     void_t: VoidType<'a>,
 }
 
@@ -340,7 +340,7 @@ impl<'ctx, 'a> LlvmFunction<'ctx, 'a> {
             fn_t,
             i32_t,
             ptr_t,
-            regs_t,
+            reg_array_t: regs_t,
             void_t,
         })
     }
@@ -388,13 +388,12 @@ impl<'ctx, 'a> LlvmFunction<'ctx, 'a> {
         }
     }
 
-    /// Write out the most recent values (reg_map) to the guest state
+    /// When context switching, write out the latest values in reg_map to the guest state
     fn write_state_out(&self) -> Result<()> {
         let bd = &self.builder;
         let zero = self.i32_t.const_zero();
         let one = self.i32_t.const_int(1, false);
-        for (i, r) in self.reg_map.llvm_values.iter().enumerate() {
-            assert!(i < NUM_REGS);
+        for (i, rval) in self.reg_map.llvm_values.iter().enumerate() {
             let reg_ind = self.i32_t.const_int(i as u64, false);
             let gep_inds = [zero, one, reg_ind];
             let name = format!("arm_state_r{}_ptr", i);
@@ -402,7 +401,24 @@ impl<'ctx, 'a> LlvmFunction<'ctx, 'a> {
             let arm_state_elem_ptr =
                 unsafe { bd.build_gep(self.arm_state_t, self.arm_state_ptr, &gep_inds, &name)? };
 
-            bd.build_store(arm_state_elem_ptr, *r)?;
+            bd.build_store(arm_state_elem_ptr, *rval)?;
+        }
+        Ok(())
+    }
+
+    // For jumping without context switching. Updates the reg array allocated in entry point with
+    // latest values in reg_map
+    fn update_reg_array(&self) -> Result<()> {
+        let bd = &self.builder;
+        let zero = self.i32_t.const_zero();
+        for (i, rval) in self.reg_map.llvm_values.iter().enumerate() {
+            let reg_ind = self.i32_t.const_int(i as u64, false);
+            let gep_inds = [zero, reg_ind];
+            let name = format!("reg_arr_r{}_ptr", i);
+            // Pointer to the local register (i32 array)
+            let reg_arr_elem_ptr =
+                unsafe { bd.build_gep(self.reg_array_t, self.reg_array_ptr, &gep_inds, &name)? };
+            bd.build_store(reg_arr_elem_ptr, *rval)?;
         }
         Ok(())
     }
