@@ -9,6 +9,8 @@ use capstone::{
 };
 use std::fmt::Display;
 
+use crate::arm::cpu::Reg;
+
 #[derive(Clone, Debug)]
 pub struct ArmDisasm {
     pub opcode: ArmInsn,
@@ -37,14 +39,14 @@ impl ArmDisasm {
         })
     }
 
-    pub fn get_reg_op(&self, ind: usize) -> Result<usize> {
+    pub fn get_reg_op(&self, ind: usize) -> Result<Reg> {
         if let ArmOperandType::Reg(reg_id) = self
             .operands
             .get(ind)
             .ok_or(anyhow!("missing operand {}", ind))?
             .op_type
         {
-            Ok(reg_id.0 as usize)
+            Ok(Reg::from(reg_id.0 as usize))
         } else {
             Err(anyhow!("Bad operand: not a register"))
         }
