@@ -1,7 +1,7 @@
-mod alu;
-mod branch;
-mod compile;
-mod ldstr;
+// mod alu;
+// mod branch;
+// mod compile;
+// mod ldstr;
 mod tests;
 
 use crate::arm::cpu::{ArmState, NUM_REGS, Reg};
@@ -53,12 +53,12 @@ impl<'a> RegMap<'a> {
         self.get(Reg::R1)
     }
 
-    pub fn r3(&self) -> IntValue<'a> {
-        self.get(Reg::CPSR)
-    }
-
     pub fn r2(&self) -> IntValue<'a> {
         self.get(Reg::R2)
+    }
+
+    pub fn r3(&self) -> IntValue<'a> {
+        self.get(Reg::R3)
     }
 
     pub fn r4(&self) -> IntValue<'a> {
@@ -149,19 +149,12 @@ impl<'ctx> Compiler<'ctx> {
         let engines = Vec::new();
         let builder = context.create_builder();
 
-        let mut comp = Self {
+        Ok(Self {
             llvm_ctx: context,
             modules,
             engines,
             builder,
-        };
-        let i = comp.create_module("m_entrypoint")?;
-        // comp.build_entry_point()
-        //     .context("Failed to compile entry point")?;
-
-        // let ee = &comp.engines[i];
-        // comp.entry_point = Some(unsafe { ee.get_function("entry_point")? });
-        Ok(comp)
+        })
     }
 
     pub fn new_function<'a>(
@@ -227,7 +220,7 @@ impl<'ctx> Compiler<'ctx> {
     }
 
     // Performs context switch from guest machine to LLVM code and jumps to provided function
-    fn build_entry_point(&mut self) -> Result<EntryPoint<'ctx>> {
+    fn compile_entry_point(&mut self) -> Result<EntryPoint<'ctx>> {
         let i = self.create_module("m_entrypoint")?;
         let ctx = self.llvm_ctx;
         let bd = &self.builder;
@@ -237,7 +230,7 @@ impl<'ctx> Compiler<'ctx> {
         let i32_t = ctx.i32_type();
         let ptr_t = ctx.ptr_type(AddressSpace::default());
         let void_t = ctx.void_type();
-        let regs_t = i32_t.array_type(17);
+        let regs_t = i32_t.array_type(NUM_REGS as u32);
         let arm_state_t = ArmState::get_llvm_type(ctx);
         let fn_t = void_t.fn_type(&[ptr_t.into(), ptr_t.into()], false);
 
@@ -257,7 +250,7 @@ impl<'ctx> Compiler<'ctx> {
         // Perform context switch in, i.e. copy guest machine state into an array
         let zero = i32_t.const_zero();
         let one = i32_t.const_int(1, false);
-        for r in 0..17usize {
+        for r in 0..NUM_REGS {
             let reg_ind = i32_t.const_int(r as u64, false);
             let gep_inds = [zero, one, reg_ind];
             let name = format!("arm_state_r{}_ptr", r);
@@ -282,7 +275,7 @@ impl<'ctx> Compiler<'ctx> {
             &[arm_state_ptr.into(), regs_ptr.into()],
             "call",
         )?;
-        call.set_tail_call(true);
+        // call.set_tail_call(true);
         bd.build_return(None)?;
         assert!(f.verify(true));
 
@@ -291,8 +284,7 @@ impl<'ctx> Compiler<'ctx> {
     }
 }
 
-/// State needed to build a new function. Returned by Compiler so you cannot attempt to compile
-/// something that has not been initialized.
+/// Builder struct for creating & compiling LLVM functions
 pub struct LlvmFunction<'ctx, 'a>
 where
     'ctx: 'a,
@@ -330,7 +322,7 @@ impl<'ctx, 'a> LlvmFunction<'ctx, 'a> {
         let i32_t = ctx.i32_type();
         let ptr_t = ctx.ptr_type(AddressSpace::default());
         let void_t = ctx.void_type();
-        let regs_t = i32_t.array_type(17);
+        let regs_t = i32_t.array_type(NUM_REGS as u32);
         let arm_state_t = ArmState::get_llvm_type(ctx);
         let fn_t = void_t.fn_type(&[ptr_t.into(), ptr_t.into()], false);
 
@@ -342,18 +334,18 @@ impl<'ctx, 'a> LlvmFunction<'ctx, 'a> {
         let arm_state_ptr = get_ptr_param(&func, 0)?;
         let reg_array_ptr = get_ptr_param(&func, 1)?;
 
-        let reg_map = (0..17)
-            .map(|i| {
-                let name = format!("r{}_elem_ptr", i);
-                let gep_inds = [i32_t.const_zero(), i32_t.const_int(i, false)];
-                let ptr = unsafe {
-                    bd.build_gep(regs_t, reg_array_ptr, &gep_inds, &name)
-                        .unwrap()
-                };
-                let name = format!("r{}", i);
-                bd.build_load(i32_t, ptr, &name).unwrap().into_int_value()
-            })
-            .collect();
+        let mut reg_map = Vec::new();
+        for i in 0..NUM_REGS {
+            let name = format!("r{}_elem_ptr", i);
+            let gep_inds = [i32_t.const_zero(), i32_t.const_int(i as u64, false)];
+            let ptr = unsafe {
+                bd.build_gep(regs_t, reg_array_ptr, &gep_inds, &name)
+                    .unwrap()
+            };
+            let name = format!("r{}", i);
+            let v = bd.build_load(i32_t, ptr, &name)?.into_int_value();
+            reg_map.push(v);
+        }
 
         Ok(LlvmFunction {
             addr: addr as u64,
@@ -426,14 +418,16 @@ impl<'ctx, 'a> LlvmFunction<'ctx, 'a> {
         let bd = &self.builder;
         let zero = self.i32_t.const_zero();
         let one = self.i32_t.const_int(1, false);
-        for r in 0..NUM_REGS {
-            let reg_ind = self.i32_t.const_int(r as u64, false);
+        for (i, r) in self.reg_map.llvm_values.iter().enumerate() {
+            assert!(i < NUM_REGS);
+            let reg_ind = self.i32_t.const_int(i as u64, false);
             let gep_inds = [zero, one, reg_ind];
-            let name = format!("arm_state_r{}_ptr", r);
+            let name = format!("arm_state_r{}_ptr", i);
             // Pointer to the register in the guest machine (ArmState object)
             let arm_state_elem_ptr =
                 unsafe { bd.build_gep(self.arm_state_t, self.arm_state_ptr, &gep_inds, &name)? };
-            bd.build_store(arm_state_elem_ptr, self.reg_map.get(r.into()))?;
+
+            bd.build_store(arm_state_elem_ptr, *r)?;
         }
         Ok(())
     }
