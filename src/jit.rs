@@ -1,3 +1,16 @@
+/// Convenience macro for testing single functions
+macro_rules! compile_and_run {
+    ($compiler:ident, $func:ident, $state:ident) => {
+        unsafe {
+            let fptr = $func.compile().unwrap().as_raw();
+            $compiler
+                .compile_entry_point()
+                .unwrap()
+                .call(&mut $state, fptr);
+        }
+    };
+}
+
 mod alu;
 mod branch;
 mod instr;
@@ -5,10 +18,7 @@ mod ldstr;
 mod tests;
 
 use crate::arm::cpu::{ArmState, NUM_REGS, Reg};
-use anyhow::{Context as _, Result, anyhow};
-use std::collections::HashMap;
-use std::ops::Add;
-
+use anyhow::{Result, anyhow};
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::execution_engine::{ExecutionEngine, JitFunction};
@@ -16,6 +26,7 @@ use inkwell::module::Module;
 use inkwell::types::{ArrayType, FunctionType, IntType, PointerType, StructType, VoidType};
 use inkwell::values::{FunctionValue, IntValue, PointerValue};
 use inkwell::{AddressSpace, OptimizationLevel};
+use std::collections::HashMap;
 
 type JumpTarget = unsafe extern "C" fn(*mut ArmState, *const i32);
 

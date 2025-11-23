@@ -12,8 +12,6 @@ fn test_jump_to_external() {
 
     let context = Context::create();
     let mut comp = Compiler::new(&context).unwrap();
-    let entry_point = comp.compile_entry_point().unwrap();
-
     let func_cache = HashMap::new();
     let f = comp.new_function(0, &func_cache).unwrap();
 
@@ -27,6 +25,7 @@ fn test_jump_to_external() {
     let interp_fn_ptr = f
         .get_external_func_pointer(ArmState::jump_to as u64)
         .unwrap();
+
     let call = f
         .builder
         .build_indirect_call(
@@ -36,15 +35,10 @@ fn test_jump_to_external() {
             "fn_result",
         )
         .unwrap();
-    // call.set_tail_call(true);
-    f.builder.build_return(None).unwrap();
-
-    let compiled = f.compile().unwrap();
+    call.set_tail_call(true);
 
     println!("{:?}", state.regs);
-    unsafe {
-        entry_point.call(&mut state, compiled.as_raw());
-    }
+    compile_and_run!(comp, f, state);
     println!("{:?}", state.regs);
     assert_eq!(state.pc(), 306);
 }
@@ -65,10 +59,9 @@ fn test_cross_module_calls() {
     let context = Context::create();
     let mut comp = Compiler::new(&context).unwrap();
     let entry_point = comp.compile_entry_point().unwrap();
-
     let mut cache = HashMap::new();
-    let f1 = comp.new_function(0, &cache).unwrap();
 
+    let f1 = comp.new_function(0, &cache).unwrap();
     let r0 = f1.reg_map.get(Reg::R0);
     let r2 = f1.reg_map.get(Reg::R2);
     let r3 = f1.reg_map.get(Reg::R3);
@@ -106,35 +99,17 @@ fn test_cross_module_calls() {
         )
         .unwrap();
     call.set_tail_call(true);
-    f1.builder.build_return(None).unwrap();
-
     let compiled1 = f1.compile().unwrap();
-    let k1 = FuncCacheKey(0);
-    cache.insert(k1, compiled1);
+    cache.insert(0, compiled1);
 
-    let f2 = comp.new_function(1, &cache).unwrap();
-    let r0_elem_ptr = unsafe {
-        // This will later be part of a build_call method
-        // 1. store latest version of each register back on the stack. Can probably optimize
-        //    this later by only storing those that actually change (or maybe LLVM does this?)
-        //    Only doing r0 for this test
-        f2.builder
-            .build_gep(
-                f2.i32_t.array_type(17),
-                f2.reg_array_ptr,
-                &[f2.i32_t.const_zero(), f2.i32_t.const_zero()],
-                "r0_elem_ptr",
-            )
-            .unwrap()
-    };
-    f2.builder
-        .build_store(r0_elem_ptr, f2.i32_t.const_int(999, false))
-        .unwrap();
+    let mut f2 = comp.new_function(1, &cache).unwrap();
+    f2.reg_map.update(Reg::R0, f2.i32_t.const_int(999, false));
+    f2.update_reg_array().unwrap();
 
-    // 2. Construct the function pointer using raw pointer obtained from function cache
-    let func_ptr_param = f2.get_compiled_func_pointer(k1).unwrap().unwrap();
+    // Construct the function pointer using raw pointer obtained from function cache
+    let func_ptr_param = f2.get_compiled_func_pointer(0).unwrap().unwrap();
 
-    // 3. Perform indirect call through pointer
+    // Perform indirect call through pointer
     let call = f2
         .builder
         .build_indirect_call(
@@ -145,14 +120,13 @@ fn test_cross_module_calls() {
         )
         .unwrap();
     call.set_tail_call(true);
-    f2.builder.build_return(None).unwrap();
-
     let compiled2 = f2.compile().unwrap();
+    cache.insert(1, compiled2);
 
-    comp.dump();
+    // comp.dump();
     println!("{:?}", state.regs);
     unsafe {
-        entry_point.call(&mut state, compiled2.as_raw());
+        entry_point.call(&mut state, cache.get(&1).unwrap().as_raw());
     }
     println!("{:?}", state.regs);
 
