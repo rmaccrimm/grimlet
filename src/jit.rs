@@ -14,20 +14,22 @@ macro_rules! compile_and_run {
 
 mod alu;
 mod branch;
+mod flags;
 mod instr;
-mod ldstr;
-mod tests;
 
 use crate::arm::cpu::{ArmState, NUM_REGS, Reg};
+use crate::arm::disasm::ArmDisasm;
 use anyhow::{Result, anyhow};
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::execution_engine::{ExecutionEngine, JitFunction};
+use inkwell::intrinsics::Intrinsic;
 use inkwell::module::Module;
 use inkwell::types::{ArrayType, FunctionType, IntType, PointerType, StructType, VoidType};
 use inkwell::values::{FunctionValue, IntValue, PointerValue};
 use inkwell::{AddressSpace, OptimizationLevel};
 use std::collections::HashMap;
+use std::fs;
 
 type JumpTarget = unsafe extern "C" fn(*mut ArmState, *const i32);
 
@@ -142,8 +144,7 @@ fn func_name(addr: u64) -> String {
     format!("fn_{:#010x}", addr)
 }
 
-/// Core struct responsible for translating ARM instructions to LLVM and managing the compiled
-/// executable code.
+/// Manages LLVM compilation state and constructs new LlvmFunctions
 pub struct Compiler<'ctx> {
     llvm_ctx: &'ctx Context,
     builder: Builder<'ctx>,
@@ -185,10 +186,15 @@ impl<'ctx> Compiler<'ctx> {
         Ok(lf)
     }
 
-    pub fn dump(&self) {
-        for (i, m) in self.modules.iter().enumerate() {
-            m.print_to_file(format!("mod_{}.ll", i)).unwrap();
+    pub fn dump(&self) -> Result<()> {
+        if fs::exists("llvm")? && fs::metadata("llvm")?.is_dir() {
+            fs::remove_dir_all("llvm")?
         }
+        fs::create_dir("llvm")?;
+        for (i, m) in self.modules.iter().enumerate() {
+            m.print_to_file(format!("llvm/mod_{}.ll", i)).unwrap();
+        }
+        Ok(())
     }
 
     fn create_module(&mut self, name: &str) -> Result<usize> {
@@ -273,28 +279,42 @@ impl<'ctx> Compiler<'ctx> {
     }
 }
 
-/// Builder struct for creating & compiling LLVM functions
+/// Builder for creating & compiling LLVM functions
 pub struct LlvmFunction<'ctx, 'a>
 where
     'ctx: 'a,
 {
+    addr: u64,
+    name: String,
+    func: FunctionValue<'a>,
+    // Latest value for each register
+    reg_map: RegMap<'a>,
+    // References to parent compiler LLVM state
     llvm_ctx: &'ctx Context,
     builder: &'a Builder<'ctx>,
     module: &'a Module<'ctx>,
     execution_engine: &'a ExecutionEngine<'ctx>,
+    // Read only ref to already-compiled functions
     func_cache: &'a FunctionCache<'ctx>,
-    addr: u64,
-    name: String,
-    func: FunctionValue<'a>,
-    reg_map: RegMap<'a>,
+    // Last instruction executed. Used to lazily evaluate status flags
+    last_instr: ArmDisasm,
+    // Function arguments
     arm_state_ptr: PointerValue<'a>,
     reg_array_ptr: PointerValue<'a>,
+    // Frequently used LLVM types
     arm_state_t: StructType<'a>,
     reg_array_t: ArrayType<'a>,
     fn_t: FunctionType<'a>,
     i32_t: IntType<'a>,
     ptr_t: PointerType<'a>,
     void_t: VoidType<'a>,
+    // Return type of add/sub with overflow intrinsics
+    intrinsic_t: StructType<'a>,
+    // Overflow arithmetic intrinsics
+    sadd_with_overflow: FunctionValue<'a>,
+    ssub_with_overflow: FunctionValue<'a>,
+    uadd_with_overflow: FunctionValue<'a>,
+    usub_with_overflow: FunctionValue<'a>,
 }
 
 impl<'ctx, 'a> LlvmFunction<'ctx, 'a> {
@@ -336,6 +356,26 @@ impl<'ctx, 'a> LlvmFunction<'ctx, 'a> {
             reg_map.push(v);
         }
 
+        // Declare intrinsics
+        let intrinsic_t = ctx.struct_type(&[i32_t.into(), ctx.bool_type().into()], false);
+
+        let sadd_intrinsic = Intrinsic::find("llvm.sadd.with.overflow").unwrap();
+        let sadd_with_overflow = sadd_intrinsic
+            .get_declaration(module, &[i32_t.into()])
+            .unwrap();
+        let ssub_intrinsic = Intrinsic::find("llvm.ssub.with.overflow").unwrap();
+        let ssub_with_overflow = ssub_intrinsic
+            .get_declaration(module, &[i32_t.into()])
+            .unwrap();
+        let uadd_intrinsic = Intrinsic::find("llvm.uadd.with.overflow").unwrap();
+        let uadd_with_overflow = uadd_intrinsic
+            .get_declaration(module, &[i32_t.into()])
+            .unwrap();
+        let usub_intrinsic = Intrinsic::find("llvm.usub.with.overflow").unwrap();
+        let usub_with_overflow = usub_intrinsic
+            .get_declaration(module, &[i32_t.into()])
+            .unwrap();
+
         Ok(LlvmFunction {
             addr,
             name,
@@ -354,6 +394,12 @@ impl<'ctx, 'a> LlvmFunction<'ctx, 'a> {
             ptr_t,
             reg_array_t: regs_t,
             void_t,
+            last_instr: ArmDisasm::default(),
+            intrinsic_t,
+            sadd_with_overflow,
+            ssub_with_overflow,
+            uadd_with_overflow,
+            usub_with_overflow,
         })
     }
 
@@ -434,6 +480,186 @@ impl<'ctx, 'a> LlvmFunction<'ctx, 'a> {
                 unsafe { bd.build_gep(self.reg_array_t, self.reg_array_ptr, &gep_inds, &name)? };
             bd.build_store(reg_arr_elem_ptr, *rval)?;
         }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_jump_to_external() {
+        // End result is:
+        // pc <- r15 + r9
+        let mut state = ArmState::default();
+        for i in 0..NUM_REGS {
+            state.regs[i] = (i * i) as u32;
+        }
+
+        let context = Context::create();
+        let mut comp = Compiler::new(&context).unwrap();
+        let func_cache = HashMap::new();
+        let f = comp.new_function(0, &func_cache).unwrap();
+
+        let add_res = f
+            .builder
+            .build_int_add(f.reg_map.get(Reg::PC), f.reg_map.get(Reg::R9), "add_res")
+            .unwrap();
+
+        let interp_fn_type = f.void_t.fn_type(&[f.ptr_t.into(), f.i32_t.into()], false);
+
+        let interp_fn_ptr = f
+            .get_external_func_pointer(ArmState::jump_to as usize)
+            .unwrap();
+
+        let call = f
+            .builder
+            .build_indirect_call(
+                interp_fn_type,
+                interp_fn_ptr,
+                &[f.arm_state_ptr.into(), add_res.into()],
+                "fn_result",
+            )
+            .unwrap();
+        call.set_tail_call(true);
+
+        println!("{:?}", state.regs);
+        compile_and_run!(comp, f, state);
+        println!("{:?}", state.regs);
+        assert_eq!(state.pc(), 306);
+    }
+
+    #[test]
+    fn test_cross_module_calls() {
+        // f1:
+        //   pc <- r0 - r3 - r2
+        // f2:
+        //   r0 <- 999
+        //   f1()
+        let mut state = ArmState::default();
+        for i in 0..NUM_REGS {
+            state.regs[i] = (i * i) as u32;
+        }
+
+        let context = Context::create();
+        let mut comp = Compiler::new(&context).unwrap();
+        let entry_point = comp.compile_entry_point().unwrap();
+        let mut cache = HashMap::new();
+
+        let f1 = comp.new_function(0, &cache).unwrap();
+        let r0 = f1.reg_map.get(Reg::R0);
+        let r2 = f1.reg_map.get(Reg::R2);
+        let r3 = f1.reg_map.get(Reg::R3);
+        let v0 = f1.builder.build_int_add(r3, r2, "v0").unwrap();
+        let v1 = f1
+            .builder
+            .build_int_sub(
+                // r0,
+                r0, v0, "v1",
+            )
+            .unwrap();
+
+        // Perform context switch out before jumping to ArmState code
+        f1.write_state_out().unwrap();
+
+        let func_ptr_param = f1
+            .get_external_func_pointer(ArmState::jump_to as usize)
+            .unwrap();
+
+        let interp_fn_t = f1
+            .void_t
+            .fn_type(&[f1.ptr_t.into(), f1.i32_t.into()], false);
+
+        let call = f1
+            .builder
+            .build_indirect_call(
+                interp_fn_t,
+                func_ptr_param,
+                &[f1.arm_state_ptr.into(), v1.into()],
+                // &[
+                //     f1.arm_state_ptr.into(),
+                //     f1.i32_t.const_int(843, false).into(),
+                // ],
+                "fn_result",
+            )
+            .unwrap();
+        call.set_tail_call(true);
+        let compiled1 = f1.compile().unwrap();
+        cache.insert(0, compiled1);
+
+        let mut f2 = comp.new_function(1, &cache).unwrap();
+        f2.reg_map.update(Reg::R0, f2.i32_t.const_int(999, false));
+        f2.update_reg_array().unwrap();
+
+        // Construct the function pointer using raw pointer obtained from function cache
+        let func_ptr_param = f2.get_compiled_func_pointer(0).unwrap().unwrap();
+
+        // Perform indirect call through pointer
+        let call = f2
+            .builder
+            .build_indirect_call(
+                f2.fn_t,
+                func_ptr_param,
+                &[f2.arm_state_ptr.into(), f2.reg_array_ptr.into()],
+                "call",
+            )
+            .unwrap();
+        call.set_tail_call(true);
+        let compiled2 = f2.compile().unwrap();
+        cache.insert(1, compiled2);
+
+        // comp.dump();
+        println!("{:?}", state.regs);
+        unsafe {
+            entry_point.call(&mut state, cache.get(&1).unwrap().as_raw());
+        }
+        println!("{:?}", state.regs);
+
+        assert_eq!(
+            state.regs,
+            [
+                999, 1, 4, 9, 16, 25, 36, 49, 64, 81, 100, 121, 144, 169, 196, 986, 256
+            ]
+        );
+    }
+
+    #[test]
+    fn test_call_intrinsic() -> Result<()> {
+        let mut state = ArmState::default();
+        let context = Context::create();
+        let cache = HashMap::new();
+        let mut comp = Compiler::new(&context)?;
+        let mut f = comp.new_function(0, &cache)?;
+        let bd = f.builder;
+        let call = bd.build_call(
+            f.sadd_with_overflow,
+            &[
+                f.i32_t.const_int(0x7fffffff_u64, false).into(),
+                f.i32_t.const_int(0xff, false).into(),
+            ],
+            "res",
+        )?;
+        let res = call
+            .try_as_basic_value()
+            .left()
+            .unwrap()
+            .into_struct_value();
+
+        let val = bd.build_extract_value(res, 0, "val")?.into_int_value();
+        let overflowed = bd
+            .build_extract_value(res, 1, "overflowed")?
+            .into_int_value();
+
+        f.reg_map.update(Reg::R0, val);
+        f.reg_map.update(Reg::R1, overflowed);
+        f.write_state_out()?;
+        compile_and_run!(comp, f, state);
+
+        comp.dump()?;
+        println!("{:?}", state.regs);
+        assert_eq!(state.regs[0], 0x800000fe);
+        assert_eq!(state.regs[1], 1);
         Ok(())
     }
 }

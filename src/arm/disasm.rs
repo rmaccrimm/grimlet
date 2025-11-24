@@ -1,5 +1,6 @@
 use anyhow::Result;
 use anyhow::anyhow;
+use capstone::arch::BuildsCapstone;
 use capstone::{
     Capstone, Insn,
     arch::{
@@ -9,6 +10,8 @@ use capstone::{
 };
 use std::fmt::Display;
 
+use crate::arm::cpu::ArmMode;
+use crate::arm::cpu::MainMemory;
 use crate::arm::cpu::Reg;
 
 #[derive(Clone, Debug)]
@@ -17,6 +20,17 @@ pub struct ArmDisasm {
     pub operands: Vec<ArmOperand>,
     pub addr: u64,
     pub repr: String,
+}
+
+impl Default for ArmDisasm {
+    fn default() -> Self {
+        Self {
+            opcode: ArmInsn::ARM_INS_NOP,
+            operands: Default::default(),
+            addr: Default::default(),
+            repr: Default::default(),
+        }
+    }
 }
 
 impl ArmDisasm {
@@ -69,5 +83,40 @@ impl ArmDisasm {
 impl Display for ArmDisasm {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.repr)
+    }
+}
+
+pub struct Disassembler {
+    cs: Capstone,
+}
+
+impl Disassembler {
+    pub fn new() -> Result<Self> {
+        let cs = Capstone::new()
+            .arm()
+            .mode(capstone::arch::arm::ArchMode::Arm)
+            .detail(true)
+            .build()?;
+        Ok(Self { cs })
+    }
+
+    pub fn iter_insns(
+        &self,
+        mem: &MainMemory,
+        start_addr: u64,
+        _mode: ArmMode,
+    ) -> impl Iterator<Item = ArmDisasm> {
+        mem.bios
+            .chunks(4)
+            .skip(start_addr as usize)
+            .enumerate()
+            .map(move |(i, ch)| {
+                let instructions = self
+                    .cs
+                    .disasm_count(ch, start_addr + 4 * i as u64, 1)
+                    .unwrap();
+                let i = instructions.as_ref().iter().next().unwrap();
+                ArmDisasm::from_cs_insn(&self.cs, i).unwrap()
+            })
     }
 }

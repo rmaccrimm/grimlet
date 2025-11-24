@@ -4,7 +4,7 @@ pub mod arm;
 pub mod jit;
 
 use crate::arm::cpu::{ArmMode, ArmState, MainMemory};
-use crate::arm::disasm::ArmDisasm;
+use crate::arm::disasm::{ArmDisasm, Disassembler};
 use crate::jit::{Compiler, EntryPoint, FunctionCache};
 use anyhow::Result;
 use capstone::Capstone;
@@ -20,41 +20,6 @@ struct Grimlet<'ctx> {
     compiler: Compiler<'ctx>,
     entry_point: EntryPoint<'ctx>,
     func_cache: FunctionCache<'ctx>,
-}
-
-struct Disassembler {
-    cs: Capstone,
-}
-
-impl Disassembler {
-    pub fn new() -> Result<Self> {
-        let cs = Capstone::new()
-            .arm()
-            .mode(capstone::arch::arm::ArchMode::Arm)
-            .detail(true)
-            .build()?;
-        Ok(Self { cs })
-    }
-
-    pub fn iter_insns(
-        &self,
-        mem: &MainMemory,
-        start_addr: u64,
-        _mode: ArmMode,
-    ) -> impl Iterator<Item = ArmDisasm> {
-        mem.bios
-            .chunks(4)
-            .skip(start_addr as usize)
-            .enumerate()
-            .map(move |(i, ch)| {
-                let instructions = self
-                    .cs
-                    .disasm_count(ch, start_addr + 4 * i as u64, 1)
-                    .unwrap();
-                let i = instructions.as_ref().iter().next().unwrap();
-                ArmDisasm::from_cs_insn(&self.cs, i).unwrap()
-            })
-    }
 }
 
 impl<'ctx> Grimlet<'ctx> {
@@ -103,5 +68,6 @@ fn main() -> Result<()> {
     let context = Context::create();
     let mut grimlet = Grimlet::new(&context, &bios_path)?;
     grimlet.run()?;
+    println!("{}", size_of::<ArmDisasm>());
     Ok(())
 }
