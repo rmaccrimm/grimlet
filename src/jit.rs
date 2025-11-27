@@ -611,7 +611,6 @@ mod tests {
         let compiled2 = f2.compile().unwrap();
         cache.insert(1, compiled2);
 
-        // comp.dump();
         println!("{:?}", state.regs);
         unsafe {
             entry_point.call(&mut state, cache.get(&1).unwrap().as_raw());
@@ -658,7 +657,6 @@ mod tests {
         f.write_state_out()?;
         compile_and_run!(comp, f, state);
 
-        comp.dump()?;
         println!("{:?}", state.regs);
         assert_eq!(state.regs[0], 0x800000fe);
         assert_eq!(state.regs[1], 1);

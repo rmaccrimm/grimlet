@@ -161,7 +161,6 @@ mod tests {
         func.write_state_out()?;
 
         compile_and_run!(comp, func, state);
-        comp.dump()?;
         assert_eq!(
             &state.regs[0..8],
             [
@@ -203,7 +202,6 @@ mod tests {
         f1.compute_flags()?;
         f1.write_state_out()?;
         let cmp = f1.compile()?;
-        comp.dump()?;
         let entry_point = comp.compile_entry_point()?;
 
         // Positive result
