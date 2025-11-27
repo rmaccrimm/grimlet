@@ -297,6 +297,7 @@ where
     // Read only ref to already-compiled functions
     func_cache: &'a FunctionCache<'ctx>,
     // Last instruction executed. Used to lazily evaluate status flags
+    last_result: IntValue<'a>,
     last_instr: ArmDisasm,
     // Function arguments
     arm_state_ptr: PointerValue<'a>,
@@ -394,6 +395,7 @@ impl<'ctx, 'a> LlvmFunction<'ctx, 'a> {
             ptr_t,
             reg_array_t: regs_t,
             void_t,
+            last_result: i32_t.const_zero(),
             last_instr: ArmDisasm::default(),
             intrinsic_t,
             sadd_with_overflow,

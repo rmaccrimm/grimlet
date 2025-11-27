@@ -1,7 +1,9 @@
-use crate::{
-    arm::{cpu::Reg, disasm::ArmDisasm},
-    jit::LlvmFunction,
-};
+use crate::{arm::disasm::ArmDisasm, jit::LlvmFunction};
 use anyhow::Result;
-use capstone::arch::arm::ArmInsn;
-use inkwell::{IntPredicate, values::IntValue};
+
+impl<'ctx, 'a> LlvmFunction<'ctx, 'a> {
+    pub(super) fn arm_cmp(&mut self, _instr: &ArmDisasm) -> Result<()> {
+        // Essential a NOP, until the flags are actually used
+        Ok(())
+    }
+}

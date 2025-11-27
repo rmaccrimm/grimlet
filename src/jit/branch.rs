@@ -21,7 +21,7 @@ impl<'ctx, 'a> LlvmFunction<'ctx, 'a> {
         Ok(())
     }
 
-    pub fn arm_b(&self, instr: &ArmDisasm) -> Result<()> {
+    pub(super) fn arm_b(&self, instr: &ArmDisasm) -> Result<()> {
         let bd = &self.builder;
         let operand = instr.operands.first().ok_or(anyhow!("Bad operand"))?;
         let target = match operand.op_type {
@@ -57,11 +57,11 @@ impl<'ctx, 'a> LlvmFunction<'ctx, 'a> {
         Ok(())
     }
 
-    pub fn arm_bl(&self, _instr: &ArmDisasm) {
+    fn arm_bl(&self, _instr: &ArmDisasm) {
         todo!();
     }
 
-    pub fn arm_bx(&self, _instr: &ArmDisasm) {
+    fn arm_bx(&self, _instr: &ArmDisasm) {
         todo!();
     }
 }

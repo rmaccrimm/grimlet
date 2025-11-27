@@ -3,7 +3,7 @@ use anyhow::Result;
 use capstone::arch::arm::ArmInsn;
 
 impl<'ctx, 'a> LlvmFunction<'ctx, 'a> {
-    fn build(&self, instr: &ArmDisasm) -> Result<()> {
+    fn build(&mut self, instr: &ArmDisasm) -> Result<()> {
         match instr.opcode {
             ArmInsn::ARM_INS_INVALID => todo!(),
             ArmInsn::ARM_INS_ADC => todo!(),
@@ -34,7 +34,7 @@ impl<'ctx, 'a> LlvmFunction<'ctx, 'a> {
             ArmInsn::ARM_INS_CLREX => todo!(),
             ArmInsn::ARM_INS_CLZ => todo!(),
             ArmInsn::ARM_INS_CMN => todo!(),
-            ArmInsn::ARM_INS_CMP => todo!(),
+            ArmInsn::ARM_INS_CMP => self.arm_cmp(instr),
             ArmInsn::ARM_INS_CPS => todo!(),
             ArmInsn::ARM_INS_CRC32B => todo!(),
             ArmInsn::ARM_INS_CRC32CB => todo!(),

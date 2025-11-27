@@ -3,13 +3,10 @@
 pub mod arm;
 pub mod jit;
 
-use crate::arm::cpu::{ArmMode, ArmState, MainMemory};
+use crate::arm::cpu::{ArmMode, ArmState};
 use crate::arm::disasm::{ArmDisasm, Disassembler};
 use crate::jit::{Compiler, EntryPoint, FunctionCache};
 use anyhow::Result;
-use capstone::Capstone;
-use capstone::arch::BuildsCapstone;
-
 use inkwell::context::Context;
 use std::env;
 

@@ -42,33 +42,71 @@ impl<'ctx, 'a> LlvmFunction<'ctx, 'a> {
         Ok(bd.build_load(self.i32_t, result, "v5")?.into_int_value())
     }
 
-    /// Just z and n to start
-    fn compute_flags(&mut self, last_result: IntValue<'a>) -> Result<()> {
-        // Z and N - just look at last value computed
+    fn compute_flags(&mut self) -> Result<()> {
         let bd = &self.builder;
         let mut cpsr = self.reg_map.cpsr();
 
-        let z =
-            bd.build_int_compare(IntPredicate::EQ, last_result, self.i32_t.const_zero(), "n")?;
-        cpsr = self.set_flag(Flag::Z, cpsr, z)?;
-        let n =
-            bd.build_int_compare(IntPredicate::SLT, last_result, self.i32_t.const_zero(), "z")?;
-        let cpsr = self.set_flag(Flag::N, cpsr, n)?;
-        // let match self.last_instr.opcode {
-        // ArmInsn::Arm_INS_ADD | ArmInsn::ARM_INS_ADC
-        // }
+        // C and V - use LLVM intrinsic and re-run last instruction with overflow check
+        match self.last_instr.opcode {
+            ArmInsn::ARM_INS_CMP => {
+                let reg_val = self.reg_map.get(self.last_instr.get_reg_op(0)?);
+                let imm = self
+                    .i32_t
+                    .const_int(self.last_instr.get_imm_op(1)? as u64, false);
+
+                let ures = bd
+                    .build_call(
+                        self.usub_with_overflow,
+                        &[reg_val.into(), imm.into()],
+                        "ures",
+                    )?
+                    .try_as_basic_value()
+                    .left()
+                    .unwrap()
+                    .into_struct_value();
+
+                let sres = bd
+                    .build_call(
+                        self.ssub_with_overflow,
+                        &[reg_val.into(), imm.into()],
+                        "sres",
+                    )?
+                    .try_as_basic_value()
+                    .left()
+                    .unwrap()
+                    .into_struct_value();
+
+                let sres_val = bd
+                    .build_extract_value(sres, 0, "sres_val")?
+                    .into_int_value();
+
+                let v_flag = bd.build_not(
+                    bd.build_extract_value(sres, 1, "not_v")?.into_int_value(),
+                    "v",
+                )?;
+                let c_flag = bd.build_not(
+                    bd.build_extract_value(ures, 1, "not_c")?.into_int_value(),
+                    "c",
+                )?;
+
+                let z_flag =
+                    bd.build_int_compare(IntPredicate::EQ, sres_val, self.i32_t.const_zero(), "n")?;
+
+                let n_flag = bd.build_int_compare(
+                    IntPredicate::SLT,
+                    sres_val,
+                    self.i32_t.const_zero(),
+                    "z",
+                )?;
+                cpsr = self.set_flag(Flag::C, cpsr, c_flag)?;
+                cpsr = self.set_flag(Flag::Z, cpsr, z_flag)?;
+                cpsr = self.set_flag(Flag::N, cpsr, n_flag)?;
+                cpsr = self.set_flag(Flag::V, cpsr, v_flag)?;
+            }
+            _ => todo!(),
+        };
 
         self.reg_map.update(Reg::CPSR, cpsr);
-        Ok(())
-    }
-
-    fn arm_cmp(&mut self, instr: &ArmDisasm) -> Result<()> {
-        let bd = &self.builder;
-        let r = self.reg_map.get(instr.get_reg_op(0)?);
-        let i = self.i32_t.const_int(instr.get_imm_op(1)? as u64, false);
-
-        let v0 = bd.build_int_sub(r, i, "v0")?;
-        // self.set_flags(v0)?;
         Ok(())
     }
 }
@@ -79,6 +117,10 @@ mod tests {
 
     use crate::{arm::cpu::ArmState, jit::Compiler};
     use anyhow::Result;
+    use capstone::{
+        RegId,
+        arch::arm::{ArmOperand, ArmOperandType},
+    };
     use inkwell::context::Context;
 
     use super::*;
@@ -119,7 +161,7 @@ mod tests {
         func.write_state_out()?;
 
         compile_and_run!(comp, func, state);
-        comp.dump();
+        comp.dump()?;
         assert_eq!(
             &state.regs[0..8],
             [
@@ -133,6 +175,68 @@ mod tests {
                 0x7f_00_00_07
             ]
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_compute_flags_cmp() -> Result<()> {
+        let mut state = ArmState::default();
+        let context = Context::create();
+        let cache = HashMap::new();
+        let mut comp = Compiler::new(&context).unwrap();
+        let mut f1 = comp.new_function(0, &cache).unwrap();
+        // CMP with 1
+        f1.last_instr = ArmDisasm {
+            opcode: ArmInsn::ARM_INS_CMP,
+            operands: vec![
+                ArmOperand {
+                    op_type: ArmOperandType::Reg(RegId(0)),
+                    ..ArmOperand::default()
+                },
+                ArmOperand {
+                    op_type: ArmOperandType::Imm(1),
+                    ..ArmOperand::default()
+                },
+            ],
+            ..ArmDisasm::default()
+        };
+        f1.compute_flags()?;
+        f1.write_state_out()?;
+        let cmp = f1.compile()?;
+        comp.dump()?;
+        let entry_point = comp.compile_entry_point()?;
+        // Positive result
+        state.regs[0] = 2;
+        state.regs[16] = 0;
+        unsafe {
+            entry_point.call(&mut state, cmp.as_raw());
+        }
+        // nzcv
+        assert_eq!(state.regs[16] >> 28, 0b0011);
+
+        // 0 result
+        state.regs[0] = 1;
+        state.regs[16] = 0;
+        unsafe {
+            entry_point.call(&mut state, cmp.as_raw());
+        }
+        assert_eq!(state.regs[16] >> 28, 0b0111);
+        // negative result (unsigned underflow)
+        state.regs[0] = 0;
+        state.regs[16] = 0;
+        unsafe {
+            entry_point.call(&mut state, cmp.as_raw());
+        }
+        assert_eq!(state.regs[16] >> 28, 0b1001);
+        // signed underflow only (positive result)
+        state.regs[0] = i32::MIN as u32;
+        state.regs[16] = 0;
+        unsafe {
+            entry_point.call(&mut state, cmp.as_raw());
+        }
+        println!("{}", state.regs[0]);
+        assert_eq!(state.regs[16] >> 28, 0b0010);
+
         Ok(())
     }
 }
