@@ -205,14 +205,14 @@ mod tests {
         let cmp = f1.compile()?;
         comp.dump()?;
         let entry_point = comp.compile_entry_point()?;
+
         // Positive result
         state.regs[0] = 2;
         state.regs[16] = 0;
         unsafe {
             entry_point.call(&mut state, cmp.as_raw());
         }
-        // nzcv
-        assert_eq!(state.regs[16] >> 28, 0b0011);
+        assert_eq!(state.regs[16] >> 28, 0b0011); // nzcv
 
         // 0 result
         state.regs[0] = 1;
@@ -221,6 +221,7 @@ mod tests {
             entry_point.call(&mut state, cmp.as_raw());
         }
         assert_eq!(state.regs[16] >> 28, 0b0111);
+
         // negative result (unsigned underflow)
         state.regs[0] = 0;
         state.regs[16] = 0;
@@ -228,6 +229,15 @@ mod tests {
             entry_point.call(&mut state, cmp.as_raw());
         }
         assert_eq!(state.regs[16] >> 28, 0b1001);
+
+        // negative result (no underflow)
+        state.regs[0] = -1i32 as u32;
+        state.regs[16] = 0;
+        unsafe {
+            entry_point.call(&mut state, cmp.as_raw());
+        }
+        assert_eq!(state.regs[16] >> 28, 0b1011);
+
         // signed underflow only (positive result)
         state.regs[0] = i32::MIN as u32;
         state.regs[16] = 0;
