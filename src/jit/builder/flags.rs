@@ -1,8 +1,5 @@
-use crate::{
-    arm::{cpu::Reg},
-    jit::FunctionBuilder,
-};
-use anyhow::Result;
+use crate::{arm::cpu::Reg, jit::FunctionBuilder};
+use anyhow::{Result, anyhow};
 use capstone::arch::arm::ArmInsn;
 use inkwell::{IntPredicate, values::IntValue};
 
@@ -42,13 +39,10 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         Ok(bd.build_load(self.i32_t, result, "v5")?.into_int_value())
     }
 
-    pub(super) fn compute_flags(&mut self) -> Result<()> {                
-
+    pub(super) fn compute_flags(&mut self) -> Result<()> {
         // C and V - use LLVM intrinsic and re-run last instruction with overflow check
-        let cpsr_next  = match self.last_instr.opcode {
-            ArmInsn::ARM_INS_CMP => {
-                self.compute_sub_flags()                
-            }
+        let cpsr_next = match self.last_instr.opcode {
+            ArmInsn::ARM_INS_CMP => self.compute_sub_flags(),
             _ => todo!(),
         }?;
 
@@ -56,13 +50,19 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         Ok(())
     }
 
-    fn compute_sub_flags(&self) -> Result<IntValue<'a>> {
+    fn compute_sub_flags(&mut self) -> Result<IntValue<'a>> {
         let mut cpsr = self.reg_map.cpsr();
         let bd = &self.builder;
-        let reg_val = self.reg_map.get(self.last_instr.get_reg_op(0)?);
         let imm = self
-            .i32_t
-            .const_int(self.last_instr.get_imm_op(1)? as u64, false);
+            .last_instr
+            .inputs
+            .pop()
+            .ok_or(anyhow!("Missing operand"))?;
+        let reg_val = self
+            .last_instr
+            .inputs
+            .pop()
+            .ok_or(anyhow!("Missing operand"))?;
 
         let ures = bd
             .build_call(
@@ -102,12 +102,9 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let z_flag =
             bd.build_int_compare(IntPredicate::EQ, sres_val, self.i32_t.const_zero(), "n")?;
 
-        let n_flag = bd.build_int_compare(
-            IntPredicate::SLT,
-            sres_val,
-            self.i32_t.const_zero(),
-            "z",
-        )?;
+        let n_flag =
+            bd.build_int_compare(IntPredicate::SLT, sres_val, self.i32_t.const_zero(), "z")?;
+
         cpsr = self.set_flag(Flag::C, cpsr, c_flag)?;
         cpsr = self.set_flag(Flag::Z, cpsr, z_flag)?;
         cpsr = self.set_flag(Flag::N, cpsr, n_flag)?;
@@ -120,7 +117,10 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 mod tests {
     use std::collections::HashMap;
 
-    use crate::{arm::{cpu::ArmState, disasm::ArmDisasm}, jit::Compiler};
+    use crate::{
+        arm::{cpu::ArmState, disasm::ArmDisasm},
+        jit::Compiler,
+    };
     use anyhow::Result;
     use capstone::{
         RegId,
@@ -184,26 +184,28 @@ mod tests {
 
     #[test]
     fn test_compute_flags_cmp() -> Result<()> {
-        let mut state = ArmState::default();
-        let context = Context::create();
-        let cache = HashMap::new();
-        let mut comp = Compiler::new(&context).unwrap();
-        let mut f1 = comp.new_function(0, &cache).unwrap();
-        // CMP with 1
-        f1.last_instr = ArmDisasm {
+        let cmp_instr = ArmDisasm {
             opcode: ArmInsn::ARM_INS_CMP,
             operands: vec![
                 ArmOperand {
                     op_type: ArmOperandType::Reg(RegId(0)),
-                    ..ArmOperand::default()
+                    ..Default::default()
                 },
                 ArmOperand {
                     op_type: ArmOperandType::Imm(1),
-                    ..ArmOperand::default()
+                    ..Default::default()
                 },
             ],
-            ..ArmDisasm::default()
+            ..Default::default()
         };
+
+        let mut state = ArmState::default();
+        let context = Context::create();
+        let cache = HashMap::new();
+        let mut comp = Compiler::new(&context).unwrap();
+
+        let mut f1 = comp.new_function(0, &cache).unwrap();
+        f1.build(&cmp_instr)?;
         f1.compute_flags()?;
         f1.write_state_out()?;
         let cmp = f1.compile()?;

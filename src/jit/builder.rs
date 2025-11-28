@@ -18,6 +18,21 @@ use inkwell::module::Module;
 use inkwell::types::{ArrayType, FunctionType, IntType, PointerType, StructType, VoidType};
 use inkwell::values::{FunctionValue, IntValue, PointerValue};
 
+/// Saves the values used to compute an instruction for the purpose of flag calculation
+struct InstrHist<'a> {
+    opcode: ArmInsn,
+    inputs: Vec<IntValue<'a>>,
+}
+
+impl<'a> Default for InstrHist<'a> {
+    fn default() -> Self {
+        Self {
+            opcode: ArmInsn::ARM_INS_NOP,
+            inputs: vec![],
+        }
+    }
+}
+
 /// Builder for creating & compiling LLVM functions
 pub struct FunctionBuilder<'ctx, 'a>
 where
@@ -40,8 +55,7 @@ where
     func_cache: &'a FunctionCache<'ctx>,
 
     // Last instruction executed. Used to lazily evaluate status flags
-    last_result: IntValue<'a>,
-    last_instr: ArmDisasm,
+    last_instr: InstrHist<'a>,
 
     // Function arguments
     arm_state_ptr: PointerValue<'a>,
@@ -158,8 +172,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             ptr_t,
             reg_array_t: regs_t,
             void_t,
-            last_result: i32_t.const_zero(),
-            last_instr: ArmDisasm::default(),
+            last_instr: InstrHist::default(),
             intrinsic_t,
             sadd_with_overflow,
             ssub_with_overflow,
