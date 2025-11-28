@@ -752,6 +752,7 @@ mod tests {
     use crate::{arm::cpu::Reg, jit::Compiler};
 
     use super::*;
+    use test_utils::compile_and_run;
 
     #[test]
     fn test_jump_to_external() {

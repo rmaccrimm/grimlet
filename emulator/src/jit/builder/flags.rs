@@ -127,6 +127,7 @@ mod tests {
         arch::arm::{ArmOperand, ArmOperandType},
     };
     use inkwell::context::Context;
+    use test_utils::compile_and_run;
 
     use super::*;
 

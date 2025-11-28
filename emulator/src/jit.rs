@@ -1,17 +1,3 @@
-#[macro_export]
-/// Convenience macro for testing single functions
-macro_rules! compile_and_run {
-    ($compiler:ident, $func:ident, $state:ident) => {
-        unsafe {
-            let fptr = $func.compile().unwrap().as_raw();
-            $compiler
-                .compile_entry_point()
-                .unwrap()
-                .call(&mut $state, fptr);
-        }
-    };
-}
-
 mod builder;
 
 use crate::arm::cpu::{ArmState, NUM_REGS};
@@ -33,7 +19,6 @@ pub type CompiledFunction<'a> = JitFunction<'a, JumpTarget>;
 pub type EntryPoint<'a> = JitFunction<'a, unsafe extern "C" fn(*mut ArmState, JumpTarget)>;
 
 pub type FunctionCache<'ctx> = HashMap<u64, CompiledFunction<'ctx>>;
-
 
 /// Manages LLVM compilation state and constructs new LlvmFunctions
 pub struct Compiler<'ctx> {
