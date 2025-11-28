@@ -1,6 +1,6 @@
 use crate::{
-    arm::{cpu::Reg, disasm::ArmDisasm},
-    jit::LlvmFunction,
+    arm::{cpu::Reg},
+    jit::FunctionBuilder,
 };
 use anyhow::Result;
 use capstone::arch::arm::ArmInsn;
@@ -13,7 +13,7 @@ enum Flag {
     N = 31,
 }
 
-impl<'ctx, 'a> LlvmFunction<'ctx, 'a> {
+impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     fn set_flag(&self, flag: Flag, initial: IntValue, cond: IntValue) -> Result<IntValue<'a>> {
         let ctx = &self.llvm_ctx;
         let bd = &self.builder;
@@ -42,72 +42,77 @@ impl<'ctx, 'a> LlvmFunction<'ctx, 'a> {
         Ok(bd.build_load(self.i32_t, result, "v5")?.into_int_value())
     }
 
-    fn compute_flags(&mut self) -> Result<()> {
-        let bd = &self.builder;
-        let mut cpsr = self.reg_map.cpsr();
+    pub(super) fn compute_flags(&mut self) -> Result<()> {                
 
         // C and V - use LLVM intrinsic and re-run last instruction with overflow check
-        match self.last_instr.opcode {
+        let cpsr_next  = match self.last_instr.opcode {
             ArmInsn::ARM_INS_CMP => {
-                let reg_val = self.reg_map.get(self.last_instr.get_reg_op(0)?);
-                let imm = self
-                    .i32_t
-                    .const_int(self.last_instr.get_imm_op(1)? as u64, false);
-
-                let ures = bd
-                    .build_call(
-                        self.usub_with_overflow,
-                        &[reg_val.into(), imm.into()],
-                        "ures",
-                    )?
-                    .try_as_basic_value()
-                    .left()
-                    .unwrap()
-                    .into_struct_value();
-
-                let sres = bd
-                    .build_call(
-                        self.ssub_with_overflow,
-                        &[reg_val.into(), imm.into()],
-                        "sres",
-                    )?
-                    .try_as_basic_value()
-                    .left()
-                    .unwrap()
-                    .into_struct_value();
-
-                let sres_val = bd
-                    .build_extract_value(sres, 0, "sres_val")?
-                    .into_int_value();
-
-                let v_flag = bd.build_not(
-                    bd.build_extract_value(sres, 1, "not_v")?.into_int_value(),
-                    "v",
-                )?;
-                let c_flag = bd.build_not(
-                    bd.build_extract_value(ures, 1, "not_c")?.into_int_value(),
-                    "c",
-                )?;
-
-                let z_flag =
-                    bd.build_int_compare(IntPredicate::EQ, sres_val, self.i32_t.const_zero(), "n")?;
-
-                let n_flag = bd.build_int_compare(
-                    IntPredicate::SLT,
-                    sres_val,
-                    self.i32_t.const_zero(),
-                    "z",
-                )?;
-                cpsr = self.set_flag(Flag::C, cpsr, c_flag)?;
-                cpsr = self.set_flag(Flag::Z, cpsr, z_flag)?;
-                cpsr = self.set_flag(Flag::N, cpsr, n_flag)?;
-                cpsr = self.set_flag(Flag::V, cpsr, v_flag)?;
+                self.compute_sub_flags()                
             }
             _ => todo!(),
-        };
+        }?;
 
-        self.reg_map.update(Reg::CPSR, cpsr);
+        self.reg_map.update(Reg::CPSR, cpsr_next);
         Ok(())
+    }
+
+    fn compute_sub_flags(&self) -> Result<IntValue<'a>> {
+        let mut cpsr = self.reg_map.cpsr();
+        let bd = &self.builder;
+        let reg_val = self.reg_map.get(self.last_instr.get_reg_op(0)?);
+        let imm = self
+            .i32_t
+            .const_int(self.last_instr.get_imm_op(1)? as u64, false);
+
+        let ures = bd
+            .build_call(
+                self.usub_with_overflow,
+                &[reg_val.into(), imm.into()],
+                "ures",
+            )?
+            .try_as_basic_value()
+            .left()
+            .unwrap()
+            .into_struct_value();
+
+        let sres = bd
+            .build_call(
+                self.ssub_with_overflow,
+                &[reg_val.into(), imm.into()],
+                "sres",
+            )?
+            .try_as_basic_value()
+            .left()
+            .unwrap()
+            .into_struct_value();
+
+        let sres_val = bd
+            .build_extract_value(sres, 0, "sres_val")?
+            .into_int_value();
+
+        let v_flag = bd.build_not(
+            bd.build_extract_value(sres, 1, "not_v")?.into_int_value(),
+            "v",
+        )?;
+        let c_flag = bd.build_not(
+            bd.build_extract_value(ures, 1, "not_c")?.into_int_value(),
+            "c",
+        )?;
+
+        let z_flag =
+            bd.build_int_compare(IntPredicate::EQ, sres_val, self.i32_t.const_zero(), "n")?;
+
+        let n_flag = bd.build_int_compare(
+            IntPredicate::SLT,
+            sres_val,
+            self.i32_t.const_zero(),
+            "z",
+        )?;
+        cpsr = self.set_flag(Flag::C, cpsr, c_flag)?;
+        cpsr = self.set_flag(Flag::Z, cpsr, z_flag)?;
+        cpsr = self.set_flag(Flag::N, cpsr, n_flag)?;
+        cpsr = self.set_flag(Flag::V, cpsr, v_flag)?;
+        Ok(cpsr)
     }
 }
 
@@ -115,7 +120,7 @@ impl<'ctx, 'a> LlvmFunction<'ctx, 'a> {
 mod tests {
     use std::collections::HashMap;
 
-    use crate::{arm::cpu::ArmState, jit::Compiler};
+    use crate::{arm::{cpu::ArmState, disasm::ArmDisasm}, jit::Compiler};
     use anyhow::Result;
     use capstone::{
         RegId,

@@ -3,10 +3,10 @@ use inkwell::values::PointerValue;
 
 use crate::{
     arm::{cpu::ArmState, disasm::ArmDisasm},
-    jit::LlvmFunction,
+    jit::FunctionBuilder,
 };
 
-impl<'ctx, 'a> LlvmFunction<'ctx, 'a> {
+impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     fn build_tail_call(&self, func_ptr: PointerValue) -> Result<()> {
         self.update_reg_array()?;
         let bd = &self.builder;
