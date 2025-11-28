@@ -122,10 +122,6 @@ mod tests {
         jit::Compiler,
     };
     use anyhow::Result;
-    use capstone::{
-        RegId,
-        arch::arm::{ArmOperand, ArmOperandType},
-    };
     use inkwell::context::Context;
     use test_utils::compile_and_run;
 
@@ -185,20 +181,7 @@ mod tests {
 
     #[test]
     fn test_compute_flags_cmp() -> Result<()> {
-        let cmp_instr = ArmDisasm {
-            opcode: ArmInsn::ARM_INS_CMP,
-            operands: vec![
-                ArmOperand {
-                    op_type: ArmOperandType::Reg(RegId(0)),
-                    ..Default::default()
-                },
-                ArmOperand {
-                    op_type: ArmOperandType::Imm(1),
-                    ..Default::default()
-                },
-            ],
-            ..Default::default()
-        };
+        let cmp_instr = ArmDisasm::op_reg_imm(ArmInsn::ARM_INS_CMP, 0, 1);
 
         let mut state = ArmState::default();
         let context = Context::create();

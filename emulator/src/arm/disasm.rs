@@ -1,5 +1,6 @@
 use anyhow::Result;
 use anyhow::anyhow;
+use capstone::RegId;
 use capstone::arch::BuildsCapstone;
 use capstone::{
     Capstone, Insn,
@@ -76,6 +77,23 @@ impl ArmDisasm {
             Ok(i)
         } else {
             Err(anyhow!("Bad operand: not a register"))
+        }
+    }
+
+    pub fn op_reg_imm(opcode: ArmInsn, r: u16, i: i32) -> Self {
+        ArmDisasm {
+            opcode,
+            operands: vec![
+                ArmOperand {
+                    op_type: ArmOperandType::Reg(RegId(r)),
+                    ..Default::default()
+                },
+                ArmOperand {
+                    op_type: ArmOperandType::Imm(i),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
         }
     }
 }
