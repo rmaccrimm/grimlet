@@ -15,11 +15,12 @@ use crate::arm::cpu::ArmMode;
 use crate::arm::cpu::MainMemory;
 use crate::arm::cpu::Reg;
 
+// A single disassembled ARM instruction
 #[derive(Clone, Debug)]
 pub struct ArmDisasm {
     pub opcode: ArmInsn,
     pub operands: Vec<ArmOperand>,
-    pub addr: u64,
+    pub addr: usize,
     pub repr: String,
 }
 
@@ -49,7 +50,7 @@ impl ArmDisasm {
                 })
                 .collect(),
 
-            addr: insn.address(),
+            addr: insn.address() as usize,
             repr: insn.to_string(),
         })
     }
@@ -104,6 +105,12 @@ impl Display for ArmDisasm {
     }
 }
 
+pub struct CodeBlock {
+    pub instrs: Vec<ArmDisasm>,
+    pub start_addr: usize,
+    pub labels: Vec<usize>,
+}
+
 pub struct Disassembler {
     cs: Capstone,
 }
@@ -118,10 +125,32 @@ impl Disassembler {
         Ok(Self { cs })
     }
 
+    pub fn next_code_block(&self, mem: &MainMemory, start_addr: usize) -> Result<CodeBlock> {
+        let mut instrs = Vec::new();
+        let mut labels = Vec::new();
+
+        for instr in self.iter_insns(mem, start_addr as usize, ArmMode::ARM) {
+            if let ArmInsn::ARM_INS_B = instr.opcode {
+                // TODO can these be negative? Pretty sure it's translated to abs address
+                let target = instr.get_imm_op(0)? as usize;
+                if target < instr.addr && target >= start_addr {
+                    // This is a loop, need a label at the target address
+                    labels.push(instr.addr);
+                }
+                instrs.push(instr);
+            }
+        }
+        Ok(CodeBlock {
+            instrs,
+            start_addr,
+            labels,
+        })
+    }
+
     pub fn iter_insns(
         &self,
         mem: &MainMemory,
-        start_addr: u64,
+        start_addr: usize,
         _mode: ArmMode,
     ) -> impl Iterator<Item = ArmDisasm> {
         mem.bios
@@ -131,7 +160,7 @@ impl Disassembler {
             .map(move |(i, ch)| {
                 let instructions = self
                     .cs
-                    .disasm_count(ch, start_addr + 4 * i as u64, 1)
+                    .disasm_count(ch, (start_addr as u64) + 4 * i as u64, 1)
                     .unwrap();
                 let i = instructions.as_ref().iter().next().unwrap();
                 ArmDisasm::from_cs_insn(&self.cs, i).unwrap()

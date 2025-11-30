@@ -18,7 +18,7 @@ pub type CompiledFunction<'a> = JitFunction<'a, JumpTarget>;
 
 pub type EntryPoint<'a> = JitFunction<'a, unsafe extern "C" fn(*mut ArmState, JumpTarget)>;
 
-pub type FunctionCache<'ctx> = HashMap<u64, CompiledFunction<'ctx>>;
+pub type FunctionCache<'ctx> = HashMap<usize, CompiledFunction<'ctx>>;
 
 /// Manages LLVM compilation state and constructs new LlvmFunctions
 pub struct Compiler<'ctx> {
@@ -44,7 +44,7 @@ impl<'ctx> Compiler<'ctx> {
 
     pub fn new_function<'a>(
         &'a mut self,
-        addr: u64,
+        addr: usize,
         func_cache: &'a FunctionCache<'ctx>,
     ) -> Result<FunctionBuilder<'ctx, 'a>>
     where

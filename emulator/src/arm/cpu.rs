@@ -77,7 +77,7 @@ pub const NUM_REGS: usize = 17;
 pub struct ArmState {
     pub mode: ArmMode,
     pub regs: [u32; 17],
-    pub mem: Box<MainMemory>,
+    pub mem: MainMemory,
 }
 
 impl Default for ArmState {
@@ -85,7 +85,7 @@ impl Default for ArmState {
         Self {
             mode: ArmMode::ARM,
             regs: [0; NUM_REGS],
-            mem: Box::new(MainMemory::default()),
+            mem: MainMemory::default(),
         }
     }
 }
@@ -109,15 +109,16 @@ impl ArmState {
     }
 
     pub fn with_bios(bios_path: &str) -> Result<Self> {
-        let mut st = ArmState::default();
-
         if !fs::exists(bios_path)? {
             return Err(anyhow!("BIOS file not found"));
         }
-        let mut f = File::open(bios_path)?;
-        f.read_to_end(&mut st.mem.bios)?;
+        let bios = fs::read(bios_path)?;
 
-        Ok(st)
+        Ok(Self {
+            mode: ArmMode::ARM,
+            regs: [0; 17],
+            mem: MainMemory { bios },
+        })
     }
 
     pub fn pc(&self) -> u32 {

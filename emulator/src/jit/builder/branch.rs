@@ -25,13 +25,13 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let bd = &self.builder;
         let operand = instr.operands.first().ok_or(anyhow!("Bad operand"))?;
         let target = match operand.op_type {
-            capstone::arch::arm::ArmOperandType::Imm(x) => x,
+            capstone::arch::arm::ArmOperandType::Imm(x) => x as usize,
             _ => {
                 panic!("Bad operand")
             }
         };
         // TODO - backwards jumps?
-        match self.get_compiled_func_pointer(target as u64)? {
+        match self.get_compiled_func_pointer(target)? {
             Some(func_ptr) => {
                 // Jump directly to compiled function
                 self.build_tail_call(func_ptr)?;

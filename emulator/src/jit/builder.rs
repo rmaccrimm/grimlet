@@ -38,7 +38,7 @@ pub struct FunctionBuilder<'ctx, 'a>
 where
     'ctx: 'a,
 {
-    addr: u64,
+    addr: usize,
     name: String,
     func: FunctionValue<'a>,
 
@@ -91,13 +91,13 @@ pub(super) fn get_ptr_param<'a>(func: &FunctionValue<'a>, i: usize) -> Result<Po
         .into_pointer_value())
 }
 
-fn func_name(addr: u64) -> String {
+fn func_name(addr: usize) -> String {
     format!("fn_{:#010x}", addr)
 }
 
 impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     pub(super) fn new(
-        addr: u64,
+        addr: usize,
         llvm_ctx: &'ctx Context,
         builder: &'a Builder<'ctx>,
         module: &'a Module<'ctx>,
@@ -203,7 +203,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         Ok(func_ptr)
     }
 
-    fn get_compiled_func_pointer(&self, key: u64) -> Result<Option<PointerValue<'a>>> {
+    fn get_compiled_func_pointer(&self, key: usize) -> Result<Option<PointerValue<'a>>> {
         // TODO sort out which int type to use where
         match self.func_cache.get(&key) {
             Some(f) => {

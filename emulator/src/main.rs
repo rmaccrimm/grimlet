@@ -37,18 +37,21 @@ impl<'ctx> Grimlet<'ctx> {
     }
 
     pub fn run(&mut self) -> Result<()> {
-        let curr_pc = self.state.pc() as u64;
+        let curr_pc = self.state.pc() as usize;
         let func = match self.func_cache.get(&curr_pc) {
             Some(func) => func,
             None => {
                 let func = self.compiler.new_function(curr_pc, &self.func_cache)?;
-                let insn = self
+                for (i, disasm) in self
                     .disasm
                     .iter_insns(&self.state.mem, curr_pc, ArmMode::ARM)
-                    .next()
-                    .unwrap();
-
-                println!("{}", insn);
+                    .enumerate()
+                {
+                    if i > 10 {
+                        break;
+                    }
+                    println!("{:#?}", disasm);
+                }
                 let compiled = func.compile()?;
                 self.func_cache.insert(curr_pc, compiled);
                 self.func_cache.get(&curr_pc).unwrap()
@@ -64,6 +67,7 @@ fn main() -> Result<()> {
     let bios_path = env::args().nth(1).unwrap();
     let context = Context::create();
     let mut grimlet = Grimlet::new(&context, &bios_path)?;
+    println!("{:?}", &grimlet.state.mem.bios[0..40]);
     grimlet.run()?;
     println!("{}", size_of::<ArmDisasm>());
     Ok(())
