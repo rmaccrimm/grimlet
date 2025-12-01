@@ -37,38 +37,20 @@ impl<'ctx> Grimlet<'ctx> {
     }
 
     pub fn run(&mut self) -> Result<()> {
-        let curr_pc = self.state.pc() as usize;
-        let func = match self.func_cache.get(&curr_pc) {
-            Some(func) => func,
-            None => {
-                let func = self.compiler.new_function(curr_pc, &self.func_cache)?;
-                for (i, disasm) in self
-                    .disasm
-                    .iter_insns(&self.state.mem, curr_pc, ArmMode::ARM)
-                    .enumerate()
-                {
-                    if i > 10 {
-                        break;
-                    }
-                    println!("{:#?}", disasm);
-                }
-                let compiled = func.compile()?;
-                self.func_cache.insert(curr_pc, compiled);
-                self.func_cache.get(&curr_pc).unwrap()
-            }
-        };
-        unsafe { self.entry_point.call(&mut self.state, func.as_raw()) };
-
-        Ok(())
+        let mut curr_pc = 0;
+        loop {
+            let code_block = self.disasm.next_code_block(&self.state.mem, curr_pc)?;
+            println!("{}", code_block);
+            curr_pc = code_block.instrs.last().unwrap().addr + 4;
+        }
     }
 }
 
 fn main() -> Result<()> {
     let bios_path = env::args().nth(1).unwrap();
     let context = Context::create();
-    let mut grimlet = Grimlet::new(&context, &bios_path)?;
-    println!("{:?}", &grimlet.state.mem.bios[0..40]);
-    grimlet.run()?;
+    let mut emulator = Grimlet::new(&context, &bios_path)?;
+    emulator.run()?;
     println!("{}", size_of::<ArmDisasm>());
     Ok(())
 }

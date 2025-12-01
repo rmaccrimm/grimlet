@@ -1,3 +1,4 @@
+use anyhow::Context;
 use anyhow::Result;
 use anyhow::anyhow;
 use capstone::RegId;
@@ -77,7 +78,7 @@ impl ArmDisasm {
         {
             Ok(i)
         } else {
-            Err(anyhow!("Bad operand: not a register"))
+            Err(anyhow!("Bad operand: not an immediate value"))
         }
     }
 
@@ -111,6 +112,23 @@ pub struct CodeBlock {
     pub labels: Vec<usize>,
 }
 
+impl Display for CodeBlock {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut lbl_iter = self.labels.iter().enumerate();
+        let mut lbl_addr = lbl_iter.next();
+        for instr in self.instrs.iter() {
+            if let Some((i, addr)) = lbl_addr
+                && addr == &instr.addr
+            {
+                writeln!(f, "{}:", i)?;
+                lbl_addr = lbl_iter.next();
+            }
+            writeln!(f, "\t{}", instr)?;
+        }
+        Ok(())
+    }
+}
+
 pub struct Disassembler {
     cs: Capstone,
 }
@@ -129,15 +147,26 @@ impl Disassembler {
         let mut instrs = Vec::new();
         let mut labels = Vec::new();
 
-        for instr in self.iter_insns(mem, start_addr as usize, ArmMode::ARM) {
-            if let ArmInsn::ARM_INS_B = instr.opcode {
-                // TODO can these be negative? Pretty sure it's translated to abs address
-                let target = instr.get_imm_op(0)? as usize;
-                if target < instr.addr && target >= start_addr {
-                    // This is a loop, need a label at the target address
-                    labels.push(instr.addr);
+        for result in self.iter_insns(mem, start_addr, ArmMode::ARM) {
+            let instr = result?;
+            match instr.opcode {
+                ArmInsn::ARM_INS_B | ArmInsn::ARM_INS_BX | ArmInsn::ARM_INS_BL => {
+                    // TODO can these be negative? Pretty sure it's translated to abs address
+                    if let Ok(target) = instr.get_imm_op(0) {
+                        let t = target as usize;
+                        if t < instr.addr && t >= start_addr {
+                            // This is a loop, need a label at the target address
+                            labels.push(instr.addr);
+                            instrs.push(instr);
+                        } else {
+                            instrs.push(instr);
+                            break;
+                        }
+                    }
                 }
-                instrs.push(instr);
+                _ => {
+                    instrs.push(instr);
+                }
             }
         }
         Ok(CodeBlock {
@@ -152,18 +181,22 @@ impl Disassembler {
         mem: &MainMemory,
         start_addr: usize,
         _mode: ArmMode,
-    ) -> impl Iterator<Item = ArmDisasm> {
-        mem.bios
+    ) -> impl Iterator<Item = Result<ArmDisasm>> {
+        mem.bios[start_addr..]
             .chunks(4)
-            .skip(start_addr as usize)
             .enumerate()
             .map(move |(i, ch)| {
-                let instructions = self
-                    .cs
-                    .disasm_count(ch, (start_addr as u64) + 4 * i as u64, 1)
-                    .unwrap();
-                let i = instructions.as_ref().iter().next().unwrap();
-                ArmDisasm::from_cs_insn(&self.cs, i).unwrap()
+                let instructions =
+                    self.cs
+                        .disasm_count(ch, (start_addr as u64) + 4 * i as u64, 1)?;
+
+                let i = instructions
+                    .as_ref()
+                    .first()
+                    .ok_or(anyhow!("Capstone returned no instructions"))?;
+                let disasm = ArmDisasm::from_cs_insn(&self.cs, i)
+                    .context(format!("Failed converting Capstone output: {}", i))?;
+                Ok(disasm)
             })
     }
 }
