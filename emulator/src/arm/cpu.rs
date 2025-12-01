@@ -3,6 +3,7 @@ use inkwell::AddressSpace;
 use inkwell::context::Context;
 use inkwell::types::StructType;
 use std::fs;
+use std::slice::Chunks;
 
 #[repr(C)]
 pub struct MainMemory {
@@ -14,6 +15,18 @@ impl Default for MainMemory {
         // 16 kB
         let bios = vec![0; 0x4000];
         Self { bios }
+    }
+}
+
+impl MainMemory {
+    pub fn iter_word(&self, start_addr: usize) -> Chunks<'_, u8> {
+        if !start_addr.is_multiple_of(4) {
+            panic!("Mis-alligned word address: {:x}", start_addr);
+        }
+        match start_addr {
+            0..0x3ffc => self.bios[start_addr..].chunks(4),
+            _ => panic!("Address out of range: {:x}", start_addr),
+        }
     }
 }
 

@@ -38,9 +38,10 @@ impl<'ctx> Grimlet<'ctx> {
 
     pub fn run(&mut self) -> Result<()> {
         let mut curr_pc = 0;
+
         loop {
-            let code_block = self.disasm.next_code_block(&self.state.mem, curr_pc)?;
-            println!("{:#?}", code_block);
+            let code_block = self.disasm.next_code_block(&self.state.mem, curr_pc);
+            println!("{}", code_block);
             curr_pc = code_block.instrs.last().unwrap().addr + 4;
         }
     }

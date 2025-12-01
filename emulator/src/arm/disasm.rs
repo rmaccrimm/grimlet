@@ -42,11 +42,13 @@ impl Default for ArmDisasm {
 }
 
 impl ArmDisasm {
-    pub fn from_cs_insn(cs: &Capstone, insn: &Insn) -> Result<Self> {
-        let detail = cs.insn_detail(insn)?;
+    pub fn from_cs_insn(cs: &Capstone, insn: &Insn) -> Self {
+        let detail = cs
+            .insn_detail(insn)
+            .expect("failed to get instruction detail");
         let arch_detail = detail.arch_detail();
         let cond = arch_detail.arm().unwrap().cc();
-        Ok(Self {
+        Self {
             opcode: ArmInsn::from(insn.id().0),
             operands: arch_detail
                 .operands()
@@ -59,7 +61,7 @@ impl ArmDisasm {
             addr: insn.address() as usize,
             repr: insn.to_string(),
             cond,
-        })
+        }
     }
 
     pub fn get_reg_op(&self, ind: usize) -> Result<Reg> {
@@ -119,30 +121,15 @@ impl Display for CodeBlock {
     }
 }
 
-pub struct Disassembler {
-    cs: Capstone,
-}
-
-impl Disassembler {
-    pub fn new() -> Result<Self> {
-        let cs = Capstone::new()
-            .arm()
-            .mode(capstone::arch::arm::ArchMode::Arm)
-            .detail(true)
-            .build()?;
-        Ok(Self { cs })
-    }
-
-    pub fn next_code_block(
-        &self,
-        mem_iter: impl Iterator<Item = Result<ArmDisasm>>,
+impl CodeBlock {
+    pub fn from_instructions(
+        instr_iter: impl Iterator<Item = ArmDisasm>,
         start_addr: usize,
-    ) -> Result<CodeBlock> {
+    ) -> Self {
         let mut instrs = Vec::new();
         let mut labels = Vec::new();
 
-        for result in mem_iter {
-            let instr = result?;
+        for instr in instr_iter {
             match instr.opcode {
                 ArmInsn::ARM_INS_B | ArmInsn::ARM_INS_BX | ArmInsn::ARM_INS_BL => {
                     // TODO can these be negative? Pretty sure it's translated to abs address
@@ -163,52 +150,44 @@ impl Disassembler {
                 }
             }
         }
-        Ok(CodeBlock {
+        CodeBlock {
             instrs,
             start_addr,
             labels,
-        })
+        }
+    }
+}
+
+pub struct Disassembler {
+    cs: Capstone,
+}
+
+impl Disassembler {
+    pub fn new() -> Result<Self> {
+        let cs = Capstone::new()
+            .arm()
+            .mode(capstone::arch::arm::ArchMode::Arm)
+            .detail(true)
+            .build()?;
+        Ok(Self { cs })
     }
 
-    pub fn iter_insns(
-        &self,
-        mem: &MainMemory,
-        start_addr: usize,
-        _mode: ArmMode,
-    ) -> impl Iterator<Item = Result<ArmDisasm>> {
-        mem.bios[start_addr..]
-            .chunks(4)
-            .enumerate()
-            .map(move |(i, ch)| {
-                let instructions =
-                    self.cs
-                        .disasm_count(ch, (start_addr as u64) + 4 * i as u64, 1)?;
+    pub fn next_code_block(&self, mem: &MainMemory, start_addr: usize) -> CodeBlock {
+        let instr_iter = mem.iter_word(start_addr).enumerate().map(move |(i, ch)| {
+            let instructions = self
+                .cs
+                .disasm_count(ch, (start_addr as u64) + 4 * i as u64, 1)
+                .expect("Capstone disassembly failed");
 
-                let i = instructions
-                    .as_ref()
-                    .first()
-                    .ok_or(anyhow!("Capstone returned no instructions"))?;
-                let disasm = ArmDisasm::from_cs_insn(&self.cs, i)
-                    .context(format!("Failed converting Capstone output: {}", i))?;
-                Ok(disasm)
-            })
+            let i = instructions
+                .as_ref()
+                .first()
+                .expect("Capstone returned no instructions");
+            ArmDisasm::from_cs_insn(&self.cs, i)
+        });
+        CodeBlock::from_instructions(instr_iter, start_addr)
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::cons::*;
-    use super::*;
-    #[test]
-    fn test_next_code_block() {
-        let program = [
-            op_reg_imm(ArmInsn::ARM_INS_CMP, 0, 1, None),
-            op_imm(ArmInsn::ARM_INS_B, 36, None),
-            op_reg_reg(ArmInsn::ARM_INS_MOV, 1, 0, None),
-            op_reg_imm(ArmInsn::ARM_INS_MOV, 0, 1, None),
-            op_reg_reg_reg(ArmInsn::ARM_INS_MUL, 0, 0, 1, None),
-            op_reg_reg_imm(ArmInsn::ARM_INS_SUBS, 1, 1, 1, None),
-            op_imm(ArmInsn::ARM_INS_B, 16, None),
-        ];
-    }
-}
+mod tests {}
