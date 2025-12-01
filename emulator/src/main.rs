@@ -3,7 +3,7 @@
 pub mod arm;
 pub mod jit;
 
-use crate::arm::cpu::{ArmMode, ArmState};
+use crate::arm::cpu::ArmState;
 use crate::arm::disasm::{ArmDisasm, Disassembler};
 use crate::jit::{Compiler, EntryPoint, FunctionCache};
 use anyhow::Result;
@@ -40,7 +40,7 @@ impl<'ctx> Grimlet<'ctx> {
         let mut curr_pc = 0;
         loop {
             let code_block = self.disasm.next_code_block(&self.state.mem, curr_pc)?;
-            println!("{}", code_block);
+            println!("{:#?}", code_block);
             curr_pc = code_block.instrs.last().unwrap().addr + 4;
         }
     }

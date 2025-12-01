@@ -154,3 +154,10 @@ impl<'ctx> Compiler<'ctx> {
         Ok(entry_point)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use capstone::arch::arm::ArmInsn;
+
+    use crate::arm::disasm::cons::*;
+}

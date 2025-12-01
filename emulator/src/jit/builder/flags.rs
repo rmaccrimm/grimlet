@@ -118,7 +118,7 @@ mod tests {
     use std::collections::HashMap;
 
     use crate::{
-        arm::{cpu::ArmState, disasm::ArmDisasm},
+        arm::{cpu::ArmState, disasm::cons::*},
         jit::Compiler,
     };
     use anyhow::Result;
@@ -181,7 +181,7 @@ mod tests {
 
     #[test]
     fn test_compute_flags_cmp() -> Result<()> {
-        let cmp_instr = ArmDisasm::op_reg_imm(ArmInsn::ARM_INS_CMP, 0, 1);
+        let cmp_instr = op_reg_imm(ArmInsn::ARM_INS_CMP, 0, 1, None);
 
         let mut state = ArmState::default();
         let context = Context::create();
