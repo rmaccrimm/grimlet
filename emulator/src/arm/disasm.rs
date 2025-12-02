@@ -129,8 +129,9 @@ impl CodeBlock {
                 ArmInsn::ARM_INS_B | ArmInsn::ARM_INS_BX | ArmInsn::ARM_INS_BL => {
                     // TODO can these be negative? Pretty sure it's translated to abs address
                     let target = instr.get_imm_op(0) as usize;
-                    if target < instr.addr && target >= start_addr {
+                    if target < instr.addr && target > start_addr {
                         // This is a loop, need a label at the target address
+                        // Note: there is always a start label at target == start_addr
                         labels.push(instr.addr);
                         instrs.push(instr);
                     } else {

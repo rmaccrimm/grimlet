@@ -3,13 +3,16 @@ mod branch;
 mod flags;
 mod reg_map;
 
+use std::collections::HashMap;
+
 use super::{CompiledFunction, FunctionCache};
-use crate::arm::cpu::{ArmState, NUM_REGS};
+use crate::arm::cpu::{ArmState, NUM_REGS, Reg};
 use crate::arm::disasm::ArmDisasm;
 use crate::jit::builder::reg_map::RegMap;
 use anyhow::Result;
 use capstone::arch::arm::ArmInsn;
 use inkwell::AddressSpace;
+use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::execution_engine::ExecutionEngine;
@@ -77,6 +80,9 @@ where
     ssub_with_overflow: FunctionValue<'a>,
     uadd_with_overflow: FunctionValue<'a>,
     usub_with_overflow: FunctionValue<'a>,
+
+    // map guest instruction addresses to LLVM blocks (branch targets)
+    blocks: HashMap<usize, BasicBlock<'a>>,
 }
 
 /// Helper that converts the LLVMString error message into an anyhow error
@@ -116,8 +122,11 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         let bd = builder;
         let func = module.add_function(&name, fn_t, None);
+        let mut blocks = HashMap::new();
+
         let basic_block = ctx.append_basic_block(func, "start");
         bd.position_at_end(basic_block);
+        blocks.insert(addr, basic_block);
 
         let arm_state_ptr = get_ptr_param(&func, 0);
         let reg_array_ptr = get_ptr_param(&func, 1);
@@ -179,7 +188,18 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             ssub_with_overflow,
             uadd_with_overflow,
             usub_with_overflow,
+            blocks,
         }
+    }
+
+    pub fn increment_pc(&mut self) {
+        let curr_pc = self.reg_map.pc();
+        self.reg_map.update(
+            Reg::PC,
+            self.builder
+                .build_int_add(curr_pc, self.i32_t.const_int(1, false), "pc")
+                .expect("LLVM codegen failed"),
+        );
     }
 
     pub fn compile(self) -> CompiledFunction<'ctx> {
@@ -748,11 +768,11 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
-    use crate::{arm::cpu::Reg, jit::Compiler};
-
     use super::*;
+    use crate::arm::disasm::{CodeBlock, cons::*};
+    use crate::{arm::cpu::Reg, jit::Compiler};
+    use capstone::arch::arm::{ArmCC, ArmInsn};
+    use std::collections::HashMap;
     use test_utils::compile_and_run;
 
     #[test]
@@ -767,7 +787,7 @@ mod tests {
         let context = Context::create();
         let mut comp = Compiler::new(&context);
         let func_cache = HashMap::new();
-        let f = comp.new_function(0, &func_cache).unwrap();
+        let f = comp.new_function(0, &func_cache);
 
         let add_res = f
             .builder
@@ -814,7 +834,7 @@ mod tests {
         let entry_point = comp.compile_entry_point();
         let mut cache = HashMap::new();
 
-        let f1 = comp.new_function(0, &cache).unwrap();
+        let f1 = comp.new_function(0, &cache);
         let r0 = f1.reg_map.get(Reg::R0);
         let r2 = f1.reg_map.get(Reg::R2);
         let r3 = f1.reg_map.get(Reg::R3);
@@ -855,7 +875,7 @@ mod tests {
         let compiled1 = f1.compile();
         cache.insert(0, compiled1);
 
-        let mut f2 = comp.new_function(1, &cache).unwrap();
+        let mut f2 = comp.new_function(1, &cache);
         f2.reg_map.update(Reg::R0, f2.i32_t.const_int(999, false));
         f2.update_reg_array().unwrap();
 
@@ -891,30 +911,36 @@ mod tests {
     }
 
     #[test]
-    fn test_call_intrinsic() -> Result<()> {
+    fn test_call_intrinsic() {
         let mut state = ArmState::default();
         let context = Context::create();
         let cache = HashMap::new();
         let mut comp = Compiler::new(&context);
-        let mut f = comp.new_function(0, &cache)?;
+        let mut f = comp.new_function(0, &cache);
         let bd = f.builder;
-        let call = bd.build_call(
-            f.sadd_with_overflow,
-            &[
-                f.i32_t.const_int(0x7fffffff_u64, false).into(),
-                f.i32_t.const_int(0xff, false).into(),
-            ],
-            "res",
-        )?;
+        let call = bd
+            .build_call(
+                f.sadd_with_overflow,
+                &[
+                    f.i32_t.const_int(0x7fffffff_u64, false).into(),
+                    f.i32_t.const_int(0xff, false).into(),
+                ],
+                "res",
+            )
+            .unwrap();
         let res = call
             .try_as_basic_value()
             .left()
             .unwrap()
             .into_struct_value();
 
-        let val = bd.build_extract_value(res, 0, "val")?.into_int_value();
+        let val = bd
+            .build_extract_value(res, 0, "val")
+            .unwrap()
+            .into_int_value();
         let overflowed = bd
-            .build_extract_value(res, 1, "overflowed")?
+            .build_extract_value(res, 1, "overflowed")
+            .unwrap()
             .into_int_value();
 
         f.reg_map.update(Reg::R0, val);
@@ -925,6 +951,63 @@ mod tests {
         println!("{:?}", state.regs);
         assert_eq!(state.regs[0], 0x800000fe);
         assert_eq!(state.regs[1], 1);
-        Ok(())
+    }
+
+    #[ignore]
+    #[test]
+    fn test_factorial_program() {
+        let program = [
+            op_reg_imm(ArmInsn::ARM_INS_CMP, 0, 1, None), // 0
+            op_imm(ArmInsn::ARM_INS_B, 36, Some(ArmCC::ARM_CC_LE)), // 4
+            op_reg_reg(ArmInsn::ARM_INS_MOV, 1, 0, None), // 8
+            op_reg_imm(ArmInsn::ARM_INS_MOV, 0, 1, None), // 12
+            op_reg_reg_reg(ArmInsn::ARM_INS_MUL, 0, 0, 1, None), // 16
+            op_reg_reg_imm(ArmInsn::ARM_INS_SUBS, 1, 1, 1, None), // 20
+            op_imm(ArmInsn::ARM_INS_B, 16, Some(ArmCC::ARM_CC_GT)), // 24
+        ];
+        let context = Context::create();
+        let func_cache = FunctionCache::new();
+        let mut compiler = Compiler::new(&context);
+        let entry_point = compiler.compile_entry_point();
+
+        let mut run = |n| -> u32 {
+            let mut state = ArmState::default();
+            state.regs[0] = n;
+
+            loop {
+                let pc = state.pc() as usize;
+                // Exit once R2 has been written to
+                if state.regs[2] != 0 {
+                    return state.regs[2];
+                }
+                let mut f = compiler.new_function(pc, &func_cache);
+                let code = CodeBlock::from_instructions(program[pc..].iter().cloned(), pc);
+                println!("{}", code);
+
+                // This code will probably end up in a Compiler method. Maybe the function builder
+                // doesn't need to be returned outside it
+                let mut lbl_iter = code.labels.into_iter();
+                let mut lbl_addr = lbl_iter.next();
+                for instr in code.instrs {
+                    if let Some(addr) = lbl_addr
+                        && addr == instr.addr
+                    {
+                        // Start a new block and position builder
+                        let block = context.append_basic_block(f.func, "label");
+                        f.builder.position_at_end(block);
+                        f.blocks.insert(addr, block);
+                        lbl_addr = lbl_iter.next();
+                    }
+                    f.build(&instr);
+                    f.increment_pc();
+                }
+                // Don't bother caching it at the moment
+                let compiled = f.compile();
+                unsafe {
+                    entry_point.call(&mut state, compiled.as_raw());
+                }
+            }
+        };
+        assert_eq!(run(5), 120);
     }
 }

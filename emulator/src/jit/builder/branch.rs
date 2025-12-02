@@ -47,7 +47,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                         "call",
                     )?;
                     call.set_tail_call(true);
-                    bd.build_return(None).unwrap();
+                    bd.build_return(None)?;
                 }
             };
             Ok(())

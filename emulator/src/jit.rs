@@ -46,20 +46,19 @@ impl<'ctx> Compiler<'ctx> {
         &'a mut self,
         addr: usize,
         func_cache: &'a FunctionCache<'ctx>,
-    ) -> Result<FunctionBuilder<'ctx, 'a>>
+    ) -> FunctionBuilder<'ctx, 'a>
     where
         'ctx: 'a,
     {
         let i = self.create_module(&format!("m_{}", addr));
-        let lf = FunctionBuilder::new(
+        FunctionBuilder::new(
             addr,
             self.llvm_ctx,
             &self.builder,
             &self.modules[i],
             &self.engines[i],
             func_cache,
-        );
-        Ok(lf)
+        )
     }
 
     pub fn dump(&self) -> Result<()> {
@@ -155,22 +154,4 @@ impl<'ctx> Compiler<'ctx> {
 }
 
 #[cfg(test)]
-mod tests {
-
-    use capstone::arch::arm::ArmInsn;
-
-    use crate::arm::disasm::cons::*;
-
-    #[test]
-    fn test_next_code_block() {
-        let program = [
-            op_reg_imm(ArmInsn::ARM_INS_CMP, 0, 1, None),
-            op_imm(ArmInsn::ARM_INS_B, 36, None),
-            op_reg_reg(ArmInsn::ARM_INS_MOV, 1, 0, None),
-            op_reg_imm(ArmInsn::ARM_INS_MOV, 0, 1, None),
-            op_reg_reg_reg(ArmInsn::ARM_INS_MUL, 0, 0, 1, None),
-            op_reg_reg_imm(ArmInsn::ARM_INS_SUBS, 1, 1, 1, None),
-            op_imm(ArmInsn::ARM_INS_B, 16, None),
-        ];
-    }
-}
+mod tests {}

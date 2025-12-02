@@ -22,23 +22,24 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let flag = self.i32_t.const_int(flag as u64, false);
 
         let build = || -> Result<IntValue> {
-            let result = bd.build_alloca(self.i32_t, "result")?;
             let v0 = bd.build_left_shift(int1, flag, "v0")?;
             bd.build_conditional_branch(cond, if_block, else_block)?;
 
             bd.position_at_end(if_block);
             let v1 = bd.build_or(v0, initial, "v1")?;
-            bd.build_store(result, v1)?;
+            // bd.build_store(result, v1)?;
             bd.build_unconditional_branch(end_block)?;
 
             bd.position_at_end(else_block);
             let v3 = bd.build_not(v0, "v3")?;
             let v4 = bd.build_and(initial, v3, "v4")?;
-            bd.build_store(result, v4)?;
+            // bd.build_store(result, v4)?;
             bd.build_unconditional_branch(end_block)?;
 
             bd.position_at_end(end_block);
-            Ok(bd.build_load(self.i32_t, result, "v5")?.into_int_value())
+            let phi = bd.build_phi(self.i32_t, "phi")?;
+            phi.add_incoming(&[(&v1, if_block), (&v4, else_block)]);
+            Ok(phi.as_basic_value().into_int_value())
         };
         build().expect("LLVM codegen failed")
     }
@@ -144,7 +145,7 @@ mod tests {
         let context = Context::create();
         let cache = HashMap::new();
         let mut comp = Compiler::new(&context);
-        let mut func = comp.new_function(0, &cache).unwrap();
+        let mut func = comp.new_function(0, &cache);
 
         let bool_t = context.bool_type();
         let f = bool_t.const_zero();
@@ -193,7 +194,7 @@ mod tests {
         let cache = HashMap::new();
         let mut comp = Compiler::new(&context);
 
-        let mut f1 = comp.new_function(0, &cache).unwrap();
+        let mut f1 = comp.new_function(0, &cache);
         f1.build(&cmp_instr);
         f1.compute_flags();
         f1.write_state_out().unwrap();
