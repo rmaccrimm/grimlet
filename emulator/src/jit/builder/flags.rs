@@ -40,7 +40,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             bd.position_at_end(end_block);
             Ok(bd.build_load(self.i32_t, result, "v5")?.into_int_value())
         };
-        build().expect("LLVM codegen failed unexpectedly")
+        build().expect("LLVM codegen failed")
     }
 
     pub(super) fn compute_flags(&mut self) {
@@ -114,7 +114,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             cpsr = self.set_flag(Flag::V, cpsr, v_flag);
             Ok(cpsr)
         };
-        build().expect("LLVM codegen failed unexpected")
+        build().expect("LLVM codegen failed")
     }
 }
 
@@ -165,7 +165,7 @@ mod tests {
             .update(Reg::R6, func.set_flag(Flag::N, func.reg_map.r6(), t));
         func.reg_map
             .update(Reg::R7, func.set_flag(Flag::N, func.reg_map.r7(), f));
-        func.write_state_out();
+        func.write_state_out().unwrap();
 
         compile_and_run!(comp, func, state);
         assert_eq!(
@@ -196,7 +196,7 @@ mod tests {
         let mut f1 = comp.new_function(0, &cache).unwrap();
         f1.build(&cmp_instr);
         f1.compute_flags();
-        f1.write_state_out();
+        f1.write_state_out().unwrap();
         let cmp = f1.compile();
         let entry_point = comp.compile_entry_point();
 

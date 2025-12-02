@@ -1,6 +1,5 @@
 pub mod cons;
 
-use anyhow::Result;
 use capstone::arch::BuildsCapstone;
 use capstone::arch::arm::ArmCC;
 use capstone::{

@@ -3,7 +3,7 @@ mod builder;
 use crate::arm::cpu::{ArmState, NUM_REGS};
 use builder::{FunctionBuilder, get_ptr_param};
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::execution_engine::{ExecutionEngine, JitFunction};
@@ -50,7 +50,7 @@ impl<'ctx> Compiler<'ctx> {
     where
         'ctx: 'a,
     {
-        let i = self.create_module(&format!("m_{}", addr))?;
+        let i = self.create_module(&format!("m_{}", addr));
         let lf = FunctionBuilder::new(
             addr,
             self.llvm_ctx,
@@ -73,28 +73,20 @@ impl<'ctx> Compiler<'ctx> {
         Ok(())
     }
 
-    fn create_module(&mut self, name: &str) -> Result<usize> {
+    fn create_module(&mut self, name: &str) -> usize {
         self.modules.push(self.llvm_ctx.create_module(name));
         let module = self.modules.last().unwrap();
         self.engines.push(
             module
                 .create_jit_execution_engine(OptimizationLevel::None)
-                .map_err(|s| {
-                    let er = s
-                        .to_str()
-                        .map(String::from)
-                        .unwrap_or("Failed to create execution engine".into());
-                    anyhow!(er)
-                })?,
+                .expect("failed to create LLVM execution engine"),
         );
-        Ok(self.modules.len() - 1)
+        self.modules.len() - 1
     }
 
     // Performs context switch from guest machine to LLVM code and jumps to provided function
     pub fn compile_entry_point(&mut self) -> EntryPoint<'ctx> {
-        let i = self
-            .create_module("m_entrypoint")
-            .expect("failed to create LLVM module");
+        let i = self.create_module("m_entrypoint");
         let ctx = self.llvm_ctx;
         let bd = &self.builder;
         let module = &self.modules[i];
@@ -153,13 +145,12 @@ impl<'ctx> Compiler<'ctx> {
             bd.build_return(None)?;
             Ok(())
         };
-        build().expect("LLVM codegen failed unexpectedly");
+        build().expect("LLVM codegen failed");
         assert!(f.verify(true));
-        let entry_point = unsafe {
+        unsafe {
             ee.get_function("entry_point")
                 .expect("failed to compile entry_point")
-        };
-        entry_point
+        }
     }
 }
 
