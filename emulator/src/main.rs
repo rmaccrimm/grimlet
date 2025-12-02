@@ -22,9 +22,9 @@ struct Grimlet<'ctx> {
 impl<'ctx> Grimlet<'ctx> {
     pub fn new(context: &'ctx Context, bios_path: &str) -> Result<Self> {
         let state = ArmState::with_bios(bios_path)?;
-        let disasm = Disassembler::new()?;
-        let mut compiler = Compiler::new(context)?;
-        let entry_point = compiler.compile_entry_point()?;
+        let disasm = Disassembler::default();
+        let mut compiler = Compiler::new(context);
+        let entry_point = compiler.compile_entry_point();
         let func_cache = FunctionCache::new();
 
         Ok(Self {

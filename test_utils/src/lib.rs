@@ -3,11 +3,8 @@
 macro_rules! compile_and_run {
     ($compiler:ident, $func:ident, $state:ident) => {
         unsafe {
-            let fptr = $func.compile().unwrap().as_raw();
-            $compiler
-                .compile_entry_point()
-                .unwrap()
-                .call(&mut $state, fptr);
+            let fptr = $func.compile().as_raw();
+            $compiler.compile_entry_point().call(&mut $state, fptr);
         }
     };
 }

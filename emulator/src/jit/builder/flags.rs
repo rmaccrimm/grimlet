@@ -11,7 +11,7 @@ enum Flag {
 }
 
 impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
-    fn set_flag(&self, flag: Flag, initial: IntValue, cond: IntValue) -> Result<IntValue<'a>> {
+    fn set_flag(&self, flag: Flag, initial: IntValue, cond: IntValue) -> IntValue<'a> {
         let ctx = &self.llvm_ctx;
         let bd = &self.builder;
         let if_block = ctx.append_basic_block(self.func, "if");
@@ -20,96 +20,101 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         let int1 = self.i32_t.const_int(1, false);
         let flag = self.i32_t.const_int(flag as u64, false);
-        let result = bd.build_alloca(self.i32_t, "result")?;
-        let v0 = bd.build_left_shift(int1, flag, "v0")?;
-        bd.build_conditional_branch(cond, if_block, else_block)?;
 
-        bd.position_at_end(if_block);
-        let v1 = bd.build_or(v0, initial, "v1")?;
-        bd.build_store(result, v1)?;
-        bd.build_unconditional_branch(end_block)?;
+        let build = || -> Result<IntValue> {
+            let result = bd.build_alloca(self.i32_t, "result")?;
+            let v0 = bd.build_left_shift(int1, flag, "v0")?;
+            bd.build_conditional_branch(cond, if_block, else_block)?;
 
-        bd.position_at_end(else_block);
-        let v3 = bd.build_not(v0, "v3")?;
-        let v4 = bd.build_and(initial, v3, "v4")?;
-        bd.build_store(result, v4)?;
-        bd.build_unconditional_branch(end_block)?;
+            bd.position_at_end(if_block);
+            let v1 = bd.build_or(v0, initial, "v1")?;
+            bd.build_store(result, v1)?;
+            bd.build_unconditional_branch(end_block)?;
 
-        bd.position_at_end(end_block);
-        Ok(bd.build_load(self.i32_t, result, "v5")?.into_int_value())
+            bd.position_at_end(else_block);
+            let v3 = bd.build_not(v0, "v3")?;
+            let v4 = bd.build_and(initial, v3, "v4")?;
+            bd.build_store(result, v4)?;
+            bd.build_unconditional_branch(end_block)?;
+
+            bd.position_at_end(end_block);
+            Ok(bd.build_load(self.i32_t, result, "v5")?.into_int_value())
+        };
+        build().expect("LLVM codegen failed unexpectedly")
     }
 
-    pub(super) fn compute_flags(&mut self) -> Result<()> {
+    pub(super) fn compute_flags(&mut self) {
         // C and V - use LLVM intrinsic and re-run last instruction with overflow check
         let cpsr_next = match self.last_instr.opcode {
             ArmInsn::ARM_INS_CMP => self.compute_sub_flags(),
             _ => todo!(),
-        }?;
-
+        };
         self.reg_map.update(Reg::CPSR, cpsr_next);
-        Ok(())
     }
 
-    fn compute_sub_flags(&mut self) -> Result<IntValue<'a>> {
-        let mut cpsr = self.reg_map.cpsr();
-        let bd = &self.builder;
-        let imm = self
-            .last_instr
-            .inputs
-            .pop()
-            .ok_or(anyhow!("Missing operand"))?;
-        let reg_val = self
-            .last_instr
-            .inputs
-            .pop()
-            .ok_or(anyhow!("Missing operand"))?;
+    fn compute_sub_flags(&mut self) -> IntValue<'a> {
+        let mut build = || -> Result<IntValue> {
+            let mut cpsr = self.reg_map.cpsr();
+            let bd = &self.builder;
+            let imm = self
+                .last_instr
+                .inputs
+                .pop()
+                .ok_or(anyhow!("Missing operand"))?;
+            let reg_val = self
+                .last_instr
+                .inputs
+                .pop()
+                .ok_or(anyhow!("Missing operand"))?;
 
-        let ures = bd
-            .build_call(
-                self.usub_with_overflow,
-                &[reg_val.into(), imm.into()],
-                "ures",
-            )?
-            .try_as_basic_value()
-            .left()
-            .unwrap()
-            .into_struct_value();
+            let ures = bd
+                .build_call(
+                    self.usub_with_overflow,
+                    &[reg_val.into(), imm.into()],
+                    "ures",
+                )?
+                .try_as_basic_value()
+                .left()
+                .unwrap()
+                .into_struct_value();
 
-        let sres = bd
-            .build_call(
-                self.ssub_with_overflow,
-                &[reg_val.into(), imm.into()],
-                "sres",
-            )?
-            .try_as_basic_value()
-            .left()
-            .unwrap()
-            .into_struct_value();
+            let sres = bd
+                .build_call(
+                    self.ssub_with_overflow,
+                    &[reg_val.into(), imm.into()],
+                    "sres",
+                )?
+                .try_as_basic_value()
+                .left()
+                .unwrap()
+                .into_struct_value();
 
-        let sres_val = bd
-            .build_extract_value(sres, 0, "sres_val")?
-            .into_int_value();
+            let sres_val = bd
+                .build_extract_value(sres, 0, "sres_val")?
+                .into_int_value();
 
-        let v_flag = bd.build_not(
-            bd.build_extract_value(sres, 1, "not_v")?.into_int_value(),
-            "v",
-        )?;
-        let c_flag = bd.build_not(
-            bd.build_extract_value(ures, 1, "not_c")?.into_int_value(),
-            "c",
-        )?;
+            let v_flag = bd.build_not(
+                bd.build_extract_value(sres, 1, "not_v")?.into_int_value(),
+                "v",
+            )?;
+            let c_flag = bd.build_not(
+                bd.build_extract_value(ures, 1, "not_c")?.into_int_value(),
+                "c",
+            )?;
 
-        let z_flag =
-            bd.build_int_compare(IntPredicate::EQ, sres_val, self.i32_t.const_zero(), "n")?;
+            let z_flag =
+                bd.build_int_compare(IntPredicate::EQ, sres_val, self.i32_t.const_zero(), "n")?;
 
-        let n_flag =
-            bd.build_int_compare(IntPredicate::SLT, sres_val, self.i32_t.const_zero(), "z")?;
+            let n_flag =
+                bd.build_int_compare(IntPredicate::SLT, sres_val, self.i32_t.const_zero(), "z")?;
 
-        cpsr = self.set_flag(Flag::C, cpsr, c_flag)?;
-        cpsr = self.set_flag(Flag::Z, cpsr, z_flag)?;
-        cpsr = self.set_flag(Flag::N, cpsr, n_flag)?;
-        cpsr = self.set_flag(Flag::V, cpsr, v_flag)?;
-        Ok(cpsr)
+            cpsr = self.set_flag(Flag::C, cpsr, c_flag);
+            cpsr = self.set_flag(Flag::Z, cpsr, z_flag);
+            cpsr = self.set_flag(Flag::N, cpsr, n_flag);
+            cpsr = self.set_flag(Flag::V, cpsr, v_flag);
+            Ok(cpsr)
+        };
+        build().expect("LLVM codegen failed unexpected")
     }
 }
 
@@ -138,29 +143,29 @@ mod tests {
         }
         let context = Context::create();
         let cache = HashMap::new();
-        let mut comp = Compiler::new(&context).unwrap();
+        let mut comp = Compiler::new(&context);
         let mut func = comp.new_function(0, &cache).unwrap();
 
         let bool_t = context.bool_type();
         let f = bool_t.const_zero();
         let t = bool_t.const_int(1, false);
         func.reg_map
-            .update(Reg::R0, func.set_flag(Flag::V, func.reg_map.r0(), t)?);
+            .update(Reg::R0, func.set_flag(Flag::V, func.reg_map.r0(), t));
         func.reg_map
-            .update(Reg::R1, func.set_flag(Flag::V, func.reg_map.r1(), f)?);
+            .update(Reg::R1, func.set_flag(Flag::V, func.reg_map.r1(), f));
         func.reg_map
-            .update(Reg::R2, func.set_flag(Flag::V, func.reg_map.r2(), t)?);
+            .update(Reg::R2, func.set_flag(Flag::V, func.reg_map.r2(), t));
         func.reg_map
-            .update(Reg::R3, func.set_flag(Flag::V, func.reg_map.r3(), f)?);
+            .update(Reg::R3, func.set_flag(Flag::V, func.reg_map.r3(), f));
         func.reg_map
-            .update(Reg::R4, func.set_flag(Flag::N, func.reg_map.r4(), t)?);
+            .update(Reg::R4, func.set_flag(Flag::N, func.reg_map.r4(), t));
         func.reg_map
-            .update(Reg::R5, func.set_flag(Flag::N, func.reg_map.r5(), f)?);
+            .update(Reg::R5, func.set_flag(Flag::N, func.reg_map.r5(), f));
         func.reg_map
-            .update(Reg::R6, func.set_flag(Flag::N, func.reg_map.r6(), t)?);
+            .update(Reg::R6, func.set_flag(Flag::N, func.reg_map.r6(), t));
         func.reg_map
-            .update(Reg::R7, func.set_flag(Flag::N, func.reg_map.r7(), f)?);
-        func.write_state_out()?;
+            .update(Reg::R7, func.set_flag(Flag::N, func.reg_map.r7(), f));
+        func.write_state_out();
 
         compile_and_run!(comp, func, state);
         assert_eq!(
@@ -180,20 +185,20 @@ mod tests {
     }
 
     #[test]
-    fn test_compute_flags_cmp() -> Result<()> {
+    fn test_compute_flags_cmp() {
         let cmp_instr = op_reg_imm(ArmInsn::ARM_INS_CMP, 0, 1, None);
 
         let mut state = ArmState::default();
         let context = Context::create();
         let cache = HashMap::new();
-        let mut comp = Compiler::new(&context).unwrap();
+        let mut comp = Compiler::new(&context);
 
         let mut f1 = comp.new_function(0, &cache).unwrap();
-        f1.build(&cmp_instr)?;
-        f1.compute_flags()?;
-        f1.write_state_out()?;
-        let cmp = f1.compile()?;
-        let entry_point = comp.compile_entry_point()?;
+        f1.build(&cmp_instr);
+        f1.compute_flags();
+        f1.write_state_out();
+        let cmp = f1.compile();
+        let entry_point = comp.compile_entry_point();
 
         // Positive result
         state.regs[0] = 2;
@@ -235,7 +240,5 @@ mod tests {
         }
         println!("{}", state.regs[0]);
         assert_eq!(state.regs[16] >> 28, 0b0010);
-
-        Ok(())
     }
 }

@@ -1,9 +1,6 @@
 pub mod cons;
 
-use anyhow::Context;
 use anyhow::Result;
-use anyhow::anyhow;
-use capstone::RegId;
 use capstone::arch::BuildsCapstone;
 use capstone::arch::arm::ArmCC;
 use capstone::{
@@ -15,7 +12,6 @@ use capstone::{
 };
 use std::fmt::Display;
 
-use crate::arm::cpu::ArmMode;
 use crate::arm::cpu::MainMemory;
 use crate::arm::cpu::Reg;
 
@@ -55,7 +51,7 @@ impl ArmDisasm {
                 .into_iter()
                 .map(|a| match a {
                     ArchOperand::ArmOperand(op) => op,
-                    _ => panic!("unexpected operand"),
+                    _ => panic!("not an ARM operand"),
                 })
                 .collect(),
             addr: insn.address() as usize,
@@ -64,29 +60,29 @@ impl ArmDisasm {
         }
     }
 
-    pub fn get_reg_op(&self, ind: usize) -> Result<Reg> {
+    pub fn get_reg_op(&self, ind: usize) -> Reg {
         if let ArmOperandType::Reg(reg_id) = self
             .operands
             .get(ind)
-            .ok_or(anyhow!("missing operand {}", ind))?
+            .unwrap_or_else(|| panic!("\"{}\" missing operand {}", self, ind))
             .op_type
         {
-            Ok(Reg::from(reg_id.0 as usize))
+            Reg::from(reg_id.0 as usize)
         } else {
-            Err(anyhow!("Bad operand: not a register"))
+            panic!("\"{}\" operand {} is not a register", self, ind);
         }
     }
 
-    pub fn get_imm_op(&self, ind: usize) -> Result<i32> {
+    pub fn get_imm_op(&self, ind: usize) -> i32 {
         if let ArmOperandType::Imm(i) = self
             .operands
             .get(ind)
-            .ok_or(anyhow!("missing operand {}", ind))?
+            .unwrap_or_else(|| panic!("\"{}\" missing operand {}", self, ind))
             .op_type
         {
-            Ok(i)
+            i
         } else {
-            Err(anyhow!("Bad operand: not an immediate value"))
+            panic!("\"{}\" operand {} is not an immediate value", self, ind);
         }
     }
 }
@@ -133,16 +129,14 @@ impl CodeBlock {
             match instr.opcode {
                 ArmInsn::ARM_INS_B | ArmInsn::ARM_INS_BX | ArmInsn::ARM_INS_BL => {
                     // TODO can these be negative? Pretty sure it's translated to abs address
-                    if let Ok(target) = instr.get_imm_op(0) {
-                        let t = target as usize;
-                        if t < instr.addr && t >= start_addr {
-                            // This is a loop, need a label at the target address
-                            labels.push(instr.addr);
-                            instrs.push(instr);
-                        } else {
-                            instrs.push(instr);
-                            break;
-                        }
+                    let target = instr.get_imm_op(0) as usize;
+                    if target < instr.addr && target >= start_addr {
+                        // This is a loop, need a label at the target address
+                        labels.push(instr.addr);
+                        instrs.push(instr);
+                    } else {
+                        instrs.push(instr);
+                        break;
                     }
                 }
                 _ => {
@@ -162,16 +156,19 @@ pub struct Disassembler {
     cs: Capstone,
 }
 
-impl Disassembler {
-    pub fn new() -> Result<Self> {
+impl Default for Disassembler {
+    fn default() -> Self {
         let cs = Capstone::new()
             .arm()
             .mode(capstone::arch::arm::ArchMode::Arm)
             .detail(true)
-            .build()?;
-        Ok(Self { cs })
+            .build()
+            .expect("failed to build capstone instance");
+        Self { cs }
     }
+}
 
+impl Disassembler {
     pub fn next_code_block(&self, mem: &MainMemory, start_addr: usize) -> CodeBlock {
         let instr_iter = mem.iter_word(start_addr).enumerate().map(move |(i, ch)| {
             let instructions = self

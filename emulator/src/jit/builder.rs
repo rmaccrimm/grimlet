@@ -80,15 +80,16 @@ where
 }
 
 /// Helper that converts the LLVMString error message into an anyhow error
-pub(super) fn get_ptr_param<'a>(func: &FunctionValue<'a>, i: usize) -> Result<PointerValue<'a>> {
-    Ok(func
-        .get_nth_param(i as u32)
-        .ok_or(anyhow!(
-            "{} signature has no parameter {}",
-            func.get_name().to_str()?,
-            i
-        ))?
-        .into_pointer_value())
+pub(super) fn get_ptr_param<'a>(func: &FunctionValue<'a>, i: usize) -> PointerValue<'a> {
+    func.get_nth_param(i as u32)
+        .unwrap_or_else(|| {
+            panic!(
+                "{} signature has no parameter {}",
+                func.get_name().to_str().unwrap(),
+                i
+            )
+        })
+        .into_pointer_value()
 }
 
 fn func_name(addr: usize) -> String {
@@ -103,7 +104,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         module: &'a Module<'ctx>,
         execution_engine: &'a ExecutionEngine<'ctx>,
         func_cache: &'a FunctionCache<'ctx>,
-    ) -> Result<Self> {
+    ) -> Self {
         let name = func_name(addr);
         let ctx = llvm_ctx;
         let i32_t = ctx.i32_type();
@@ -118,8 +119,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let basic_block = ctx.append_basic_block(func, "start");
         bd.position_at_end(basic_block);
 
-        let arm_state_ptr = get_ptr_param(&func, 0)?;
-        let reg_array_ptr = get_ptr_param(&func, 1)?;
+        let arm_state_ptr = get_ptr_param(&func, 0);
+        let reg_array_ptr = get_ptr_param(&func, 1);
 
         let mut reg_map = Vec::new();
         for i in 0..NUM_REGS {
@@ -130,7 +131,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                     .unwrap()
             };
             let name = format!("r{}", i);
-            let v = bd.build_load(i32_t, ptr, &name)?.into_int_value();
+            let v = bd.build_load(i32_t, ptr, &name).unwrap().into_int_value();
             reg_map.push(v);
         }
 
@@ -154,7 +155,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             .get_declaration(module, &[i32_t.into()])
             .unwrap();
 
-        Ok(FunctionBuilder {
+        FunctionBuilder {
             addr,
             name,
             reg_map: RegMap::new(reg_map),
@@ -178,56 +179,62 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             ssub_with_overflow,
             uadd_with_overflow,
             usub_with_overflow,
-        })
-    }
-
-    pub fn compile(self) -> Result<CompiledFunction<'ctx>> {
-        self.builder.build_return(None)?;
-        if self.func.verify(true) {
-            let jit_func = unsafe { self.execution_engine.get_function(&self.name)? };
-            Ok(jit_func)
-        } else {
-            Err(anyhow!("Compilation failed"))
         }
     }
 
-    fn get_external_func_pointer(&self, func_addr: usize) -> Result<PointerValue<'a>> {
-        let ee = &self.execution_engine;
-        let func_ptr = self.builder.build_int_to_ptr(
-            self.llvm_ctx
-                .ptr_sized_int_type(ee.get_target_data(), None)
-                .const_int(func_addr as u64, false),
-            self.ptr_t,
-            "extern_ptr",
-        )?;
-        Ok(func_ptr)
+    pub fn compile(self) -> CompiledFunction<'ctx> {
+        self.builder.build_return(None).unwrap();
+        assert!(self.func.verify(true));
+        let jit_func = unsafe {
+            self.execution_engine
+                .get_function(&self.name)
+                .unwrap_or_else(|_| panic!("failed to compile function: {}", self.name))
+        };
+        jit_func
     }
 
-    fn get_compiled_func_pointer(&self, key: usize) -> Result<Option<PointerValue<'a>>> {
+    fn get_external_func_pointer(&self, func_addr: usize) -> PointerValue<'a> {
+        let ee = &self.execution_engine;
+        let func_ptr = self
+            .builder
+            .build_int_to_ptr(
+                self.llvm_ctx
+                    .ptr_sized_int_type(ee.get_target_data(), None)
+                    .const_int(func_addr as u64, false),
+                self.ptr_t,
+                "extern_ptr",
+            )
+            .unwrap();
+        func_ptr
+    }
+
+    fn get_compiled_func_pointer(&self, key: usize) -> Option<PointerValue<'a>> {
         // TODO sort out which int type to use where
         match self.func_cache.get(&key) {
             Some(f) => {
                 // pretty sure it doesn't matter which we look at
                 let ee = &self.execution_engine;
                 let func_ptr = unsafe {
-                    self.builder.build_int_to_ptr(
-                        self.llvm_ctx
-                            .ptr_sized_int_type(ee.get_target_data(), None)
-                            // Double cast since usize ensures correct pointer size but inkwell
-                            // expects u64
-                            .const_int((f.as_raw() as usize) as u64, false),
-                        self.ptr_t,
-                        &format!("{}_ptr", func_name(key)),
-                    )?
+                    self.builder
+                        .build_int_to_ptr(
+                            self.llvm_ctx
+                                .ptr_sized_int_type(ee.get_target_data(), None)
+                                // Double cast since usize ensures correct pointer size but inkwell
+                                // expects u64
+                                .const_int((f.as_raw() as usize) as u64, false),
+                            self.ptr_t,
+                            &format!("{}_ptr", func_name(key)),
+                        )
+                        .unwrap()
                 };
-                Ok(Some(func_ptr))
+                Some(func_ptr)
             }
-            None => Ok(None),
+            None => None,
         }
     }
 
     /// When context switching, write out the latest values in reg_map to the guest state
-    fn write_state_out(&self) -> Result<()> {
+    fn write_state_out(&self) {
         let bd = &self.builder;
         let zero = self.i32_t.const_zero();
         let one = self.i32_t.const_int(1, false);
@@ -236,17 +243,18 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             let gep_inds = [zero, one, reg_ind];
             let name = format!("arm_state_r{}_ptr", i);
             // Pointer to the register in the guest machine (ArmState object)
-            let arm_state_elem_ptr =
-                unsafe { bd.build_gep(self.arm_state_t, self.arm_state_ptr, &gep_inds, &name)? };
+            let arm_state_elem_ptr = unsafe {
+                bd.build_gep(self.arm_state_t, self.arm_state_ptr, &gep_inds, &name)
+                    .unwrap()
+            };
 
-            bd.build_store(arm_state_elem_ptr, *rval)?;
+            bd.build_store(arm_state_elem_ptr, *rval).unwrap();
         }
-        Ok(())
     }
 
     // For jumping without context switching. Updates the reg array allocated in entry point with
     // latest values in reg_map
-    fn update_reg_array(&self) -> Result<()> {
+    fn update_reg_array(&self) {
         let bd = &self.builder;
         let zero = self.i32_t.const_zero();
         for (i, rval) in self.reg_map.llvm_values.iter().enumerate() {
@@ -254,14 +262,15 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             let gep_inds = [zero, reg_ind];
             let name = format!("reg_arr_r{}_ptr", i);
             // Pointer to the local register (i32 array)
-            let reg_arr_elem_ptr =
-                unsafe { bd.build_gep(self.reg_array_t, self.reg_array_ptr, &gep_inds, &name)? };
-            bd.build_store(reg_arr_elem_ptr, *rval)?;
+            let reg_arr_elem_ptr = unsafe {
+                bd.build_gep(self.reg_array_t, self.reg_array_ptr, &gep_inds, &name)
+                    .unwrap()
+            };
+            bd.build_store(reg_arr_elem_ptr, *rval).unwrap();
         }
-        Ok(())
     }
 
-    pub fn build(&mut self, instr: &ArmDisasm) -> Result<()> {
+    pub fn build(&mut self, instr: &ArmDisasm) {
         match instr.opcode {
             ArmInsn::ARM_INS_INVALID => todo!(),
             ArmInsn::ARM_INS_ADC => todo!(),
@@ -764,7 +773,7 @@ mod tests {
         }
 
         let context = Context::create();
-        let mut comp = Compiler::new(&context).unwrap();
+        let mut comp = Compiler::new(&context);
         let func_cache = HashMap::new();
         let f = comp.new_function(0, &func_cache).unwrap();
 
@@ -775,9 +784,7 @@ mod tests {
 
         let interp_fn_type = f.void_t.fn_type(&[f.ptr_t.into(), f.i32_t.into()], false);
 
-        let interp_fn_ptr = f
-            .get_external_func_pointer(ArmState::jump_to as usize)
-            .unwrap();
+        let interp_fn_ptr = f.get_external_func_pointer(ArmState::jump_to as usize);
 
         let call = f
             .builder
@@ -809,8 +816,8 @@ mod tests {
         }
 
         let context = Context::create();
-        let mut comp = Compiler::new(&context).unwrap();
-        let entry_point = comp.compile_entry_point().unwrap();
+        let mut comp = Compiler::new(&context);
+        let entry_point = comp.compile_entry_point();
         let mut cache = HashMap::new();
 
         let f1 = comp.new_function(0, &cache).unwrap();
@@ -827,11 +834,9 @@ mod tests {
             .unwrap();
 
         // Perform context switch out before jumping to ArmState code
-        f1.write_state_out().unwrap();
+        f1.write_state_out();
 
-        let func_ptr_param = f1
-            .get_external_func_pointer(ArmState::jump_to as usize)
-            .unwrap();
+        let func_ptr_param = f1.get_external_func_pointer(ArmState::jump_to as usize);
 
         let interp_fn_t = f1
             .void_t
@@ -851,15 +856,15 @@ mod tests {
             )
             .unwrap();
         call.set_tail_call(true);
-        let compiled1 = f1.compile().unwrap();
+        let compiled1 = f1.compile();
         cache.insert(0, compiled1);
 
         let mut f2 = comp.new_function(1, &cache).unwrap();
         f2.reg_map.update(Reg::R0, f2.i32_t.const_int(999, false));
-        f2.update_reg_array().unwrap();
+        f2.update_reg_array();
 
         // Construct the function pointer using raw pointer obtained from function cache
-        let func_ptr_param = f2.get_compiled_func_pointer(0).unwrap().unwrap();
+        let func_ptr_param = f2.get_compiled_func_pointer(0).unwrap();
 
         // Perform indirect call through pointer
         let call = f2
@@ -872,7 +877,7 @@ mod tests {
             )
             .unwrap();
         call.set_tail_call(true);
-        let compiled2 = f2.compile().unwrap();
+        let compiled2 = f2.compile();
         cache.insert(1, compiled2);
 
         println!("{:?}", state.regs);
@@ -894,7 +899,7 @@ mod tests {
         let mut state = ArmState::default();
         let context = Context::create();
         let cache = HashMap::new();
-        let mut comp = Compiler::new(&context)?;
+        let mut comp = Compiler::new(&context);
         let mut f = comp.new_function(0, &cache)?;
         let bd = f.builder;
         let call = bd.build_call(
@@ -918,7 +923,7 @@ mod tests {
 
         f.reg_map.update(Reg::R0, val);
         f.reg_map.update(Reg::R1, overflowed);
-        f.write_state_out()?;
+        f.write_state_out();
         compile_and_run!(comp, f, state);
 
         println!("{:?}", state.regs);
