@@ -203,7 +203,6 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     pub fn compile(self) -> CompiledFunction<'ctx> {
-        self.builder.build_return(None).unwrap();
         assert!(self.func.verify(true));
         unsafe {
             self.execution_engine
@@ -953,7 +952,6 @@ mod tests {
         assert_eq!(state.regs[1], 1);
     }
 
-    #[ignore]
     #[test]
     fn test_factorial_program() {
         let program = [
@@ -964,9 +962,12 @@ mod tests {
             op_reg_reg_reg(ArmInsn::ARM_INS_MUL, 0, 0, 1, None), // 16
             op_reg_reg_imm(ArmInsn::ARM_INS_SUBS, 1, 1, 1, None), // 20
             op_imm(ArmInsn::ARM_INS_B, 16, Some(ArmCC::ARM_CC_GT)), // 24
+            op_reg_reg(ArmInsn::ARM_INS_MOV, 2, 0, None), // 28
+            op_imm(ArmInsn::ARM_INS_B, 40, None),         // 32
+            op_reg_imm(ArmInsn::ARM_INS_MOV, 2, 1, None), // 36
         ];
         let context = Context::create();
-        let func_cache = FunctionCache::new();
+        let mut func_cache = FunctionCache::new();
         let mut compiler = Compiler::new(&context);
         let entry_point = compiler.compile_entry_point();
 
@@ -976,35 +977,30 @@ mod tests {
 
             loop {
                 let pc = state.pc() as usize;
-                // Exit once R2 has been written to
-                if state.regs[2] != 0 {
+                if pc >= 40 {
                     return state.regs[2];
                 }
-                let mut f = compiler.new_function(pc, &func_cache);
-                let code = CodeBlock::from_instructions(program[pc..].iter().cloned(), pc);
-                println!("{}", code);
 
-                // This code will probably end up in a Compiler method. Maybe the function builder
-                // doesn't need to be returned outside it
-                let mut lbl_iter = code.labels.into_iter();
-                let mut lbl_addr = lbl_iter.next();
-                for instr in code.instrs {
-                    if let Some(addr) = lbl_addr
-                        && addr == instr.addr
-                    {
-                        // Start a new block and position builder
-                        let block = context.append_basic_block(f.func, "label");
-                        f.builder.position_at_end(block);
-                        f.blocks.insert(addr, block);
-                        lbl_addr = lbl_iter.next();
+                let func = match func_cache.get(&pc) {
+                    Some(func) => func,
+                    None => {
+                        let mut f = compiler.new_function(pc, &func_cache);
+                        let code =
+                            CodeBlock::from_instructions(program[pc / 4..].iter().cloned(), pc);
+                        println!("code: {}", code);
+
+                        for instr in code.instrs {
+                            f.build(&instr);
+                        }
+
+                        let compiled = f.compile();
+                        compiler.dump().unwrap();
+                        func_cache.insert(pc, compiled);
+                        func_cache.get(&pc).unwrap()
                     }
-                    f.build(&instr);
-                    f.increment_pc();
-                }
-                // Don't bother caching it at the moment
-                let compiled = f.compile();
+                };
                 unsafe {
-                    entry_point.call(&mut state, compiled.as_raw());
+                    entry_point.call(&mut state, func.as_raw());
                 }
             }
         };

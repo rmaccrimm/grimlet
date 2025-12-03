@@ -22,27 +22,26 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         Ok(())
     }
 
-    pub(super) fn arm_b(&self, instr: &ArmDisasm) {
-        let build = || -> Result<()> {
-            let bd = &self.builder;
+    pub(super) fn arm_b(&mut self, instr: &ArmDisasm) {
+        let build = |f: &mut Self| -> Result<()> {
+            let bd = &f.builder;
             let target = instr.get_imm_op(0) as usize;
             // TODO - backwards jumps?
-            match self.get_compiled_func_pointer(target)? {
+            match f.get_compiled_func_pointer(target)? {
                 Some(func_ptr) => {
                     // Jump directly to compiled function
-                    self.build_tail_call(func_ptr)?;
+                    f.build_tail_call(func_ptr)?;
                 }
                 None => {
                     // Context switch and jump out to the interpreter
-                    self.write_state_out()?;
-                    let func_ptr = self.get_external_func_pointer(ArmState::jump_to as usize)?;
+                    f.write_state_out()?;
+                    let func_ptr = f.get_external_func_pointer(ArmState::jump_to as usize)?;
                     let call = bd.build_indirect_call(
-                        self.void_t
-                            .fn_type(&[self.ptr_t.into(), self.i32_t.into()], false),
+                        f.void_t.fn_type(&[f.ptr_t.into(), f.i32_t.into()], false),
                         func_ptr,
                         &[
-                            self.arm_state_ptr.into(),
-                            self.i32_t.const_int(target as u64, false).into(),
+                            f.arm_state_ptr.into(),
+                            f.i32_t.const_int(target as u64, false).into(),
                         ],
                         "call",
                     )?;
@@ -52,7 +51,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             };
             Ok(())
         };
-        build().expect("LLVM codegen failed");
+        self.exec_conditional(instr, build);
+        build(self).expect("LLVM codegen failed");
     }
 
     fn arm_bl(&self, _instr: &ArmDisasm) {

@@ -1,8 +1,12 @@
-use crate::{arm::cpu::Reg, jit::FunctionBuilder};
+use crate::{
+    arm::{cpu::Reg, disasm::ArmDisasm},
+    jit::FunctionBuilder,
+};
 use anyhow::{Result, anyhow};
-use capstone::arch::arm::ArmInsn;
+use capstone::arch::arm::{ArmCC, ArmInsn};
 use inkwell::{IntPredicate, values::IntValue};
 
+#[derive(Copy, Clone, Debug)]
 enum Flag {
     V = 28,
     C = 29,
@@ -10,13 +14,121 @@ enum Flag {
     N = 31,
 }
 
+impl Flag {
+    fn to_str(self) -> &'static str {
+        match self {
+            Flag::V => "v",
+            Flag::C => "c",
+            Flag::Z => "z",
+            Flag::N => "n",
+        }
+    }
+}
+
 impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
+    pub(super) fn exec_conditional<F>(&mut self, instr: &ArmDisasm, func: F)
+    where
+        F: Fn(&mut Self) -> Result<()>,
+    {
+        if instr.cond == ArmCC::ARM_CC_AL {
+            func(self).expect("LLVM codegen failed");
+            return;
+        }
+        self.compute_flags();
+
+        let build = |f: &mut Self| -> Result<()> {
+            let ctx = f.llvm_ctx;
+            let bd = f.builder;
+            let if_block = ctx.append_basic_block(f.func, "if");
+            let end_block = ctx.append_basic_block(f.func, "end");
+            let cond = match instr.cond {
+                ArmCC::ARM_CC_EQ => f.get_flag(Flag::Z),
+                ArmCC::ARM_CC_NE => f.get_neg_flag(Flag::Z),
+                ArmCC::ARM_CC_HS => f.get_flag(Flag::C),
+                ArmCC::ARM_CC_LO => f.get_neg_flag(Flag::C),
+                ArmCC::ARM_CC_MI => f.get_flag(Flag::N),
+                ArmCC::ARM_CC_PL => f.get_neg_flag(Flag::N),
+                ArmCC::ARM_CC_VS => f.get_flag(Flag::V),
+                ArmCC::ARM_CC_VC => f.get_neg_flag(Flag::V),
+                ArmCC::ARM_CC_HI => {
+                    bd.build_and(f.get_flag(Flag::C), f.get_neg_flag(Flag::Z), "hi")?
+                }
+                ArmCC::ARM_CC_LS => {
+                    bd.build_or(f.get_neg_flag(Flag::C), f.get_flag(Flag::Z), "ls")?
+                }
+                ArmCC::ARM_CC_GE => bd.build_int_compare(
+                    IntPredicate::EQ,
+                    f.get_flag(Flag::N),
+                    f.get_flag(Flag::V),
+                    "ge",
+                )?,
+                ArmCC::ARM_CC_LT => bd.build_int_compare(
+                    IntPredicate::NE,
+                    f.get_flag(Flag::N),
+                    f.get_flag(Flag::V),
+                    "lt",
+                )?,
+                ArmCC::ARM_CC_GT => bd.build_and(
+                    f.get_neg_flag(Flag::Z),
+                    bd.build_int_compare(
+                        IntPredicate::EQ,
+                        f.get_flag(Flag::N),
+                        f.get_flag(Flag::V),
+                        "ge",
+                    )?,
+                    "gt",
+                )?,
+                ArmCC::ARM_CC_LE => bd.build_or(
+                    f.get_flag(Flag::Z),
+                    bd.build_int_compare(
+                        IntPredicate::NE,
+                        f.get_flag(Flag::N),
+                        f.get_flag(Flag::V),
+                        "lt",
+                    )?,
+                    "le",
+                )?,
+                _ => panic!("invalid cond"),
+            };
+            bd.build_conditional_branch(cond, if_block, end_block)?;
+            bd.position_at_end(if_block);
+            func(f)?;
+            bd.build_unconditional_branch(end_block)?;
+            bd.position_at_end(end_block);
+            Ok(())
+        };
+        build(self).expect("LLVM codegen failed");
+    }
+
+    fn get_flag(&self, flag: Flag) -> IntValue<'a> {
+        let build = || -> Result<IntValue> {
+            let bd = self.builder;
+            Ok(bd.build_and(
+                bd.build_right_shift(
+                    self.reg_map.cpsr(),
+                    self.i32_t.const_int(flag as u64, false),
+                    false,
+                    "shift",
+                )?,
+                self.i32_t.const_int(1, false),
+                flag.to_str(),
+            )?)
+        };
+        build().expect("LLVM codegen failed")
+    }
+
+    fn get_neg_flag(&self, flag: Flag) -> IntValue<'a> {
+        self.builder
+            .build_not(self.get_flag(flag), &format!("not_{}", flag.to_str()))
+            .expect("LLVM codegen failed")
+    }
+
     fn set_flag(&self, flag: Flag, initial: IntValue, cond: IntValue) -> IntValue<'a> {
         let ctx = &self.llvm_ctx;
         let bd = &self.builder;
         let if_block = ctx.append_basic_block(self.func, "if");
         let else_block = ctx.append_basic_block(self.func, "else");
-        let end_block = ctx.append_basic_block(self.func, "else");
+        let end_block = ctx.append_basic_block(self.func, "end");
 
         let int1 = self.i32_t.const_int(1, false);
         let flag = self.i32_t.const_int(flag as u64, false);
@@ -44,7 +156,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         build().expect("LLVM codegen failed")
     }
 
-    pub(super) fn compute_flags(&mut self) {
+    fn compute_flags(&mut self) {
         // C and V - use LLVM intrinsic and re-run last instruction with overflow check
         let cpsr_next = match self.last_instr.opcode {
             ArmInsn::ARM_INS_CMP => self.compute_sub_flags(),
