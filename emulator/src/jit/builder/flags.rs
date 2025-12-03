@@ -35,7 +35,6 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             return;
         }
         self.compute_flags();
-
         let build = |f: &mut Self| -> Result<()> {
             let ctx = f.llvm_ctx;
             let bd = f.builder;
@@ -236,13 +235,13 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 mod tests {
     use std::collections::HashMap;
 
+    use crate::jit::compile_and_run;
     use crate::{
         arm::{cpu::ArmState, disasm::cons::*},
         jit::Compiler,
     };
     use anyhow::Result;
     use inkwell::context::Context;
-    use test_utils::compile_and_run;
 
     use super::*;
 
@@ -279,7 +278,7 @@ mod tests {
         func.reg_map
             .update(Reg::R7, func.set_flag(Flag::N, func.reg_map.r7(), f));
         func.write_state_out().unwrap();
-
+        func.builder.build_return(None).unwrap();
         compile_and_run!(comp, func, state);
         assert_eq!(
             &state.regs[0..8],
@@ -310,6 +309,7 @@ mod tests {
         f1.build(&cmp_instr);
         f1.compute_flags();
         f1.write_state_out().unwrap();
+        f1.builder.build_return(None).unwrap();
         let cmp = f1.compile();
         let entry_point = comp.compile_entry_point();
 

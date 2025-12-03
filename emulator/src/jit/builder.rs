@@ -772,10 +772,10 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 mod tests {
     use super::*;
     use crate::arm::disasm::{CodeBlock, cons::*};
+    use crate::jit::compile_and_run;
     use crate::{arm::cpu::Reg, jit::Compiler};
     use capstone::arch::arm::{ArmCC, ArmInsn};
     use std::collections::HashMap;
-    use test_utils::compile_and_run;
 
     #[test]
     fn test_jump_to_external() {
@@ -812,6 +812,7 @@ mod tests {
             )
             .unwrap();
         call.set_tail_call(true);
+        f.builder.build_return(None).unwrap();
 
         println!("{:?}", state.regs);
         compile_and_run!(comp, f, state);
@@ -874,6 +875,7 @@ mod tests {
             )
             .unwrap();
         call.set_tail_call(true);
+        f1.builder.build_return(None).unwrap();
         let compiled1 = f1.compile();
         cache.insert(0, compiled1);
 
@@ -895,6 +897,7 @@ mod tests {
             )
             .unwrap();
         call.set_tail_call(true);
+        f2.builder.build_return(None).unwrap();
         let compiled2 = f2.compile();
         cache.insert(1, compiled2);
 
@@ -948,6 +951,7 @@ mod tests {
         f.reg_map.update(Reg::R0, val);
         f.reg_map.update(Reg::R1, overflowed);
         f.write_state_out().unwrap();
+        f.builder.build_return(None).unwrap();
         compile_and_run!(comp, f, state);
 
         println!("{:?}", state.regs);
@@ -995,7 +999,7 @@ mod tests {
                         for instr in code.instrs {
                             f.build(&instr);
                         }
-
+                        f.builder.build_return(None).unwrap();
                         let compiled = f.compile();
                         compiler.dump().unwrap();
                         func_cache.insert(pc, compiled);
