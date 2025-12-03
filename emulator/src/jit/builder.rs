@@ -71,6 +71,7 @@ where
     i32_t: IntType<'a>,
     ptr_t: PointerType<'a>,
     void_t: VoidType<'a>,
+    bool_t: IntType<'a>,
 
     // Return type of add/sub with overflow intrinsics
     intrinsic_t: StructType<'a>,
@@ -116,6 +117,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let i32_t = ctx.i32_type();
         let ptr_t = ctx.ptr_type(AddressSpace::default());
         let void_t = ctx.void_type();
+        let bool_t = ctx.bool_type();
         let regs_t = i32_t.array_type(NUM_REGS as u32);
         let arm_state_t = ArmState::get_llvm_type(ctx);
         let fn_t = void_t.fn_type(&[ptr_t.into(), ptr_t.into()], false);
@@ -182,6 +184,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             ptr_t,
             reg_array_t: regs_t,
             void_t,
+            bool_t,
             last_instr: InstrHist::default(),
             intrinsic_t,
             sadd_with_overflow,

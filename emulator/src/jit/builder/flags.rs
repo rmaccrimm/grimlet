@@ -26,7 +26,7 @@ impl Flag {
 }
 
 impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
-    pub(super) fn exec_conditional<F>(&mut self, instr: &ArmDisasm, func: F)
+    pub(super) fn exec_conditional<F>(&mut self, instr: &ArmDisasm, func: F, branch: bool)
     where
         F: Fn(&mut Self) -> Result<()>,
     {
@@ -93,7 +93,9 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             bd.build_conditional_branch(cond, if_block, end_block)?;
             bd.position_at_end(if_block);
             func(f)?;
-            bd.build_unconditional_branch(end_block)?;
+            if branch {
+                bd.build_unconditional_branch(end_block)?;
+            }
             bd.position_at_end(end_block);
             Ok(())
         };
@@ -103,16 +105,14 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     fn get_flag(&self, flag: Flag) -> IntValue<'a> {
         let build = || -> Result<IntValue> {
             let bd = self.builder;
-            Ok(bd.build_and(
-                bd.build_right_shift(
-                    self.reg_map.cpsr(),
-                    self.i32_t.const_int(flag as u64, false),
-                    false,
-                    "shift",
-                )?,
-                self.i32_t.const_int(1, false),
-                flag.to_str(),
-            )?)
+            let shift = bd.build_right_shift(
+                self.reg_map.cpsr(),
+                self.i32_t.const_int(flag as u64, false),
+                false,
+                "shift",
+            )?;
+            let flag_i32 = bd.build_and(shift, self.i32_t.const_int(1, false), "flag")?;
+            Ok(bd.build_int_cast(flag_i32, self.bool_t, flag.to_str())?)
         };
         build().expect("LLVM codegen failed")
     }
@@ -160,6 +160,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         // C and V - use LLVM intrinsic and re-run last instruction with overflow check
         let cpsr_next = match self.last_instr.opcode {
             ArmInsn::ARM_INS_CMP => self.compute_sub_flags(),
+            ArmInsn::ARM_INS_NOP => self.reg_map.cpsr(),
             _ => todo!(),
         };
         self.reg_map.update(Reg::CPSR, cpsr_next);
@@ -259,9 +260,8 @@ mod tests {
         let mut comp = Compiler::new(&context);
         let mut func = comp.new_function(0, &cache);
 
-        let bool_t = context.bool_type();
-        let f = bool_t.const_zero();
-        let t = bool_t.const_int(1, false);
+        let f = func.bool_t.const_zero();
+        let t = func.bool_t.const_int(1, false);
         func.reg_map
             .update(Reg::R0, func.set_flag(Flag::V, func.reg_map.r0(), t));
         func.reg_map
@@ -353,5 +353,26 @@ mod tests {
         }
         println!("{}", state.regs[0]);
         assert_eq!(state.regs[16] >> 28, 0b0010);
+    }
+
+    #[test]
+    fn test_conditions() {
+        let context = Context::create();
+        let cache = HashMap::new();
+        let mut comp = Compiler::new(&context);
+
+        let mut test_case = |cond: ArmCC, flags: u32, should_execute: bool| {
+            let mut state = ArmState::default();
+            state.regs[Reg::CPSR as usize] = flags << 28;
+            let mut f = comp.new_function(0, &cache);
+            f.build(&op_imm(ArmInsn::ARM_INS_B, 100, Some(cond)));
+            f.build(&op_imm(ArmInsn::ARM_INS_B, 200, None));
+            compile_and_run!(comp, f, state);
+            assert_eq!(state.pc(), if should_execute { 100 } else { 200 });
+        };
+        test_case(ArmCC::ARM_CC_EQ, 0b0000, false);
+        test_case(ArmCC::ARM_CC_EQ, 0b0100, true);
+        test_case(ArmCC::ARM_CC_NE, 0b0000, true);
+        test_case(ArmCC::ARM_CC_NE, 0b0100, false);
     }
 }

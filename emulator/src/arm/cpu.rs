@@ -132,6 +132,10 @@ impl ArmState {
         })
     }
 
+    pub fn cpsr(&self) -> u32 {
+        self.regs[Reg::CPSR as usize]
+    }
+
     pub fn pc(&self) -> u32 {
         self.regs[Reg::PC as usize]
     }

@@ -51,8 +51,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             };
             Ok(())
         };
-        self.exec_conditional(instr, build);
-        build(self).expect("LLVM codegen failed");
+        self.exec_conditional(instr, build, false);
     }
 
     fn arm_bl(&self, _instr: &ArmDisasm) {
