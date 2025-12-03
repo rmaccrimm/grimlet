@@ -370,9 +370,61 @@ mod tests {
             compile_and_run!(comp, f, state);
             assert_eq!(state.pc(), if should_execute { 100 } else { 200 });
         };
-        test_case(ArmCC::ARM_CC_EQ, 0b0000, false);
-        test_case(ArmCC::ARM_CC_EQ, 0b0100, true);
-        test_case(ArmCC::ARM_CC_NE, 0b0000, true);
-        test_case(ArmCC::ARM_CC_NE, 0b0100, false);
+        //                            _z__
+        test_case(ArmCC::ARM_CC_EQ, 0b0001, false);
+        test_case(ArmCC::ARM_CC_EQ, 0b0111, true);
+        test_case(ArmCC::ARM_CC_NE, 0b1000, true);
+        test_case(ArmCC::ARM_CC_NE, 0b1110, false);
+        //                            __c_
+        test_case(ArmCC::ARM_CC_HS, 0b0100, false);
+        test_case(ArmCC::ARM_CC_HS, 0b1010, true);
+        test_case(ArmCC::ARM_CC_LO, 0b1001, true);
+        test_case(ArmCC::ARM_CC_LO, 0b1110, false);
+        //                            n___
+        test_case(ArmCC::ARM_CC_MI, 0b0000, false);
+        test_case(ArmCC::ARM_CC_MI, 0b1001, true);
+        test_case(ArmCC::ARM_CC_PL, 0b0000, true);
+        test_case(ArmCC::ARM_CC_PL, 0b1000, false);
+        //                            ___v
+        test_case(ArmCC::ARM_CC_VS, 0b0010, false);
+        test_case(ArmCC::ARM_CC_VS, 0b1001, true);
+        test_case(ArmCC::ARM_CC_VC, 0b1100, true);
+        test_case(ArmCC::ARM_CC_VC, 0b1101, false);
+        //                            _zc_
+        test_case(ArmCC::ARM_CC_HI, 0b0001, false);
+        test_case(ArmCC::ARM_CC_HI, 0b0011, true);
+        test_case(ArmCC::ARM_CC_HI, 0b1100, false);
+        test_case(ArmCC::ARM_CC_HI, 0b0110, false);
+        test_case(ArmCC::ARM_CC_LS, 0b0000, true);
+        test_case(ArmCC::ARM_CC_LS, 0b0010, false);
+        test_case(ArmCC::ARM_CC_LS, 0b0100, true);
+        test_case(ArmCC::ARM_CC_LS, 0b0110, true);
+        //                            n__v
+        test_case(ArmCC::ARM_CC_GE, 0b0000, true);
+        test_case(ArmCC::ARM_CC_GE, 0b0001, false);
+        test_case(ArmCC::ARM_CC_GE, 0b1000, false);
+        test_case(ArmCC::ARM_CC_GE, 0b1001, true);
+        test_case(ArmCC::ARM_CC_LT, 0b0000, false);
+        test_case(ArmCC::ARM_CC_LT, 0b0001, true);
+        test_case(ArmCC::ARM_CC_LT, 0b1000, true);
+        test_case(ArmCC::ARM_CC_LT, 0b1001, false);
+        //                            nz_v
+        test_case(ArmCC::ARM_CC_GT, 0b0010, true);
+        test_case(ArmCC::ARM_CC_GT, 0b0001, false);
+        test_case(ArmCC::ARM_CC_GT, 0b1000, false);
+        test_case(ArmCC::ARM_CC_GT, 0b1011, true);
+        test_case(ArmCC::ARM_CC_GT, 0b0110, false);
+        test_case(ArmCC::ARM_CC_GT, 0b0101, false);
+        test_case(ArmCC::ARM_CC_GT, 0b1100, false);
+        test_case(ArmCC::ARM_CC_GT, 0b1111, false);
+        //                            nz_v
+        test_case(ArmCC::ARM_CC_LE, 0b0000, false);
+        test_case(ArmCC::ARM_CC_LE, 0b0001, true);
+        test_case(ArmCC::ARM_CC_LE, 0b1000, true);
+        test_case(ArmCC::ARM_CC_LE, 0b1011, false);
+        test_case(ArmCC::ARM_CC_LE, 0b0110, true);
+        test_case(ArmCC::ARM_CC_LE, 0b0101, true);
+        test_case(ArmCC::ARM_CC_LE, 0b1100, true);
+        test_case(ArmCC::ARM_CC_LE, 0b1101, true);
     }
 }
