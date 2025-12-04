@@ -96,6 +96,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                 bd.build_unconditional_branch(end_block)?;
             }
             bd.position_at_end(end_block);
+            // This may not be the right place to put this.
+            f.increment_pc();
             Ok(())
         };
         build(self).expect("LLVM codegen failed");
@@ -206,10 +208,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                 .build_extract_value(sres, 0, "sres_val")?
                 .into_int_value();
 
-            let v_flag = bd.build_not(
-                bd.build_extract_value(sres, 1, "not_v")?.into_int_value(),
-                "v",
-            )?;
+            let v_flag = bd.build_extract_value(sres, 1, "v")?.into_int_value();
             let c_flag = bd.build_not(
                 bd.build_extract_value(ures, 1, "not_c")?.into_int_value(),
                 "c",
@@ -319,7 +318,7 @@ mod tests {
         unsafe {
             entry_point.call(&mut state, cmp.as_raw());
         }
-        assert_eq!(state.regs[16] >> 28, 0b0011); // nzcv
+        assert_eq!(state.regs[16] >> 28, 0b0010); // nzcv
 
         // 0 result
         state.regs[0] = 1;
@@ -327,7 +326,7 @@ mod tests {
         unsafe {
             entry_point.call(&mut state, cmp.as_raw());
         }
-        assert_eq!(state.regs[16] >> 28, 0b0111);
+        assert_eq!(state.regs[16] >> 28, 0b0110);
 
         // negative result (unsigned underflow)
         state.regs[0] = 0;
@@ -335,7 +334,7 @@ mod tests {
         unsafe {
             entry_point.call(&mut state, cmp.as_raw());
         }
-        assert_eq!(state.regs[16] >> 28, 0b1001);
+        assert_eq!(state.regs[16] >> 28, 0b1000);
 
         // negative result (no underflow)
         state.regs[0] = -1i32 as u32;
@@ -343,7 +342,7 @@ mod tests {
         unsafe {
             entry_point.call(&mut state, cmp.as_raw());
         }
-        assert_eq!(state.regs[16] >> 28, 0b1011);
+        assert_eq!(state.regs[16] >> 28, 0b1010);
 
         // signed underflow only (positive result)
         state.regs[0] = i32::MIN as u32;
@@ -352,7 +351,7 @@ mod tests {
             entry_point.call(&mut state, cmp.as_raw());
         }
         println!("{}", state.regs[0]);
-        assert_eq!(state.regs[16] >> 28, 0b0010);
+        assert_eq!(state.regs[16] >> 28, 0b0011);
     }
 
     #[test]
