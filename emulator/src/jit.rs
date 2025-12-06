@@ -1,16 +1,18 @@
 mod builder;
 
-use crate::arm::cpu::{ArmState, NUM_REGS};
-use builder::{FunctionBuilder, get_ptr_param};
+use std::{collections::HashMap, fs};
 
 use anyhow::Result;
-use inkwell::builder::Builder;
-use inkwell::context::Context;
-use inkwell::execution_engine::{ExecutionEngine, JitFunction};
-use inkwell::module::Module;
-use inkwell::{AddressSpace, OptimizationLevel};
-use std::collections::HashMap;
-use std::fs;
+use builder::{get_ptr_param, FunctionBuilder};
+use inkwell::{
+    builder::Builder,
+    context::Context,
+    execution_engine::{ExecutionEngine, JitFunction},
+    module::Module,
+    AddressSpace, OptimizationLevel,
+};
+
+use crate::arm::cpu::{ArmState, NUM_REGS};
 
 type JumpTarget = unsafe extern "C" fn(*mut ArmState, *const i32);
 

@@ -5,21 +5,28 @@ mod reg_map;
 
 use std::collections::HashMap;
 
-use super::{CompiledFunction, FunctionCache};
-use crate::arm::cpu::{ArmMode, ArmState, NUM_REGS, Reg};
-use crate::arm::disasm::ArmDisasm;
-use crate::jit::builder::reg_map::RegMap;
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use capstone::arch::arm::ArmInsn;
-use inkwell::AddressSpace;
-use inkwell::basic_block::BasicBlock;
-use inkwell::builder::Builder;
-use inkwell::context::Context;
-use inkwell::execution_engine::ExecutionEngine;
-use inkwell::intrinsics::Intrinsic;
-use inkwell::module::Module;
-use inkwell::types::{ArrayType, FunctionType, IntType, PointerType, StructType, VoidType};
-use inkwell::values::{FunctionValue, IntValue, PointerValue};
+use inkwell::{
+    basic_block::BasicBlock,
+    builder::Builder,
+    context::Context,
+    execution_engine::ExecutionEngine,
+    intrinsics::Intrinsic,
+    module::Module,
+    types::{ArrayType, FunctionType, IntType, PointerType, StructType, VoidType},
+    values::{FunctionValue, IntValue, PointerValue},
+    AddressSpace,
+};
+
+use super::{CompiledFunction, FunctionCache};
+use crate::{
+    arm::{
+        cpu::{ArmMode, ArmState, Reg, NUM_REGS},
+        disasm::ArmDisasm,
+    },
+    jit::builder::reg_map::RegMap,
+};
 
 /// Saves the values used to compute an instruction for the purpose of flag calculation
 struct InstrHist<'a> {
@@ -99,9 +106,7 @@ pub(super) fn get_ptr_param<'a>(func: &FunctionValue<'a>, i: usize) -> PointerVa
         .into_pointer_value()
 }
 
-fn func_name(addr: usize) -> String {
-    format!("fn_{:#010x}", addr)
-}
+fn func_name(addr: usize) -> String { format!("fn_{:#010x}", addr) }
 
 impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     pub(super) fn new(
@@ -783,12 +788,18 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::arm::disasm::{CodeBlock, cons::*};
-    use crate::jit::compile_and_run;
-    use crate::{arm::cpu::Reg, jit::Compiler};
-    use capstone::arch::arm::{ArmCC, ArmInsn};
     use std::collections::HashMap;
+
+    use capstone::arch::arm::{ArmCC, ArmInsn};
+
+    use super::*;
+    use crate::{
+        arm::{
+            cpu::Reg,
+            disasm::{cons::*, CodeBlock},
+        },
+        jit::{compile_and_run, Compiler},
+    };
 
     #[test]
     fn test_jump_to_external() {
@@ -922,9 +933,7 @@ mod tests {
 
         assert_eq!(
             state.regs,
-            [
-                999, 1, 4, 9, 16, 25, 36, 49, 64, 81, 100, 121, 144, 169, 196, 986, 256
-            ]
+            [999, 1, 4, 9, 16, 25, 36, 49, 64, 81, 100, 121, 144, 169, 196, 986, 256]
         );
     }
 
@@ -974,6 +983,7 @@ mod tests {
 
     #[test]
     fn test_factorial_program() {
+        // Computes factorial of R0. Result is stored in R1
         let program = [
             op_reg_imm(ArmInsn::ARM_INS_CMP, 0, 1, None), // 0
             op_imm(ArmInsn::ARM_INS_B, 36, Some(ArmCC::ARM_CC_LE)), // 4
@@ -982,9 +992,9 @@ mod tests {
             op_reg_reg_reg(ArmInsn::ARM_INS_MUL, 0, 0, 1, None), // 16
             op_reg_reg_imm(ArmInsn::ARM_INS_SUBS, 1, 1, 1, None), // 20
             op_imm(ArmInsn::ARM_INS_B, 16, Some(ArmCC::ARM_CC_GT)), // 24
-            op_reg_reg(ArmInsn::ARM_INS_MOV, 2, 0, None), // 28
+            op_reg_reg(ArmInsn::ARM_INS_MOV, 1, 0, None), // 28
             op_imm(ArmInsn::ARM_INS_B, 44, None),         // 32
-            op_reg_imm(ArmInsn::ARM_INS_MOV, 2, 1, None), // 36
+            op_reg_imm(ArmInsn::ARM_INS_MOV, 1, 1, None), // 36
             op_imm(ArmInsn::ARM_INS_B, 44, None),         // 40
         ];
         let context = Context::create();
@@ -998,8 +1008,8 @@ mod tests {
 
             loop {
                 let pc = state.pc() as usize;
-                if pc >= 40 {
-                    return state.regs[2];
+                if pc == 44 {
+                    return state.regs[1];
                 }
 
                 let func = match func_cache.get(&pc) {

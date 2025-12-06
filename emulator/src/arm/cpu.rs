@@ -1,9 +1,7 @@
-use anyhow::{Result, anyhow};
-use inkwell::AddressSpace;
-use inkwell::context::Context;
-use inkwell::types::StructType;
-use std::fs;
-use std::slice::Chunks;
+use std::{fs, slice::Chunks};
+
+use anyhow::{anyhow, Result};
+use inkwell::{context::Context, types::StructType, AddressSpace};
 
 #[repr(C)]
 pub struct MainMemory {
@@ -133,13 +131,9 @@ impl ArmState {
         })
     }
 
-    pub fn cpsr(&self) -> u32 {
-        self.regs[Reg::CPSR as usize]
-    }
+    pub fn cpsr(&self) -> u32 { self.regs[Reg::CPSR as usize] }
 
-    pub fn pc(&self) -> u32 {
-        self.regs[Reg::PC as usize]
-    }
+    pub fn pc(&self) -> u32 { self.regs[Reg::PC as usize] }
 
     pub fn jump_to(&mut self, addr: u32) {
         println!("JUMPING TO: {}", addr);

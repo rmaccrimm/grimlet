@@ -1,3 +1,7 @@
+use anyhow::{anyhow, Result};
+use capstone::arch::arm::{ArmCC, ArmInsn};
+use inkwell::{values::IntValue, IntPredicate};
+
 use crate::{
     arm::{
         cpu::{ArmMode, Reg},
@@ -5,9 +9,6 @@ use crate::{
     },
     jit::FunctionBuilder,
 };
-use anyhow::{Result, anyhow};
-use capstone::arch::arm::{ArmCC, ArmInsn};
-use inkwell::{IntPredicate, values::IntValue};
 
 #[derive(Copy, Clone, Debug)]
 enum Flag {
@@ -261,15 +262,14 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 mod tests {
     use std::collections::HashMap;
 
-    use crate::jit::compile_and_run;
-    use crate::{
-        arm::{cpu::ArmState, disasm::cons::*},
-        jit::Compiler,
-    };
     use anyhow::Result;
     use inkwell::context::Context;
 
     use super::*;
+    use crate::{
+        arm::{cpu::ArmState, disasm::cons::*},
+        jit::{compile_and_run, Compiler},
+    };
 
     #[test]
     fn test_set_flags() -> Result<()> {

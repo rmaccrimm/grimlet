@@ -1,8 +1,8 @@
 /// Convenience methods for constructing test programs. All functions will panic rather than return
 /// an error if called incorrectly.
 use capstone::{
-    RegId,
     arch::arm::{ArmCC, ArmInsn, ArmOperand, ArmOperandType},
+    RegId,
 };
 
 use super::ArmDisasm;
