@@ -5,8 +5,9 @@ mod reg_map;
 
 use std::collections::HashMap;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use capstone::arch::arm::ArmInsn;
+use inkwell::AddressSpace;
 use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
@@ -15,10 +16,9 @@ use inkwell::intrinsics::Intrinsic;
 use inkwell::module::Module;
 use inkwell::types::{ArrayType, FunctionType, IntType, PointerType, StructType, VoidType};
 use inkwell::values::{FunctionValue, IntValue, PointerValue};
-use inkwell::AddressSpace;
 
 use super::{CompiledFunction, FunctionCache};
-use crate::arm::cpu::{ArmMode, ArmState, Reg, NUM_REGS};
+use crate::arm::cpu::{ArmMode, ArmState, NUM_REGS, Reg};
 use crate::arm::disasm::ArmDisasm;
 use crate::jit::builder::reg_map::RegMap;
 
@@ -194,7 +194,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         }
     }
 
-    pub fn increment_pc(&mut self, mode: ArmMode) {
+    fn increment_pc(&mut self, mode: ArmMode) {
         let curr_pc = self.reg_map.pc();
         let step = match mode {
             ArmMode::ARM => 4,
@@ -296,7 +296,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         };
     }
 
-    fn build(&mut self, instr: &ArmDisasm) {
+    pub fn build(&mut self, instr: &ArmDisasm) {
         match instr.opcode {
             ArmInsn::ARM_INS_INVALID => todo!(),
             ArmInsn::ARM_INS_ADC => todo!(),
@@ -788,9 +788,18 @@ mod tests {
 
     use super::*;
     use crate::arm::cpu::Reg;
-    use crate::arm::disasm::cons::*;
     use crate::arm::disasm::CodeBlock;
-    use crate::jit::{compile_and_run, Compiler};
+    use crate::arm::disasm::cons::*;
+    use crate::jit::Compiler;
+
+    macro_rules! compile_and_run {
+        ($compiler:ident, $func:ident, $state:ident) => {
+            unsafe {
+                let fptr = $func.compile().unwrap().as_raw();
+                $compiler.compile_entry_point().call(&mut $state, fptr);
+            }
+        };
+    }
 
     #[test]
     fn test_jump_to_external() {
@@ -814,7 +823,7 @@ mod tests {
         let interp_fn_type = f.void_t.fn_type(&[f.ptr_t.into(), f.i32_t.into()], false);
 
         let interp_fn_ptr = f
-            .get_external_func_pointer(ArmState::jump_to as usize)
+            .get_external_func_pointer(ArmState::jump_to as *const (&mut ArmState, u32) as usize)
             .unwrap();
 
         let call = f
@@ -869,7 +878,7 @@ mod tests {
         f1.write_state_out().unwrap();
 
         let func_ptr_param = f1
-            .get_external_func_pointer(ArmState::jump_to as usize)
+            .get_external_func_pointer(ArmState::jump_to as *const (&mut ArmState, u32) as usize)
             .unwrap();
 
         let interp_fn_t = f1
@@ -924,7 +933,9 @@ mod tests {
 
         assert_eq!(
             state.regs,
-            [999, 1, 4, 9, 16, 25, 36, 49, 64, 81, 100, 121, 144, 169, 196, 986, 256]
+            [
+                999, 1, 4, 9, 16, 25, 36, 49, 64, 81, 100, 121, 144, 169, 196, 986, 256
+            ]
         );
     }
 
@@ -1014,16 +1025,9 @@ mod tests {
                         for instr in code.instrs {
                             f.build(&instr);
                         }
-                        match f.compile() {
-                            Ok(compiled) => {
-                                func_cache.insert(pc, compiled);
-                                func_cache.get(&pc).unwrap()
-                            }
-                            Err(e) => {
-                                compiler.dump().unwrap();
-                                panic!("{}", e);
-                            }
-                        }
+                        let compiled = f.compile().unwrap();
+                        func_cache.insert(pc, compiled);
+                        func_cache.get(&pc).unwrap()
                     }
                 };
                 unsafe {
@@ -1037,5 +1041,6 @@ mod tests {
         assert_eq!(run(3), 6);
         assert_eq!(run(4), 24);
         assert_eq!(run(5), 120);
+        assert_eq!(run(12), 479001600);
     }
 }

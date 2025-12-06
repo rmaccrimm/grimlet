@@ -1,5 +1,4 @@
 use anyhow::Result;
-use inkwell::values::PointerValue;
 
 use crate::arm::cpu::ArmState;
 use crate::arm::disasm::ArmDisasm;
@@ -28,7 +27,9 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                 None => {
                     // Context switch and jump out to the interpreter
                     f.write_state_out()?;
-                    let func_ptr = f.get_external_func_pointer(ArmState::jump_to as usize)?;
+                    let func_ptr = f.get_external_func_pointer(
+                        ArmState::jump_to as *const (&mut ArmState, u32) as usize,
+                    )?;
                     let call = bd.build_indirect_call(
                         f.void_t.fn_type(&[f.ptr_t.into(), f.i32_t.into()], false),
                         func_ptr,

@@ -3,12 +3,14 @@
 pub mod arm;
 pub mod jit;
 
+use std::env;
+
+use anyhow::Result;
+use inkwell::context::Context;
+
 use crate::arm::cpu::ArmState;
 use crate::arm::disasm::{ArmDisasm, Disassembler};
 use crate::jit::{Compiler, EntryPoint, FunctionCache};
-use anyhow::Result;
-use inkwell::context::Context;
-use std::env;
 
 /// Am I sticking with this name?
 struct Grimlet<'ctx> {
@@ -36,13 +38,32 @@ impl<'ctx> Grimlet<'ctx> {
         })
     }
 
-    pub fn run(&mut self) -> Result<()> {
-        let mut curr_pc = 0;
-
+    pub fn run(&mut self) {
         loop {
-            let code_block = self.disasm.next_code_block(&self.state.mem, curr_pc);
-            println!("{}", code_block);
-            curr_pc = code_block.instrs.last().unwrap().addr + 4;
+            let pc = self.state.pc() as usize;
+            let func = match self.func_cache.get(&pc) {
+                Some(func) => func,
+                None => {
+                    let code_block = self.disasm.next_code_block(&self.state.mem, pc);
+                    let mut f = self.compiler.new_function(pc, &self.func_cache);
+                    for instr in code_block.instrs {
+                        f.build(&instr);
+                    }
+                    match f.compile() {
+                        Ok(compiled) => {
+                            self.func_cache.insert(pc, compiled);
+                            self.func_cache.get(&pc).unwrap()
+                        }
+                        Err(e) => {
+                            self.compiler.dump().unwrap();
+                            panic!("{}", e);
+                        }
+                    }
+                }
+            };
+            unsafe {
+                self.entry_point.call(&mut self.state, func.as_raw());
+            }
         }
     }
 }
@@ -51,7 +72,7 @@ fn main() -> Result<()> {
     let bios_path = env::args().nth(1).unwrap();
     let context = Context::create();
     let mut emulator = Grimlet::new(&context, &bios_path)?;
-    emulator.run()?;
+    emulator.run();
     println!("{}", size_of::<ArmDisasm>());
     Ok(())
 }

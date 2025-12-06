@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::fs;
 
 use anyhow::Result;
-use builder::{get_ptr_param, FunctionBuilder};
+use builder::{FunctionBuilder, get_ptr_param};
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::execution_engine::{ExecutionEngine, JitFunction};
@@ -153,14 +153,3 @@ impl<'ctx> Compiler<'ctx> {
         }
     }
 }
-
-macro_rules! compile_and_run {
-    ($compiler:ident, $func:ident, $state:ident) => {
-        unsafe {
-            let fptr = $func.compile().unwrap().as_raw();
-            $compiler.compile_entry_point().call(&mut $state, fptr);
-        }
-    };
-}
-
-use compile_and_run;

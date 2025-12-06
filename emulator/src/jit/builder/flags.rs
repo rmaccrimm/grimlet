@@ -1,7 +1,7 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use capstone::arch::arm::{ArmCC, ArmInsn};
-use inkwell::values::IntValue;
 use inkwell::IntPredicate;
+use inkwell::values::IntValue;
 
 use crate::arm::cpu::{ArmMode, Reg};
 use crate::arm::disasm::ArmDisasm;
@@ -265,7 +265,16 @@ mod tests {
     use super::*;
     use crate::arm::cpu::ArmState;
     use crate::arm::disasm::cons::*;
-    use crate::jit::{compile_and_run, Compiler};
+    use crate::jit::Compiler;
+
+    macro_rules! compile_and_run {
+        ($compiler:ident, $func:ident, $state:ident) => {
+            unsafe {
+                let fptr = $func.compile().unwrap().as_raw();
+                $compiler.compile_entry_point().call(&mut $state, fptr);
+            }
+        };
+    }
 
     #[test]
     fn test_set_flags() -> Result<()> {
