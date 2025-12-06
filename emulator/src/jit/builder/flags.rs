@@ -3,8 +3,7 @@ use capstone::arch::arm::{ArmCC, ArmInsn};
 use inkwell::IntPredicate;
 use inkwell::values::IntValue;
 
-use crate::arm::cpu::{ArmMode, Reg};
-use crate::arm::disasm::ArmDisasm;
+use crate::arm::cpu::Reg;
 use crate::jit::FunctionBuilder;
 
 #[derive(Copy, Clone, Debug)]
@@ -27,29 +26,11 @@ impl Flag {
 }
 
 impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
-    /// Wraps a function for emitting an instruction in a conditional block. Evaluates flags
-    /// only if needed.
-    ///
-    /// returns - true if the wrapped instruction includes a return statement, meaning we do not
-    /// need to jump to the end block.
-    pub(super) fn exec_conditional<F>(&mut self, instr: &ArmDisasm, inner: F, terminator: bool)
-    where
-        F: Fn(&mut Self) -> Result<()>,
-    {
-        if instr.cond == ArmCC::ARM_CC_AL {
-            inner(self).expect("LLVM codegen failed");
-            if !terminator {
-                self.increment_pc(instr.mode);
-            }
-            return;
-        }
+    pub(super) fn get_cond_value(&mut self, cond: ArmCC) -> IntValue<'a> {
         self.compute_flags();
-        let build = |f: &mut Self| -> Result<()> {
-            let ctx = f.llvm_ctx;
+        let build = |f: &mut Self| -> Result<IntValue<'a>> {
             let bd = f.builder;
-            let if_block = ctx.append_basic_block(f.func, "if");
-            let end_block = ctx.append_basic_block(f.func, "end");
-            let cond = match instr.cond {
+            let cond = match cond {
                 ArmCC::ARM_CC_EQ => f.get_flag(Flag::Z),
                 ArmCC::ARM_CC_NE => f.get_neg_flag(Flag::Z),
                 ArmCC::ARM_CC_HS => f.get_flag(Flag::C),
@@ -98,22 +79,9 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                 )?,
                 _ => panic!("invalid cond"),
             };
-            bd.build_conditional_branch(cond, if_block, end_block)?;
-            bd.position_at_end(if_block);
-            inner(f)?;
-            if !terminator {
-                bd.build_unconditional_branch(end_block)?;
-            }
-            bd.position_at_end(end_block);
-            f.increment_pc(ArmMode::ARM);
-            if terminator {
-                // Should be a way to avoid repeating this
-                f.write_state_out()?;
-                bd.build_return(None)?;
-            }
-            Ok(())
+            Ok(cond)
         };
-        build(self).expect("LLVM codegen failed");
+        build(self).expect("LLVM codegen failed")
     }
 
     fn get_flag(&self, flag: Flag) -> IntValue<'a> {

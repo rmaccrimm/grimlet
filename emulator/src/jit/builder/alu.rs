@@ -1,6 +1,6 @@
-use anyhow::{anyhow, Result};
-use capstone::arch::arm::ArmOperandType;
+use anyhow::{Result, anyhow};
 use capstone::RegId;
+use capstone::arch::arm::{ArmCC, ArmOperandType};
 
 use crate::arm::cpu::Reg;
 use crate::arm::disasm::ArmDisasm;
@@ -42,7 +42,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             f.increment_pc(instr.mode);
             Ok(())
         };
-        self.exec_conditional(instr, build, false)
+        self.exec_alu_conditional(instr, build)
     }
 
     pub(super) fn arm_sub(&mut self, instr: &ArmDisasm) {
@@ -77,7 +77,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             }
             Ok(())
         };
-        self.exec_conditional(instr, build, false);
+        self.exec_alu_conditional(instr, build);
     }
 
     pub(super) fn arm_mul(&mut self, instr: &ArmDisasm) {
@@ -94,7 +94,37 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             f.reg_map.update(rd, res);
             Ok(())
         };
-        self.exec_conditional(instr, build, false);
+        self.exec_alu_conditional(instr, build);
+    }
+
+    /// Wraps a function for emitting an instruction in a conditional block, evaluates flags and
+    /// executes based on instruction condition Leaves the builder positioned in the else block and
+    /// emits code to increment program counter.
+    fn exec_alu_conditional<F>(&mut self, instr: &ArmDisasm, inner: F)
+    where
+        F: Fn(&mut Self) -> Result<()>,
+    {
+        if instr.cond == ArmCC::ARM_CC_AL {
+            inner(self).expect("LLVM codegen failed");
+            self.increment_pc(instr.mode);
+            return;
+        }
+
+        let build = |f: &mut Self| -> Result<()> {
+            let ctx = f.llvm_ctx;
+            let bd = f.builder;
+            let if_block = ctx.append_basic_block(f.func, "if");
+            let end_block = ctx.append_basic_block(f.func, "end");
+            let cond = f.get_cond_value(instr.cond);
+            bd.build_conditional_branch(cond, if_block, end_block)?;
+            bd.position_at_end(if_block);
+            inner(f)?;
+            bd.build_unconditional_branch(end_block)?;
+            bd.position_at_end(end_block);
+            f.increment_pc(instr.mode);
+            Ok(())
+        };
+        build(self).expect("LLVM codegen failed");
     }
 }
 

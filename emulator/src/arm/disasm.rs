@@ -101,12 +101,12 @@ impl Display for ArmDisasm {
 pub struct CodeBlock {
     pub instrs: Vec<ArmDisasm>,
     pub start_addr: usize,
-    pub labels: Vec<usize>,
+    pub loop_labels: Vec<usize>,
 }
 
 impl Display for CodeBlock {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut lbl_iter = self.labels.iter().enumerate();
+        let mut lbl_iter = self.loop_labels.iter().enumerate();
         let mut lbl_addr = lbl_iter.next();
         for instr in self.instrs.iter() {
             if let Some((i, addr)) = lbl_addr
@@ -130,25 +130,33 @@ impl CodeBlock {
         start_addr: usize,
     ) -> Self {
         let mut instrs = Vec::new();
-        let labels = Vec::new();
+        let mut loop_labels = Vec::new();
 
         for instr in instr_iter {
+            instrs.push(instr);
+            let instr = instrs.last().unwrap();
             match instr.opcode {
-                ArmInsn::ARM_INS_B | ArmInsn::ARM_INS_BX | ArmInsn::ARM_INS_BL => {
-                    // TODO can these be negative? Pretty sure it's translated to abs address
-                    // let target = instr.get_imm_op(0) as usize;
-                    instrs.push(instr);
+                ArmInsn::ARM_INS_B => {
+                    let target = instr.get_imm_op(0) as usize;
+                    if target < instr.addr && target >= start_addr {
+                        if target > start_addr {
+                            // otherwise, we'll already have the function start label
+                            loop_labels.push(target);
+                        }
+                    } else {
+                        break;
+                    }
+                }
+                ArmInsn::ARM_INS_BX | ArmInsn::ARM_INS_BL => {
                     break;
                 }
-                _ => {
-                    instrs.push(instr);
-                }
+                _ => {}
             }
         }
         CodeBlock {
             instrs,
             start_addr,
-            labels,
+            loop_labels,
         }
     }
 }
