@@ -1,7 +1,7 @@
 pub mod cons;
 
-use capstone::arch::BuildsCapstone;
 use capstone::arch::arm::ArmCC;
+use capstone::arch::{self, BuildsCapstone};
 use capstone::{
     Capstone, Insn,
     arch::{
@@ -11,17 +11,20 @@ use capstone::{
 };
 use std::fmt::Display;
 
-use crate::arm::cpu::MainMemory;
 use crate::arm::cpu::Reg;
+use crate::arm::cpu::{ArmMode, MainMemory};
 
-// A single disassembled ARM instruction
+// A single disassembled ARM instruction. Basically a clone of the Capstone instruction but
+// easier to access since we know we're only working with ARM instructions.
 #[derive(Clone, Debug)]
 pub struct ArmDisasm {
     pub opcode: ArmInsn,
     pub operands: Vec<ArmOperand>,
     pub addr: usize,
-    pub repr: String,
+    pub repr: Option<String>,
     pub cond: ArmCC,
+    pub mode: ArmMode,
+    pub updates_flags: bool,
 }
 
 impl Default for ArmDisasm {
@@ -31,18 +34,21 @@ impl Default for ArmDisasm {
             cond: ArmCC::ARM_CC_AL,
             operands: Default::default(),
             addr: Default::default(),
-            repr: Default::default(),
+            repr: None,
+            mode: ArmMode::ARM,
+            updates_flags: true,
         }
     }
 }
 
 impl ArmDisasm {
-    pub fn from_cs_insn(cs: &Capstone, insn: &Insn) -> Self {
+    pub fn from_cs_insn(cs: &Capstone, insn: &Insn, mode: ArmMode) -> Self {
         let detail = cs
             .insn_detail(insn)
             .expect("failed to get instruction detail");
         let arch_detail = detail.arch_detail();
-        let cond = arch_detail.arm().unwrap().cc();
+        let arm_detail = arch_detail.arm().expect("expected an arm instruction");
+        let cond = arm_detail.cc();
         Self {
             opcode: ArmInsn::from(insn.id().0),
             operands: arch_detail
@@ -54,8 +60,10 @@ impl ArmDisasm {
                 })
                 .collect(),
             addr: insn.address() as usize,
-            repr: insn.to_string(),
+            repr: Some(insn.to_string()),
             cond,
+            mode,
+            updates_flags: arm_detail.update_flags(),
         }
     }
 
@@ -88,7 +96,10 @@ impl ArmDisasm {
 
 impl Display for ArmDisasm {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.repr)
+        match &self.repr {
+            Some(s) => write!(f, "{}", s),
+            None => write!(f, "missing repr"),
+        }
     }
 }
 
@@ -110,7 +121,10 @@ impl Display for CodeBlock {
                 writeln!(f, "{}:", i)?;
                 lbl_addr = lbl_iter.next();
             }
-            writeln!(f, "\t{}", instr)?;
+            match instr.repr {
+                Some(_) => writeln!(f, "\t{}", instr)?,
+                None => writeln!(f, "\t{:?}", instr)?,
+            }
         }
         Ok(())
     }
@@ -147,6 +161,7 @@ impl CodeBlock {
 
 pub struct Disassembler {
     cs: Capstone,
+    current_mode: ArmMode,
 }
 
 impl Default for Disassembler {
@@ -157,7 +172,10 @@ impl Default for Disassembler {
             .detail(true)
             .build()
             .expect("failed to build capstone instance");
-        Self { cs }
+        Self {
+            cs,
+            current_mode: ArmMode::ARM,
+        }
     }
 }
 
@@ -173,11 +191,24 @@ impl Disassembler {
                 .as_ref()
                 .first()
                 .expect("Capstone returned no instructions");
-            ArmDisasm::from_cs_insn(&self.cs, i)
+            ArmDisasm::from_cs_insn(&self.cs, i, self.current_mode)
         });
         CodeBlock::from_instructions(instr_iter, start_addr)
     }
 }
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_disasm() {
+        let bytes: [u8; 4] = [0b10010000, 0b00000001, 0b00010010, 0b11100000];
+        let disasm = Disassembler::default();
+        let res = &disasm.cs.disasm_all(&bytes, 0).unwrap()[0];
+        println!(
+            "{:#?}",
+            ArmDisasm::from_cs_insn(&disasm.cs, res, ArmMode::ARM)
+        );
+    }
+}
