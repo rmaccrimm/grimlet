@@ -1,5 +1,8 @@
 use crate::{
-    arm::{cpu::Reg, disasm::ArmDisasm},
+    arm::{
+        cpu::{ArmMode, Reg},
+        disasm::ArmDisasm,
+    },
     jit::FunctionBuilder,
 };
 use anyhow::{Result, anyhow};
@@ -26,12 +29,20 @@ impl Flag {
 }
 
 impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
-    pub(super) fn exec_conditional<F>(&mut self, instr: &ArmDisasm, func: F, branch: bool)
+    /// Wraps a function for emitting an instruction in a conditional block. Evaluates flags
+    /// only if needed.
+    ///
+    /// returns - true if the wrapped instruction includes a return statement, meaning we do not
+    /// need to jump to the end block.
+    pub(super) fn exec_conditional<F>(&mut self, instr: &ArmDisasm, inner: F, terminator: bool)
     where
         F: Fn(&mut Self) -> Result<()>,
     {
         if instr.cond == ArmCC::ARM_CC_AL {
-            func(self).expect("LLVM codegen failed");
+            inner(self).expect("LLVM codegen failed");
+            if !terminator {
+                self.increment_pc(instr.mode);
+            }
             return;
         }
         self.compute_flags();
@@ -91,13 +102,17 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             };
             bd.build_conditional_branch(cond, if_block, end_block)?;
             bd.position_at_end(if_block);
-            func(f)?;
-            if branch {
+            inner(f)?;
+            if !terminator {
                 bd.build_unconditional_branch(end_block)?;
             }
             bd.position_at_end(end_block);
-            // This may not be the right place to put this.
-            f.increment_pc();
+            f.increment_pc(ArmMode::ARM);
+            if terminator {
+                // Should be a way to avoid repeating this
+                f.write_state_out()?;
+                bd.build_return(None)?;
+            }
             Ok(())
         };
         build(self).expect("LLVM codegen failed");
@@ -160,11 +175,23 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     fn compute_flags(&mut self) {
         // C and V - use LLVM intrinsic and re-run last instruction with overflow check
         let cpsr_next = match self.last_instr.opcode {
-            ArmInsn::ARM_INS_CMP => self.compute_sub_flags(),
+            ArmInsn::ARM_INS_CMP | ArmInsn::ARM_INS_SUBS => self.compute_sub_flags(),
+            ArmInsn::ARM_INS_MOV => self.compute_mov_flags(),
+            ArmInsn::ARM_INS_MUL => self.compute_mul_flags(),
             ArmInsn::ARM_INS_NOP => self.reg_map.cpsr(),
             _ => todo!(),
         };
         self.reg_map.update(Reg::CPSR, cpsr_next);
+    }
+
+    fn compute_mov_flags(&self) -> IntValue<'a> {
+        // TODO
+        self.reg_map.cpsr()
+    }
+
+    fn compute_mul_flags(&self) -> IntValue<'a> {
+        // TODO
+        self.reg_map.cpsr()
     }
 
     fn compute_sub_flags(&mut self) -> IntValue<'a> {
@@ -309,7 +336,7 @@ mod tests {
         f1.compute_flags();
         f1.write_state_out().unwrap();
         f1.builder.build_return(None).unwrap();
-        let cmp = f1.compile();
+        let cmp = f1.compile().unwrap();
         let entry_point = comp.compile_entry_point();
 
         // Positive result

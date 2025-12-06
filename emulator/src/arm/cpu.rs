@@ -30,6 +30,7 @@ impl MainMemory {
     }
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ArmMode {
     ARM,
     THUMB,

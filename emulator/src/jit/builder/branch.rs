@@ -7,30 +7,24 @@ use crate::{
 };
 
 impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
-    fn build_tail_call(&self, func_ptr: PointerValue) -> Result<()> {
-        self.update_reg_array()?;
-
-        let bd = &self.builder;
-        let call = bd.build_indirect_call(
-            self.fn_t,
-            func_ptr,
-            &[self.arm_state_ptr.into(), self.reg_array_ptr.into()],
-            "call",
-        )?;
-        call.set_tail_call(true);
-        bd.build_return(None)?;
-        Ok(())
-    }
-
     pub(super) fn arm_b(&mut self, instr: &ArmDisasm) {
         let build = |f: &mut Self| -> Result<()> {
             let bd = &f.builder;
             let target = instr.get_imm_op(0) as usize;
-            // TODO - backwards jumps?
+
+            // TODO - backwards jumps
             match f.get_compiled_func_pointer(target)? {
                 Some(func_ptr) => {
                     // Jump directly to compiled function
-                    f.build_tail_call(func_ptr)?;
+                    f.update_reg_array()?;
+                    let call = bd.build_indirect_call(
+                        f.fn_t,
+                        func_ptr,
+                        &[f.arm_state_ptr.into(), f.reg_array_ptr.into()],
+                        "call",
+                    )?;
+                    call.set_tail_call(true);
+                    bd.build_return(None)?;
                 }
                 None => {
                     // Context switch and jump out to the interpreter
@@ -51,7 +45,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             };
             Ok(())
         };
-        self.exec_conditional(instr, build, false);
+        self.exec_conditional(instr, build, true);
     }
 
     fn arm_bl(&self, _instr: &ArmDisasm) {

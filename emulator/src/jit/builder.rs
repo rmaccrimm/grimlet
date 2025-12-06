@@ -6,10 +6,10 @@ mod reg_map;
 use std::collections::HashMap;
 
 use super::{CompiledFunction, FunctionCache};
-use crate::arm::cpu::{ArmState, NUM_REGS, Reg};
+use crate::arm::cpu::{ArmMode, ArmState, NUM_REGS, Reg};
 use crate::arm::disasm::ArmDisasm;
 use crate::jit::builder::reg_map::RegMap;
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use capstone::arch::arm::ArmInsn;
 use inkwell::AddressSpace;
 use inkwell::basic_block::BasicBlock;
@@ -195,22 +195,25 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         }
     }
 
-    pub fn increment_pc(&mut self) {
+    pub fn increment_pc(&mut self, mode: ArmMode) {
         let curr_pc = self.reg_map.pc();
+        let step = match mode {
+            ArmMode::ARM => 4,
+            ArmMode::THUMB => 2,
+        };
         self.reg_map.update(
             Reg::PC,
             self.builder
-                .build_int_add(curr_pc, self.i32_t.const_int(1, false), "pc")
+                .build_int_add(curr_pc, self.i32_t.const_int(step, false), "pc")
                 .expect("LLVM codegen failed"),
         );
     }
 
-    pub fn compile(self) -> CompiledFunction<'ctx> {
-        assert!(self.func.verify(true));
-        unsafe {
-            self.execution_engine
-                .get_function(&self.name)
-                .unwrap_or_else(|_| panic!("failed to compile function: {}", self.name))
+    pub fn compile(self) -> Result<CompiledFunction<'ctx>> {
+        if self.func.verify(true) {
+            unsafe { Ok(self.execution_engine.get_function(&self.name)?) }
+        } else {
+            Err(anyhow!("Function verification failed"))
         }
     }
 
@@ -284,7 +287,17 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         Ok(())
     }
 
-    pub fn build(&mut self, instr: &ArmDisasm) {
+    /// To be called by instructions that modify flags
+    /// TODO - does this need to be a list? Can some instructions modify some flags but leave others
+    /// alone?
+    fn set_last_instr(&mut self, instr: &ArmDisasm, inputs: Vec<IntValue<'a>>) {
+        self.last_instr = InstrHist {
+            opcode: instr.opcode,
+            inputs,
+        };
+    }
+
+    fn build(&mut self, instr: &ArmDisasm) {
         match instr.opcode {
             ArmInsn::ARM_INS_INVALID => todo!(),
             ArmInsn::ARM_INS_ADC => todo!(),
@@ -392,7 +405,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             ArmInsn::ARM_INS_MCRR2 => todo!(),
             ArmInsn::ARM_INS_MLA => todo!(),
             ArmInsn::ARM_INS_MLS => todo!(),
-            ArmInsn::ARM_INS_MOV => todo!(),
+            ArmInsn::ARM_INS_MOV => self.arm_mov(instr),
             ArmInsn::ARM_INS_MOVS => todo!(),
             ArmInsn::ARM_INS_MOVT => todo!(),
             ArmInsn::ARM_INS_MOVW => todo!(),
@@ -402,7 +415,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             ArmInsn::ARM_INS_MRRC2 => todo!(),
             ArmInsn::ARM_INS_MRS => todo!(),
             ArmInsn::ARM_INS_MSR => todo!(),
-            ArmInsn::ARM_INS_MUL => todo!(),
+            ArmInsn::ARM_INS_MUL => self.arm_mul(instr),
             ArmInsn::ARM_INS_MVN => todo!(),
             ArmInsn::ARM_INS_NEG => todo!(),
             ArmInsn::ARM_INS_NOP => todo!(),
@@ -537,8 +550,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             ArmInsn::ARM_INS_STRH => todo!(),
             ArmInsn::ARM_INS_STRHT => todo!(),
             ArmInsn::ARM_INS_STRT => todo!(),
-            ArmInsn::ARM_INS_SUB => todo!(),
-            ArmInsn::ARM_INS_SUBS => todo!(),
+            ArmInsn::ARM_INS_SUB => self.arm_sub(instr),
+            ArmInsn::ARM_INS_SUBS => self.arm_sub(instr),
             ArmInsn::ARM_INS_SUBW => todo!(),
             ArmInsn::ARM_INS_SVC => todo!(),
             ArmInsn::ARM_INS_SWP => todo!(),
@@ -876,7 +889,7 @@ mod tests {
             .unwrap();
         call.set_tail_call(true);
         f1.builder.build_return(None).unwrap();
-        let compiled1 = f1.compile();
+        let compiled1 = f1.compile().unwrap();
         cache.insert(0, compiled1);
 
         let mut f2 = comp.new_function(1, &cache);
@@ -898,7 +911,7 @@ mod tests {
             .unwrap();
         call.set_tail_call(true);
         f2.builder.build_return(None).unwrap();
-        let compiled2 = f2.compile();
+        let compiled2 = f2.compile().unwrap();
         cache.insert(1, compiled2);
 
         println!("{:?}", state.regs);
@@ -970,8 +983,9 @@ mod tests {
             op_reg_reg_imm(ArmInsn::ARM_INS_SUBS, 1, 1, 1, None), // 20
             op_imm(ArmInsn::ARM_INS_B, 16, Some(ArmCC::ARM_CC_GT)), // 24
             op_reg_reg(ArmInsn::ARM_INS_MOV, 2, 0, None), // 28
-            op_imm(ArmInsn::ARM_INS_B, 40, None),         // 32
+            op_imm(ArmInsn::ARM_INS_B, 44, None),         // 32
             op_reg_imm(ArmInsn::ARM_INS_MOV, 2, 1, None), // 36
+            op_imm(ArmInsn::ARM_INS_B, 44, None),         // 40
         ];
         let context = Context::create();
         let mut func_cache = FunctionCache::new();
@@ -994,16 +1008,21 @@ mod tests {
                         let mut f = compiler.new_function(pc, &func_cache);
                         let code =
                             CodeBlock::from_instructions(program[pc / 4..].iter().cloned(), pc);
-                        println!("code: {}", code);
+                        println!("code:\n{}", code);
 
                         for instr in code.instrs {
                             f.build(&instr);
                         }
-                        f.builder.build_return(None).unwrap();
-                        let compiled = f.compile();
-                        compiler.dump().unwrap();
-                        func_cache.insert(pc, compiled);
-                        func_cache.get(&pc).unwrap()
+                        match f.compile() {
+                            Ok(compiled) => {
+                                func_cache.insert(pc, compiled);
+                                func_cache.get(&pc).unwrap()
+                            }
+                            Err(e) => {
+                                compiler.dump().unwrap();
+                                panic!("{}", e);
+                            }
+                        }
                     }
                 };
                 unsafe {
@@ -1011,6 +1030,11 @@ mod tests {
                 }
             }
         };
+        assert_eq!(run(0), 1);
+        assert_eq!(run(1), 1);
+        assert_eq!(run(2), 2);
+        assert_eq!(run(3), 6);
+        assert_eq!(run(4), 24);
         assert_eq!(run(5), 120);
     }
 }
