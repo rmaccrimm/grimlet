@@ -2,12 +2,12 @@ use anyhow::Result;
 use capstone::arch::arm::ArmCC;
 
 use crate::arm::cpu::ArmState;
-use crate::arm::disasm::ArmDisasm;
+use crate::arm::disasm::ArmInstruction;
 use crate::jit::FunctionBuilder;
 
 impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     // Either executes the branch built by `inner`, or increments the PC and exits the function
-    fn exec_branch_conditional<F>(&mut self, instr: &ArmDisasm, inner: F)
+    fn exec_branch_conditional<F>(&mut self, instr: &ArmInstruction, inner: F)
     where
         F: Fn(&mut Self) -> Result<()>,
     {
@@ -36,7 +36,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         build(self).expect("LLVM codegen failed");
     }
 
-    pub(super) fn arm_b(&mut self, instr: &ArmDisasm) {
+    pub(super) fn arm_b(&mut self, instr: &ArmInstruction) {
         let build = |f: &mut Self| -> Result<()> {
             let target = instr.get_imm_op(0) as usize;
             let bd = &f.builder;
@@ -79,11 +79,11 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         self.exec_branch_conditional(instr, build);
     }
 
-    fn arm_bl(&self, _instr: &ArmDisasm) {
+    fn arm_bl(&self, _instr: &ArmInstruction) {
         todo!();
     }
 
-    fn arm_bx(&self, _instr: &ArmDisasm) {
+    fn arm_bx(&self, _instr: &ArmInstruction) {
         todo!();
     }
 }

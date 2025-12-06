@@ -19,7 +19,7 @@ use inkwell::values::{FunctionValue, IntValue, PointerValue};
 
 use super::{CompiledFunction, FunctionCache};
 use crate::arm::cpu::{ArmMode, ArmState, NUM_REGS, Reg};
-use crate::arm::disasm::{ArmDisasm, CodeBlock};
+use crate::arm::disasm::{ArmInstruction, CodeBlock};
 use crate::jit::builder::reg_map::RegMap;
 
 /// Saves the values used to compute an instruction for the purpose of flag calculation
@@ -296,14 +296,14 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     /// To be called by instructions that modify flags
     /// TODO - does this need to be a list? Can some instructions modify some flags but leave others
     /// alone?
-    fn set_last_instr(&mut self, instr: &ArmDisasm, inputs: Vec<IntValue<'a>>) {
+    fn set_last_instr(&mut self, instr: &ArmInstruction, inputs: Vec<IntValue<'a>>) {
         self.last_instr = InstrHist {
             opcode: instr.opcode,
             inputs,
         };
     }
 
-    pub fn build(&mut self, instr: &ArmDisasm) {
+    pub fn build(&mut self, instr: &ArmInstruction) {
         match instr.opcode {
             ArmInsn::ARM_INS_INVALID => todo!(),
             ArmInsn::ARM_INS_ADC => todo!(),

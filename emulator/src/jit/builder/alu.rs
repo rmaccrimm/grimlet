@@ -3,11 +3,11 @@ use capstone::RegId;
 use capstone::arch::arm::{ArmCC, ArmOperandType};
 
 use crate::arm::cpu::Reg;
-use crate::arm::disasm::ArmDisasm;
+use crate::arm::disasm::ArmInstruction;
 use crate::jit::FunctionBuilder;
 
 impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
-    pub(super) fn arm_cmp(&mut self, instr: &ArmDisasm) {
+    pub(super) fn arm_cmp(&mut self, instr: &ArmInstruction) {
         // Essential a NOP, until the flags are actually used
         let reg = self.reg_map.get(instr.get_reg_op(0));
         let imm = self.i32_t.const_int(instr.get_imm_op(1) as u64, false);
@@ -17,7 +17,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
     /// TODO flags dependent on shift (is this encoded in cs instruction somehow?)
     /// TODO branch when mov'ing to PC
-    pub(super) fn arm_mov(&mut self, instr: &ArmDisasm) {
+    pub(super) fn arm_mov(&mut self, instr: &ArmInstruction) {
         let build = |f: &mut Self| -> Result<()> {
             let dest = instr.get_reg_op(0);
             match instr
@@ -45,7 +45,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         self.exec_alu_conditional(instr, build)
     }
 
-    pub(super) fn arm_sub(&mut self, instr: &ArmDisasm) {
+    pub(super) fn arm_sub(&mut self, instr: &ArmInstruction) {
         let build = |f: &mut Self| -> Result<()> {
             let rd = instr.get_reg_op(0);
             let rn = instr.get_reg_op(1);
@@ -80,7 +80,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         self.exec_alu_conditional(instr, build);
     }
 
-    pub(super) fn arm_mul(&mut self, instr: &ArmDisasm) {
+    pub(super) fn arm_mul(&mut self, instr: &ArmInstruction) {
         let build = |f: &mut Self| -> Result<()> {
             let rd = instr.get_reg_op(0);
             let rm = instr.get_reg_op(1);
@@ -100,7 +100,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     /// Wraps a function for emitting an instruction in a conditional block, evaluates flags and
     /// executes based on instruction condition Leaves the builder positioned in the else block and
     /// emits code to increment program counter.
-    fn exec_alu_conditional<F>(&mut self, instr: &ArmDisasm, inner: F)
+    fn exec_alu_conditional<F>(&mut self, instr: &ArmInstruction, inner: F)
     where
         F: Fn(&mut Self) -> Result<()>,
     {

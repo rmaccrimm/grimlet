@@ -1,11 +1,11 @@
 /// Convenience methods for constructing test programs. All functions will panic rather than return
 /// an error if called incorrectly.
 use capstone::{
-    arch::arm::{ArmCC, ArmInsn, ArmOperand, ArmOperandType},
     RegId,
+    arch::arm::{ArmCC, ArmInsn, ArmOperand, ArmOperandType},
 };
 
-use super::ArmDisasm;
+use super::ArmInstruction;
 
 fn reg(r: u16) -> ArmOperand {
     ArmOperand {
@@ -21,8 +21,8 @@ fn imm(i: i32) -> ArmOperand {
     }
 }
 
-pub fn op_imm(opcode: ArmInsn, i: i32, cc: Option<ArmCC>) -> ArmDisasm {
-    ArmDisasm {
+pub fn op_imm(opcode: ArmInsn, i: i32, cc: Option<ArmCC>) -> ArmInstruction {
+    ArmInstruction {
         opcode,
         cond: cc.unwrap_or(ArmCC::ARM_CC_AL),
         operands: vec![imm(i)],
@@ -30,8 +30,8 @@ pub fn op_imm(opcode: ArmInsn, i: i32, cc: Option<ArmCC>) -> ArmDisasm {
     }
 }
 
-pub fn op_reg_imm(opcode: ArmInsn, r: u16, i: i32, cc: Option<ArmCC>) -> ArmDisasm {
-    ArmDisasm {
+pub fn op_reg_imm(opcode: ArmInsn, r: u16, i: i32, cc: Option<ArmCC>) -> ArmInstruction {
+    ArmInstruction {
         opcode,
         cond: cc.unwrap_or(ArmCC::ARM_CC_AL),
         operands: vec![reg(r), imm(i)],
@@ -39,8 +39,8 @@ pub fn op_reg_imm(opcode: ArmInsn, r: u16, i: i32, cc: Option<ArmCC>) -> ArmDisa
     }
 }
 
-pub fn op_reg_reg(opcode: ArmInsn, r1: u16, r2: u16, cc: Option<ArmCC>) -> ArmDisasm {
-    ArmDisasm {
+pub fn op_reg_reg(opcode: ArmInsn, r1: u16, r2: u16, cc: Option<ArmCC>) -> ArmInstruction {
+    ArmInstruction {
         opcode,
         cond: cc.unwrap_or(ArmCC::ARM_CC_AL),
         operands: vec![reg(r1), reg(r2)],
@@ -48,8 +48,14 @@ pub fn op_reg_reg(opcode: ArmInsn, r1: u16, r2: u16, cc: Option<ArmCC>) -> ArmDi
     }
 }
 
-pub fn op_reg_reg_imm(opcode: ArmInsn, r1: u16, r2: u16, i: i32, cc: Option<ArmCC>) -> ArmDisasm {
-    ArmDisasm {
+pub fn op_reg_reg_imm(
+    opcode: ArmInsn,
+    r1: u16,
+    r2: u16,
+    i: i32,
+    cc: Option<ArmCC>,
+) -> ArmInstruction {
+    ArmInstruction {
         opcode,
         cond: cc.unwrap_or(ArmCC::ARM_CC_AL),
         operands: vec![reg(r1), reg(r2), imm(i)],
@@ -57,8 +63,14 @@ pub fn op_reg_reg_imm(opcode: ArmInsn, r1: u16, r2: u16, i: i32, cc: Option<ArmC
     }
 }
 
-pub fn op_reg_reg_reg(opcode: ArmInsn, r1: u16, r2: u16, r3: u16, cc: Option<ArmCC>) -> ArmDisasm {
-    ArmDisasm {
+pub fn op_reg_reg_reg(
+    opcode: ArmInsn,
+    r1: u16,
+    r2: u16,
+    r3: u16,
+    cc: Option<ArmCC>,
+) -> ArmInstruction {
+    ArmInstruction {
         opcode,
         cond: cc.unwrap_or(ArmCC::ARM_CC_AL),
         operands: vec![reg(r1), reg(r2), reg(r3)],

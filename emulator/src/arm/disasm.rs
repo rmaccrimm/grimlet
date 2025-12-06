@@ -11,7 +11,7 @@ use crate::arm::cpu::{ArmMode, MainMemory, Reg};
 // A single disassembled ARM instruction. Basically a clone of the Capstone instruction but
 // easier to access since we know we're only working with ARM instructions.
 #[derive(Clone, Debug)]
-pub struct ArmDisasm {
+pub struct ArmInstruction {
     pub opcode: ArmInsn,
     pub operands: Vec<ArmOperand>,
     pub addr: usize,
@@ -21,7 +21,7 @@ pub struct ArmDisasm {
     pub updates_flags: bool,
 }
 
-impl Default for ArmDisasm {
+impl Default for ArmInstruction {
     fn default() -> Self {
         Self {
             opcode: ArmInsn::ARM_INS_NOP,
@@ -35,7 +35,7 @@ impl Default for ArmDisasm {
     }
 }
 
-impl ArmDisasm {
+impl ArmInstruction {
     pub fn from_cs_insn(cs: &Capstone, insn: &Insn, mode: ArmMode) -> Self {
         let detail = cs
             .insn_detail(insn)
@@ -88,7 +88,7 @@ impl ArmDisasm {
     }
 }
 
-impl Display for ArmDisasm {
+impl Display for ArmInstruction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.repr {
             Some(s) => write!(f, "{}", s),
@@ -99,7 +99,7 @@ impl Display for ArmDisasm {
 
 #[derive(Debug)]
 pub struct CodeBlock {
-    pub instrs: Vec<ArmDisasm>,
+    pub instrs: Vec<ArmInstruction>,
     pub start_addr: usize,
 }
 
@@ -117,7 +117,7 @@ impl Display for CodeBlock {
 
 impl CodeBlock {
     pub fn from_instructions(
-        instr_iter: impl Iterator<Item = ArmDisasm>,
+        instr_iter: impl Iterator<Item = ArmInstruction>,
         start_addr: usize,
     ) -> Self {
         let mut instrs = Vec::new();
@@ -168,7 +168,7 @@ impl Disassembler {
                 .as_ref()
                 .first()
                 .expect("Capstone returned no instructions");
-            ArmDisasm::from_cs_insn(&self.cs, i, self.current_mode)
+            ArmInstruction::from_cs_insn(&self.cs, i, self.current_mode)
         });
         CodeBlock::from_instructions(instr_iter, start_addr)
     }
@@ -185,7 +185,7 @@ mod tests {
         let res = &disasm.cs.disasm_all(&bytes, 0).unwrap()[0];
         println!(
             "{:#?}",
-            ArmDisasm::from_cs_insn(&disasm.cs, res, ArmMode::ARM)
+            ArmInstruction::from_cs_insn(&disasm.cs, res, ArmMode::ARM)
         );
     }
 }

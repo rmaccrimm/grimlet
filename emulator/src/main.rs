@@ -9,7 +9,7 @@ use std::env;
 use anyhow::Result;
 use inkwell::context::Context;
 
-use crate::arm::disasm::ArmDisasm;
+use crate::arm::disasm::ArmInstruction;
 use crate::emulator::Emulator;
 
 fn main() -> Result<()> {
@@ -17,6 +17,6 @@ fn main() -> Result<()> {
     let context = Context::create();
     let mut emulator = Emulator::new(&context, &bios_path)?;
     emulator.run();
-    println!("{}", size_of::<ArmDisasm>());
+    println!("{}", size_of::<ArmInstruction>());
     Ok(())
 }

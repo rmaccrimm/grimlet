@@ -2,7 +2,7 @@ use anyhow::Result;
 use inkwell::context::Context;
 
 use crate::arm::cpu::ArmState;
-use crate::arm::disasm::{ArmDisasm, Disassembler};
+use crate::arm::disasm::{ArmInstruction, Disassembler};
 use crate::jit::{Compiler, EntryPoint, FunctionCache};
 
 pub struct Emulator<'ctx> {
