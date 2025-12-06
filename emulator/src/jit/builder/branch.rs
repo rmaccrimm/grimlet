@@ -1,29 +1,11 @@
 use anyhow::Result;
 use capstone::arch::arm::ArmCC;
-use inkwell::basic_block::BasicBlock;
 
 use crate::arm::cpu::ArmState;
 use crate::arm::disasm::ArmDisasm;
 use crate::jit::FunctionBuilder;
 
 impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
-    fn branch_internal(&mut self, instr: &ArmDisasm) -> Result<()> {
-        // Not sure this is possible, given how CodeBlocks are terminated
-        if instr.cond == ArmCC::ARM_CC_AL {
-            todo!();
-        }
-        let ctx = self.llvm_ctx;
-        let bd = self.builder;
-        let target = instr.get_imm_op(0) as usize;
-        let loop_block = *self.blocks.get(&target).expect("missing block");
-        let end_block = ctx.append_basic_block(self.func, &format!("loop_{}_end", target));
-        let cond = self.get_cond_value(instr.cond);
-        bd.build_conditional_branch(cond, loop_block, end_block)?;
-        bd.position_at_end(end_block);
-        self.increment_pc(instr.mode);
-        Ok(())
-    }
-
     // Either executes the branch built by `inner`, or increments the PC and exits the function
     fn exec_branch_conditional<F>(&mut self, instr: &ArmDisasm, inner: F)
     where
@@ -55,13 +37,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     pub(super) fn arm_b(&mut self, instr: &ArmDisasm) {
-        let target = instr.get_imm_op(0) as usize;
-        if self.blocks.contains_key(&target) {
-            self.branch_internal(instr).expect("LLVM codegen failed");
-            return;
-        }
-
         let build = |f: &mut Self| -> Result<()> {
+            let target = instr.get_imm_op(0) as usize;
             let bd = &f.builder;
 
             // TODO - backwards jumps

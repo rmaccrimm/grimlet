@@ -195,23 +195,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     pub fn build_body(mut self, code_block: CodeBlock) -> Self {
-        let ctx = self.llvm_ctx;
-        let bd = self.builder;
-
-        let mut label_iter = code_block.loop_labels.iter();
-        let mut loop_label = label_iter.next();
-
         for instr in code_block.instrs.iter() {
-            if let Some(&label_addr) = loop_label
-                && instr.addr == label_addr
-            {
-                let loop_block = ctx.append_basic_block(self.func, &format!("loop_{}", label_addr));
-                bd.build_unconditional_branch(loop_block)
-                    .expect("LLVM codegen failed");
-                bd.position_at_end(loop_block);
-                self.blocks.insert(label_addr, loop_block);
-                loop_label = label_iter.next();
-            }
             self.build(instr);
         }
         self
