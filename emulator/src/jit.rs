@@ -1,16 +1,15 @@
 mod builder;
 
-use std::{collections::HashMap, fs};
+use std::collections::HashMap;
+use std::fs;
 
 use anyhow::Result;
 use builder::{get_ptr_param, FunctionBuilder};
-use inkwell::{
-    builder::Builder,
-    context::Context,
-    execution_engine::{ExecutionEngine, JitFunction},
-    module::Module,
-    AddressSpace, OptimizationLevel,
-};
+use inkwell::builder::Builder;
+use inkwell::context::Context;
+use inkwell::execution_engine::{ExecutionEngine, JitFunction};
+use inkwell::module::Module;
+use inkwell::{AddressSpace, OptimizationLevel};
 
 use crate::arm::cpu::{ArmState, NUM_REGS};
 

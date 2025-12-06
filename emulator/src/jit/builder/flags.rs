@@ -1,14 +1,11 @@
 use anyhow::{anyhow, Result};
 use capstone::arch::arm::{ArmCC, ArmInsn};
-use inkwell::{values::IntValue, IntPredicate};
+use inkwell::values::IntValue;
+use inkwell::IntPredicate;
 
-use crate::{
-    arm::{
-        cpu::{ArmMode, Reg},
-        disasm::ArmDisasm,
-    },
-    jit::FunctionBuilder,
-};
+use crate::arm::cpu::{ArmMode, Reg};
+use crate::arm::disasm::ArmDisasm;
+use crate::jit::FunctionBuilder;
 
 #[derive(Copy, Clone, Debug)]
 enum Flag {
@@ -266,10 +263,9 @@ mod tests {
     use inkwell::context::Context;
 
     use super::*;
-    use crate::{
-        arm::{cpu::ArmState, disasm::cons::*},
-        jit::{compile_and_run, Compiler},
-    };
+    use crate::arm::cpu::ArmState;
+    use crate::arm::disasm::cons::*;
+    use crate::jit::{compile_and_run, Compiler};
 
     #[test]
     fn test_set_flags() -> Result<()> {

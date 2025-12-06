@@ -1,5 +1,5 @@
 unstable_features = true
 fn_single_line = true
 use_small_heuristics = "Default"
-imports_granularity = "Crate"
+imports_granularity = "Module"
 group_imports = "StdExternalCrate"

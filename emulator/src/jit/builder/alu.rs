@@ -1,10 +1,10 @@
 use anyhow::{anyhow, Result};
-use capstone::{arch::arm::ArmOperandType, RegId};
+use capstone::arch::arm::ArmOperandType;
+use capstone::RegId;
 
-use crate::{
-    arm::{cpu::Reg, disasm::ArmDisasm},
-    jit::FunctionBuilder,
-};
+use crate::arm::cpu::Reg;
+use crate::arm::disasm::ArmDisasm;
+use crate::jit::FunctionBuilder;
 
 impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     pub(super) fn arm_cmp(&mut self, instr: &ArmDisasm) {

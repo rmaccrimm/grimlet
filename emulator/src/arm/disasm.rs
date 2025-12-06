@@ -1,18 +1,12 @@
 pub mod cons;
 
-use capstone::arch::arm::ArmCC;
-use capstone::arch::{self, BuildsCapstone};
-use capstone::{
-    Capstone, Insn,
-    arch::{
-        ArchOperand,
-        arm::{ArmInsn, ArmOperand, ArmOperandType},
-    },
-};
 use std::fmt::Display;
 
-use crate::arm::cpu::Reg;
-use crate::arm::cpu::{ArmMode, MainMemory};
+use capstone::arch::arm::{ArmCC, ArmInsn, ArmOperand, ArmOperandType};
+use capstone::arch::{ArchOperand, BuildsCapstone};
+use capstone::{Capstone, Insn};
+
+use crate::arm::cpu::{ArmMode, MainMemory, Reg};
 
 // A single disassembled ARM instruction. Basically a clone of the Capstone instruction but
 // easier to access since we know we're only working with ARM instructions.

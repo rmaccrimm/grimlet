@@ -7,26 +7,20 @@ use std::collections::HashMap;
 
 use anyhow::{anyhow, Result};
 use capstone::arch::arm::ArmInsn;
-use inkwell::{
-    basic_block::BasicBlock,
-    builder::Builder,
-    context::Context,
-    execution_engine::ExecutionEngine,
-    intrinsics::Intrinsic,
-    module::Module,
-    types::{ArrayType, FunctionType, IntType, PointerType, StructType, VoidType},
-    values::{FunctionValue, IntValue, PointerValue},
-    AddressSpace,
-};
+use inkwell::basic_block::BasicBlock;
+use inkwell::builder::Builder;
+use inkwell::context::Context;
+use inkwell::execution_engine::ExecutionEngine;
+use inkwell::intrinsics::Intrinsic;
+use inkwell::module::Module;
+use inkwell::types::{ArrayType, FunctionType, IntType, PointerType, StructType, VoidType};
+use inkwell::values::{FunctionValue, IntValue, PointerValue};
+use inkwell::AddressSpace;
 
 use super::{CompiledFunction, FunctionCache};
-use crate::{
-    arm::{
-        cpu::{ArmMode, ArmState, Reg, NUM_REGS},
-        disasm::ArmDisasm,
-    },
-    jit::builder::reg_map::RegMap,
-};
+use crate::arm::cpu::{ArmMode, ArmState, Reg, NUM_REGS};
+use crate::arm::disasm::ArmDisasm;
+use crate::jit::builder::reg_map::RegMap;
 
 /// Saves the values used to compute an instruction for the purpose of flag calculation
 struct InstrHist<'a> {
@@ -793,13 +787,10 @@ mod tests {
     use capstone::arch::arm::{ArmCC, ArmInsn};
 
     use super::*;
-    use crate::{
-        arm::{
-            cpu::Reg,
-            disasm::{cons::*, CodeBlock},
-        },
-        jit::{compile_and_run, Compiler},
-    };
+    use crate::arm::cpu::Reg;
+    use crate::arm::disasm::cons::*;
+    use crate::arm::disasm::CodeBlock;
+    use crate::jit::{compile_and_run, Compiler};
 
     #[test]
     fn test_jump_to_external() {

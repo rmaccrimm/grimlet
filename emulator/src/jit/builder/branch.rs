@@ -1,10 +1,9 @@
 use anyhow::Result;
 use inkwell::values::PointerValue;
 
-use crate::{
-    arm::{cpu::ArmState, disasm::ArmDisasm},
-    jit::FunctionBuilder,
-};
+use crate::arm::cpu::ArmState;
+use crate::arm::disasm::ArmDisasm;
+use crate::jit::FunctionBuilder;
 
 impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     pub(super) fn arm_b(&mut self, instr: &ArmDisasm) {

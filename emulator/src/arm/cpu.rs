@@ -1,7 +1,10 @@
-use std::{fs, slice::Chunks};
+use std::fs;
+use std::slice::Chunks;
 
 use anyhow::{anyhow, Result};
-use inkwell::{context::Context, types::StructType, AddressSpace};
+use inkwell::context::Context;
+use inkwell::types::StructType;
+use inkwell::AddressSpace;
 
 #[repr(C)]
 pub struct MainMemory {
