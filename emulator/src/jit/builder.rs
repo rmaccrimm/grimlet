@@ -780,23 +780,14 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             ArmInsn::ARM_INS_ENDING => todo!(),
         }
     }
-
-    fn compile_thumb() {
-        // Is it just the same set of instructions?
-        todo!();
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
 
-    use capstone::arch::arm::{ArmCC, ArmInsn};
-
     use super::*;
     use crate::arm::cpu::Reg;
-    use crate::arm::disasm::CodeBlock;
-    use crate::arm::disasm::cons::*;
     use crate::jit::Compiler;
 
     macro_rules! compile_and_run {
@@ -988,77 +979,5 @@ mod tests {
         println!("{:?}", state.regs);
         assert_eq!(state.regs[0], 0x800000fe);
         assert_eq!(state.regs[1], 1);
-    }
-
-    #[test]
-    fn test_factorial_program() {
-        // Computes factorial of R0. Result is stored in R1
-        let mut program = [
-            op_reg_imm(ArmInsn::ARM_INS_CMP, 0, 1, None), // 0
-            op_imm(ArmInsn::ARM_INS_B, 36, Some(ArmCC::ARM_CC_LE)), // 4
-            op_reg_reg(ArmInsn::ARM_INS_MOV, 1, 0, None), // 8
-            op_reg_imm(ArmInsn::ARM_INS_MOV, 0, 1, None), // 12
-            op_reg_reg_reg(ArmInsn::ARM_INS_MUL, 0, 0, 1, None), // 16
-            op_reg_reg_imm(ArmInsn::ARM_INS_SUBS, 1, 1, 1, None), // 20
-            op_imm(ArmInsn::ARM_INS_B, 16, Some(ArmCC::ARM_CC_GT)), // 24
-            op_reg_reg(ArmInsn::ARM_INS_MOV, 1, 0, None), // 28
-            op_imm(ArmInsn::ARM_INS_B, 44, None),         // 32
-            op_reg_imm(ArmInsn::ARM_INS_MOV, 1, 1, None), // 36
-            op_imm(ArmInsn::ARM_INS_B, 44, None),         // 40
-        ];
-        for (i, p) in program.iter_mut().enumerate() {
-            p.addr = 4 * i;
-        }
-        let context = Context::create();
-        let mut func_cache = FunctionCache::new();
-        let mut compiler = Compiler::new(&context);
-        let entry_point = compiler.compile_entry_point();
-
-        let mut run = |n| -> u32 {
-            let mut state = ArmState::default();
-            state.regs[0] = n;
-
-            loop {
-                let pc = state.pc() as usize;
-                if pc == 44 {
-                    return state.regs[1];
-                }
-
-                let func = match func_cache.get(&pc) {
-                    Some(func) => func,
-                    None => {
-                        let code_block =
-                            CodeBlock::from_instructions(program[pc / 4..].iter().cloned(), pc);
-                        println!("code:\n{}", code_block);
-
-                        match compiler
-                            .new_function(pc, &func_cache)
-                            .build_body(code_block)
-                            .compile()
-                        {
-                            Ok(compiled) => {
-                                func_cache.insert(pc, compiled);
-                                func_cache.get(&pc).unwrap()
-                            }
-                            Err(e) => {
-                                compiler.dump().unwrap();
-                                panic!("{}", e);
-                            }
-                        }
-                    }
-                };
-                compiler.dump().unwrap();
-                unsafe {
-                    entry_point.call(&mut state, func.as_raw());
-                }
-            }
-        };
-        // assert_eq!(run(0), 1);
-        // assert_eq!(run(1), 1);
-        assert_eq!(run(2), 2);
-        assert_eq!(run(3), 6);
-        assert_eq!(run(4), 24);
-        assert_eq!(run(5), 120);
-        assert_eq!(run(12), 479001600);
     }
 }

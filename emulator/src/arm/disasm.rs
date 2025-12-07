@@ -136,12 +136,16 @@ impl CodeBlock {
     }
 }
 
-pub struct Disassembler {
+pub trait Disasm {
+    fn next_code_block(&self, mem: &MainMemory, addr: usize) -> CodeBlock;
+}
+
+pub struct MemoryDisassembler {
     cs: Capstone,
     current_mode: ArmMode,
 }
 
-impl Default for Disassembler {
+impl Default for MemoryDisassembler {
     fn default() -> Self {
         let cs = Capstone::new()
             .arm()
@@ -156,8 +160,8 @@ impl Default for Disassembler {
     }
 }
 
-impl Disassembler {
-    pub fn next_code_block(&self, mem: &MainMemory, start_addr: usize) -> CodeBlock {
+impl Disasm for MemoryDisassembler {
+    fn next_code_block(&self, mem: &MainMemory, start_addr: usize) -> CodeBlock {
         let instr_iter = mem.iter_word(start_addr).enumerate().map(move |(i, ch)| {
             let instructions = self
                 .cs
@@ -181,7 +185,7 @@ mod tests {
     #[test]
     fn test_disasm() {
         let bytes: [u8; 4] = [0b10010000, 0b00000001, 0b00010010, 0b11100000];
-        let disasm = Disassembler::default();
+        let disasm = MemoryDisassembler::default();
         let res = &disasm.cs.disasm_all(&bytes, 0).unwrap()[0];
         println!(
             "{:#?}",
