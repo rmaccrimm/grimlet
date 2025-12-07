@@ -1,3 +1,5 @@
+use std::iter::zip;
+
 use anyhow::{Result, anyhow};
 use capstone::arch::arm::{ArmCC, ArmInsn};
 use inkwell::IntPredicate;
@@ -6,12 +8,12 @@ use inkwell::values::IntValue;
 use crate::jit::FunctionBuilder;
 
 #[derive(Copy, Clone, Debug)]
-pub(super) struct Flag(u32, &'static str);
+struct Flag(u32, &'static str);
 
-pub(super) const V: Flag = Flag(1 << 28, "v");
-pub(super) const C: Flag = Flag(1 << 29, "c");
-pub(super) const Z: Flag = Flag(1 << 30, "z");
-pub(super) const N: Flag = Flag(1 << 31, "n");
+const V: Flag = Flag(1 << 28, "v");
+const C: Flag = Flag(1 << 29, "c");
+const Z: Flag = Flag(1 << 30, "z");
+const N: Flag = Flag(1 << 31, "n");
 
 impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     pub(super) fn eval_cond(&mut self, cond: ArmCC) -> Result<IntValue<'a>> {
@@ -68,7 +70,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         Ok(nf)
     }
 
-    pub(super) fn set_flag(
+    fn set_flag(
         &self,
         flag: Flag,
         initial: IntValue<'a>,
@@ -83,6 +85,22 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let and = bd.build_and(lhs, m, "and")?;
         let out = bd.build_xor(initial, and, &format!("set_{}", flag.1))?;
         Ok(out)
+    }
+
+    pub(super) fn set_flags(
+        &self,
+        n: Option<IntValue<'a>>,
+        z: Option<IntValue<'a>>,
+        c: Option<IntValue<'a>>,
+        v: Option<IntValue<'a>>,
+    ) -> Result<IntValue<'a>> {
+        let mut cpsr = self.reg_map.cpsr();
+        for (flag, cond) in zip([N, Z, C, V], [n, z, c, v]) {
+            if let Some(v) = cond {
+                cpsr = self.set_flag(flag, cpsr, v)?;
+            }
+        }
+        Ok(cpsr)
     }
 }
 

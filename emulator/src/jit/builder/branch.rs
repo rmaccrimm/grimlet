@@ -23,7 +23,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             let bd = f.builder;
             let if_block = ctx.append_basic_block(f.func, "if");
             let end_block = ctx.append_basic_block(f.func, "end");
-            let cond = f.get_cond_value(instr.cond);
+            let cond = f.eval_cond(instr.cond)?;
             bd.build_conditional_branch(cond, if_block, end_block)?;
             bd.position_at_end(if_block);
             inner(f, instr)?;

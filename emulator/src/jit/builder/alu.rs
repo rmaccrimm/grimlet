@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context as _, Result};
 use capstone::RegId;
 use capstone::arch::arm::{ArmCC, ArmOperandType};
 use inkwell::IntPredicate;
@@ -7,7 +7,6 @@ use inkwell::values::IntValue;
 use crate::arm::cpu::Reg;
 use crate::arm::disasm::ArmInstruction;
 use crate::jit::FunctionBuilder;
-use crate::jit::builder::flags::Flag;
 
 struct DataProcResult<'a> {
     dest: Option<Reg>,
@@ -71,7 +70,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let rd = instr.get_reg_op(0);
         let dest_init = self.reg_map.get(rd);
         let cpsr_init = self.reg_map.cpsr();
-        let cond = self.get_cond_value(instr.cond);
+        let cond = self.eval_cond(instr.cond)?;
         bd.build_conditional_branch(cond, if_block, end_block)?;
         bd.position_at_end(if_block);
 
@@ -168,7 +167,6 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                 cpsr: None,
             });
         }
-        let mut cpsr = self.reg_map.cpsr();
         let ures = bd
             .build_call(
                 self.usub_with_overflow,
@@ -200,17 +198,12 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             bd.build_extract_value(ures, 1, "not_c")?.into_int_value(),
             "c",
         )?;
-
         let z_flag =
             bd.build_int_compare(IntPredicate::EQ, sres_val, self.i32_t.const_zero(), "n")?;
-
         let n_flag =
             bd.build_int_compare(IntPredicate::SLT, sres_val, self.i32_t.const_zero(), "z")?;
 
-        cpsr = self.set_flag(Flag::C, cpsr, c_flag);
-        cpsr = self.set_flag(Flag::Z, cpsr, z_flag);
-        cpsr = self.set_flag(Flag::N, cpsr, n_flag);
-        cpsr = self.set_flag(Flag::V, cpsr, v_flag);
+        let cpsr = self.set_flags(Some(n_flag), Some(z_flag), Some(c_flag), Some(v_flag))?;
 
         Ok(DataProcResult {
             dest: Some(rd),
