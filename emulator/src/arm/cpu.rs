@@ -1,10 +1,10 @@
 use std::fs;
 use std::slice::Chunks;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
+use inkwell::AddressSpace;
 use inkwell::context::Context;
 use inkwell::types::StructType;
-use inkwell::AddressSpace;
 
 #[repr(C)]
 pub struct MainMemory {
@@ -133,6 +133,8 @@ impl ArmState {
             mem: MainMemory { bios },
         })
     }
+
+    pub fn r0(&self) -> u32 { self.regs[Reg::R0 as usize] }
 
     pub fn cpsr(&self) -> u32 { self.regs[Reg::CPSR as usize] }
 

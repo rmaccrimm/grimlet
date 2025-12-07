@@ -51,6 +51,7 @@ impl<'ctx> Emulator<'ctx> {
                 Some(func) => func,
                 None => {
                     let code_block = self.disasm.next_code_block(&self.state.mem, pc);
+                    println!("{}", code_block);
                     match self
                         .compiler
                         .new_function(pc, &self.func_cache)
@@ -135,5 +136,87 @@ mod tests {
         assert_eq!(run(4), 24);
         assert_eq!(run(5), 120);
         assert_eq!(run(12), 479001600);
+    }
+
+    fn cond_test_case(cond: ArmCC, flags: u32, should_execute: bool) {
+        // Conditionally move r1 to r0, then exit
+        let disasm = VecDisassembler::new(vec![
+            op_reg_reg(ArmInsn::ARM_INS_MOV, 0, 1, Some(cond)),
+            op_imm(ArmInsn::ARM_INS_B, 100, None),
+        ]);
+
+        let llvm_ctx = Context::create();
+        let mut emulator = Emulator::new(&llvm_ctx, disasm, None).unwrap();
+        // Appears in R0 if MOV was successful
+        let confirm_val = u32::MAX;
+        emulator.state.regs[Reg::R1 as usize] = confirm_val;
+        // Prev instruction on initialization is just a NOP, so it won't override these flags
+        emulator.state.regs[Reg::CPSR as usize] = flags << 28;
+        emulator.run(Some(|st: &ArmState| -> bool { st.pc() == 100 }));
+        emulator.compiler.dump().unwrap();
+        assert_eq!(
+            emulator.state.r0(),
+            if should_execute { confirm_val } else { 0 }
+        );
+    }
+
+    #[test]
+    fn test_conditions() {
+        //                                 _z__
+        cond_test_case(ArmCC::ARM_CC_EQ, 0b0001, false);
+        cond_test_case(ArmCC::ARM_CC_EQ, 0b0111, true);
+        cond_test_case(ArmCC::ARM_CC_NE, 0b1000, true);
+        cond_test_case(ArmCC::ARM_CC_NE, 0b1110, false);
+        //                                 __c_
+        cond_test_case(ArmCC::ARM_CC_HS, 0b0100, false);
+        cond_test_case(ArmCC::ARM_CC_HS, 0b1010, true);
+        cond_test_case(ArmCC::ARM_CC_LO, 0b1001, true);
+        cond_test_case(ArmCC::ARM_CC_LO, 0b1110, false);
+        //                                 n___
+        cond_test_case(ArmCC::ARM_CC_MI, 0b0000, false);
+        cond_test_case(ArmCC::ARM_CC_MI, 0b1001, true);
+        cond_test_case(ArmCC::ARM_CC_PL, 0b0000, true);
+        cond_test_case(ArmCC::ARM_CC_PL, 0b1000, false);
+        //                                 ___v
+        cond_test_case(ArmCC::ARM_CC_VS, 0b0010, false);
+        cond_test_case(ArmCC::ARM_CC_VS, 0b1001, true);
+        cond_test_case(ArmCC::ARM_CC_VC, 0b1100, true);
+        cond_test_case(ArmCC::ARM_CC_VC, 0b1101, false);
+        //                                 _zc_
+        cond_test_case(ArmCC::ARM_CC_HI, 0b0001, false);
+        cond_test_case(ArmCC::ARM_CC_HI, 0b0011, true);
+        cond_test_case(ArmCC::ARM_CC_HI, 0b1100, false);
+        cond_test_case(ArmCC::ARM_CC_HI, 0b0110, false);
+        cond_test_case(ArmCC::ARM_CC_LS, 0b0000, true);
+        cond_test_case(ArmCC::ARM_CC_LS, 0b0010, false);
+        cond_test_case(ArmCC::ARM_CC_LS, 0b0100, true);
+        cond_test_case(ArmCC::ARM_CC_LS, 0b0110, true);
+        //                                 n__v
+        cond_test_case(ArmCC::ARM_CC_GE, 0b0000, true);
+        cond_test_case(ArmCC::ARM_CC_GE, 0b0001, false);
+        cond_test_case(ArmCC::ARM_CC_GE, 0b1000, false);
+        cond_test_case(ArmCC::ARM_CC_GE, 0b1001, true);
+        cond_test_case(ArmCC::ARM_CC_LT, 0b0000, false);
+        cond_test_case(ArmCC::ARM_CC_LT, 0b0001, true);
+        cond_test_case(ArmCC::ARM_CC_LT, 0b1000, true);
+        cond_test_case(ArmCC::ARM_CC_LT, 0b1001, false);
+        //                                 nz_v
+        cond_test_case(ArmCC::ARM_CC_GT, 0b0010, true);
+        cond_test_case(ArmCC::ARM_CC_GT, 0b0001, false);
+        cond_test_case(ArmCC::ARM_CC_GT, 0b1000, false);
+        cond_test_case(ArmCC::ARM_CC_GT, 0b1011, true);
+        cond_test_case(ArmCC::ARM_CC_GT, 0b0110, false);
+        cond_test_case(ArmCC::ARM_CC_GT, 0b0101, false);
+        cond_test_case(ArmCC::ARM_CC_GT, 0b1100, false);
+        cond_test_case(ArmCC::ARM_CC_GT, 0b1111, false);
+        //                                 nz_v
+        cond_test_case(ArmCC::ARM_CC_LE, 0b0000, false);
+        cond_test_case(ArmCC::ARM_CC_LE, 0b0001, true);
+        cond_test_case(ArmCC::ARM_CC_LE, 0b1000, true);
+        cond_test_case(ArmCC::ARM_CC_LE, 0b1011, false);
+        cond_test_case(ArmCC::ARM_CC_LE, 0b0110, true);
+        cond_test_case(ArmCC::ARM_CC_LE, 0b0101, true);
+        cond_test_case(ArmCC::ARM_CC_LE, 0b1100, true);
+        cond_test_case(ArmCC::ARM_CC_LE, 0b1101, true);
     }
 }

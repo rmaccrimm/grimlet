@@ -105,13 +105,15 @@ pub struct CodeBlock {
 
 impl Display for CodeBlock {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "---------------")?;
         for instr in self.instrs.iter() {
+            write!(f, "0x{:02x}:  ", instr.addr)?;
             match instr.repr {
-                Some(_) => writeln!(f, "\t{}", instr)?,
-                None => writeln!(f, "\t{:?}", instr)?,
+                Some(_) => writeln!(f, "{}", instr)?,
+                None => writeln!(f, "{:?}", instr)?,
             }
         }
-        Ok(())
+        writeln!(f, "---------------")
     }
 }
 

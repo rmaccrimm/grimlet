@@ -107,10 +107,9 @@ impl<'ctx> Compiler<'ctx> {
         let basic_block = self.llvm_ctx.append_basic_block(f, "start");
         bd.position_at_end(basic_block);
 
-        let arm_state_ptr = get_ptr_param(&f, 0);
-        let fn_ptr_arg = get_ptr_param(&f, 1);
-
         let build = || -> Result<()> {
+            let arm_state_ptr = get_ptr_param(&f, 0)?;
+            let fn_ptr_arg = get_ptr_param(&f, 1)?;
             let regs_ptr = bd.build_alloca(regs_t, "regs_ptr")?;
 
             // Perform context switch in, i.e. copy guest machine state into an array

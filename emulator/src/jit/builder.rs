@@ -8,13 +8,14 @@ use std::collections::HashMap;
 use anyhow::{Result, anyhow};
 use capstone::arch::arm::ArmInsn;
 use inkwell::AddressSpace;
+use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::execution_engine::ExecutionEngine;
 use inkwell::intrinsics::Intrinsic;
 use inkwell::module::Module;
 use inkwell::types::{ArrayType, FunctionType, IntType, PointerType, StructType, VoidType};
-use inkwell::values::{FunctionValue, IntValue, PointerValue};
+use inkwell::values::{BasicValueEnum, FunctionValue, IntValue, PointerValue};
 
 use super::{CompiledFunction, FunctionCache};
 use crate::arm::cpu::{ArmMode, ArmState, NUM_REGS, Reg};
@@ -51,8 +52,8 @@ where
     // References to parent compiler LLVM state
     llvm_ctx: &'ctx Context,
     builder: &'a Builder<'ctx>,
-
     execution_engine: &'a ExecutionEngine<'ctx>,
+    current_block: BasicBlock<'a>,
 
     // Read only ref to already-compiled functions
     func_cache: &'a FunctionCache<'ctx>,
@@ -80,20 +81,24 @@ where
     usub_with_overflow: FunctionValue<'a>,
 }
 
-/// Helper that converts the LLVMString error message into an anyhow error
-pub(super) fn get_ptr_param<'a>(func: &FunctionValue<'a>, i: usize) -> PointerValue<'a> {
+pub(super) fn get_ptr_param<'a>(func: &FunctionValue<'a>, i: usize) -> Result<PointerValue<'a>> {
     func.get_nth_param(i as u32)
-        .unwrap_or_else(|| {
-            panic!(
-                "{} signature has no parameter {}",
-                func.get_name().to_str().unwrap(),
-                i
-            )
-        })
-        .into_pointer_value()
+        .ok_or(anyhow!(
+            "{} signature has no parameter {}",
+            func.get_name().to_str().unwrap(),
+            i
+        ))
+        .map(BasicValueEnum::into_pointer_value)
 }
 
-fn func_name(addr: usize) -> String { format!("fn_{:#010x}", addr) }
+pub fn get_intrinsic<'a>(name: &str, module: &Module<'a>) -> Result<FunctionValue<'a>> {
+    Intrinsic::find("llvm.sadd.with.overflow")
+        .ok_or(anyhow!("could not find intrinsic '{}'", name))?
+        .get_declaration(module, &[module.get_context().i32_type().into()])
+        .ok_or(anyhow!("failed to insert declaration for '{}'", name))
+}
+
+pub fn func_name(addr: usize) -> String { format!("fn_{:#010x}", addr) }
 
 impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     pub(super) fn new(
@@ -104,81 +109,70 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         execution_engine: &'a ExecutionEngine<'ctx>,
         func_cache: &'a FunctionCache<'ctx>,
     ) -> Self {
-        let name = func_name(addr);
-        let ctx = llvm_ctx;
-        let i32_t = ctx.i32_type();
-        let ptr_t = ctx.ptr_type(AddressSpace::default());
-        let void_t = ctx.void_type();
-        let bool_t = ctx.bool_type();
-        let regs_t = i32_t.array_type(NUM_REGS as u32);
-        let arm_state_t = ArmState::get_llvm_type(ctx);
-        let fn_t = void_t.fn_type(&[ptr_t.into(), ptr_t.into()], false);
+        let build = || -> Result<Self> {
+            let name = func_name(addr);
+            let ctx = llvm_ctx;
+            let i32_t = ctx.i32_type();
+            let ptr_t = ctx.ptr_type(AddressSpace::default());
+            let void_t = ctx.void_type();
+            let bool_t = ctx.bool_type();
+            let regs_t = i32_t.array_type(NUM_REGS as u32);
+            let arm_state_t = ArmState::get_llvm_type(ctx);
+            let fn_t = void_t.fn_type(&[ptr_t.into(), ptr_t.into()], false);
 
-        let bd = builder;
-        let func = module.add_function(&name, fn_t, None);
-        let mut blocks = HashMap::new();
+            let bd = builder;
+            let func = module.add_function(&name, fn_t, None);
+            let mut blocks = HashMap::new();
 
-        let basic_block = ctx.append_basic_block(func, "start");
-        bd.position_at_end(basic_block);
-        blocks.insert(addr, basic_block);
+            let basic_block = ctx.append_basic_block(func, "start");
+            bd.position_at_end(basic_block);
+            blocks.insert(addr, basic_block);
 
-        let arm_state_ptr = get_ptr_param(&func, 0);
-        let reg_array_ptr = get_ptr_param(&func, 1);
+            let arm_state_ptr = get_ptr_param(&func, 0)?;
+            let reg_array_ptr = get_ptr_param(&func, 1)?;
 
-        let mut reg_map = Vec::new();
-        for i in 0..NUM_REGS {
-            let name = format!("r{}_elem_ptr", i);
-            let gep_inds = [i32_t.const_zero(), i32_t.const_int(i as u64, false)];
-            let ptr = unsafe {
-                bd.build_gep(regs_t, reg_array_ptr, &gep_inds, &name)
-                    .unwrap()
-            };
-            let name = format!("r{}", i);
-            let v = bd.build_load(i32_t, ptr, &name).unwrap().into_int_value();
-            reg_map.push(v);
-        }
+            let mut reg_map = Vec::new();
+            for i in 0..NUM_REGS {
+                let name = format!("r{}_elem_ptr", i);
+                let gep_inds = [i32_t.const_zero(), i32_t.const_int(i as u64, false)];
+                let ptr = unsafe { bd.build_gep(regs_t, reg_array_ptr, &gep_inds, &name)? };
+                let name = format!("r{}", i);
+                let v = bd.build_load(i32_t, ptr, &name)?.into_int_value();
+                reg_map.push(v);
+            }
 
-        // Declare intrinsics
-        let sadd_intrinsic = Intrinsic::find("llvm.sadd.with.overflow").unwrap();
-        let sadd_with_overflow = sadd_intrinsic
-            .get_declaration(module, &[i32_t.into()])
-            .unwrap();
-        let ssub_intrinsic = Intrinsic::find("llvm.ssub.with.overflow").unwrap();
-        let ssub_with_overflow = ssub_intrinsic
-            .get_declaration(module, &[i32_t.into()])
-            .unwrap();
-        let uadd_intrinsic = Intrinsic::find("llvm.uadd.with.overflow").unwrap();
-        let uadd_with_overflow = uadd_intrinsic
-            .get_declaration(module, &[i32_t.into()])
-            .unwrap();
-        let usub_intrinsic = Intrinsic::find("llvm.usub.with.overflow").unwrap();
-        let usub_with_overflow = usub_intrinsic
-            .get_declaration(module, &[i32_t.into()])
-            .unwrap();
+            // Declare intrinsics
+            let sadd_with_overflow = get_intrinsic("llvm.sadd.with.overflow", module)?;
+            let ssub_with_overflow = get_intrinsic("llvm.ssub.with.overflow", module)?;
+            let uadd_with_overflow = get_intrinsic("llvm.uadd.with.overflow", module)?;
+            let usub_with_overflow = get_intrinsic("llvm.usub.with.overflow", module)?;
 
-        FunctionBuilder {
-            name,
-            reg_map: RegMap::new(reg_map),
-            func,
-            arm_state_ptr,
-            reg_array_ptr,
-            llvm_ctx: ctx,
-            builder,
-            execution_engine,
-            func_cache,
-            arm_state_t,
-            fn_t,
-            i32_t,
-            ptr_t,
-            reg_array_t: regs_t,
-            void_t,
-            bool_t,
-            last_instr: InstrHist::default(),
-            sadd_with_overflow,
-            ssub_with_overflow,
-            uadd_with_overflow,
-            usub_with_overflow,
-        }
+            Ok(FunctionBuilder {
+                name,
+                reg_map: RegMap::new(reg_map),
+                func,
+                arm_state_ptr,
+                reg_array_ptr,
+                llvm_ctx: ctx,
+                builder,
+                execution_engine,
+                current_block: basic_block,
+                func_cache,
+                arm_state_t,
+                fn_t,
+                i32_t,
+                ptr_t,
+                reg_array_t: regs_t,
+                void_t,
+                bool_t,
+                last_instr: InstrHist::default(),
+                sadd_with_overflow,
+                ssub_with_overflow,
+                uadd_with_overflow,
+                usub_with_overflow,
+            })
+        };
+        build().expect("Function initialization failed")
     }
 
     pub fn build_body(mut self, code_block: CodeBlock) -> Self {
