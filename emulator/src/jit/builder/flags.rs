@@ -3,138 +3,86 @@ use capstone::arch::arm::{ArmCC, ArmInsn};
 use inkwell::IntPredicate;
 use inkwell::values::IntValue;
 
-use crate::arm::cpu::Reg;
 use crate::jit::FunctionBuilder;
 
 #[derive(Copy, Clone, Debug)]
-pub(super) enum Flag {
-    V = 28,
-    C = 29,
-    Z = 30,
-    N = 31,
-}
+pub(super) struct Flag(u32, &'static str);
 
-impl Flag {
-    pub fn to_str(self) -> &'static str {
-        match self {
-            Flag::V => "v",
-            Flag::C => "c",
-            Flag::Z => "z",
-            Flag::N => "n",
-        }
-    }
-}
+pub(super) const V: Flag = Flag(1 << 28, "v");
+pub(super) const C: Flag = Flag(1 << 29, "c");
+pub(super) const Z: Flag = Flag(1 << 30, "z");
+pub(super) const N: Flag = Flag(1 << 31, "n");
 
 impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
-    pub(super) fn get_cond_value(&mut self, cond: ArmCC) -> IntValue<'a> {
-        let build = |f: &mut Self| -> Result<IntValue<'a>> {
-            let bd = f.builder;
-            let cond = match cond {
-                ArmCC::ARM_CC_EQ => f.get_flag(Flag::Z),
-                ArmCC::ARM_CC_NE => f.get_neg_flag(Flag::Z),
-                ArmCC::ARM_CC_HS => f.get_flag(Flag::C),
-                ArmCC::ARM_CC_LO => f.get_neg_flag(Flag::C),
-                ArmCC::ARM_CC_MI => f.get_flag(Flag::N),
-                ArmCC::ARM_CC_PL => f.get_neg_flag(Flag::N),
-                ArmCC::ARM_CC_VS => f.get_flag(Flag::V),
-                ArmCC::ARM_CC_VC => f.get_neg_flag(Flag::V),
-                ArmCC::ARM_CC_HI => {
-                    bd.build_and(f.get_flag(Flag::C), f.get_neg_flag(Flag::Z), "hi")?
-                }
-                ArmCC::ARM_CC_LS => {
-                    bd.build_or(f.get_neg_flag(Flag::C), f.get_flag(Flag::Z), "ls")?
-                }
-                ArmCC::ARM_CC_GE => bd.build_int_compare(
-                    IntPredicate::EQ,
-                    f.get_flag(Flag::N),
-                    f.get_flag(Flag::V),
-                    "ge",
-                )?,
-                ArmCC::ARM_CC_LT => bd.build_int_compare(
-                    IntPredicate::NE,
-                    f.get_flag(Flag::N),
-                    f.get_flag(Flag::V),
-                    "lt",
-                )?,
-                ArmCC::ARM_CC_GT => bd.build_and(
-                    f.get_neg_flag(Flag::Z),
-                    bd.build_int_compare(
-                        IntPredicate::EQ,
-                        f.get_flag(Flag::N),
-                        f.get_flag(Flag::V),
-                        "ge",
-                    )?,
-                    "gt",
-                )?,
-                ArmCC::ARM_CC_LE => bd.build_or(
-                    f.get_flag(Flag::Z),
-                    bd.build_int_compare(
-                        IntPredicate::NE,
-                        f.get_flag(Flag::N),
-                        f.get_flag(Flag::V),
-                        "lt",
-                    )?,
-                    "le",
-                )?,
-                _ => panic!("invalid cond"),
-            };
-            Ok(cond)
+    pub(super) fn eval_cond(&mut self, cond: ArmCC) -> Result<IntValue<'a>> {
+        let bd = self.builder;
+        let cond = match cond {
+            ArmCC::ARM_CC_EQ => self.get_flag(Z)?,
+            ArmCC::ARM_CC_NE => self.get_neg_flag(Z)?,
+            ArmCC::ARM_CC_HS => self.get_flag(C)?,
+            ArmCC::ARM_CC_LO => self.get_neg_flag(C)?,
+            ArmCC::ARM_CC_MI => self.get_flag(N)?,
+            ArmCC::ARM_CC_PL => self.get_neg_flag(N)?,
+            ArmCC::ARM_CC_VS => self.get_flag(V)?,
+            ArmCC::ARM_CC_VC => self.get_neg_flag(V)?,
+            ArmCC::ARM_CC_HI => bd.build_and(self.get_flag(C)?, self.get_neg_flag(Z)?, "hi")?,
+            ArmCC::ARM_CC_LS => bd.build_or(self.get_neg_flag(C)?, self.get_flag(Z)?, "ls")?,
+            ArmCC::ARM_CC_GE => {
+                bd.build_int_compare(IntPredicate::EQ, self.get_flag(N)?, self.get_flag(V)?, "ge")?
+            }
+            ArmCC::ARM_CC_LT => {
+                bd.build_int_compare(IntPredicate::NE, self.get_flag(N)?, self.get_flag(V)?, "lt")?
+            }
+            ArmCC::ARM_CC_GT => bd.build_and(
+                self.get_neg_flag(Z)?,
+                bd.build_int_compare(IntPredicate::EQ, self.get_flag(N)?, self.get_flag(V)?, "ge")?,
+                "gt",
+            )?,
+            ArmCC::ARM_CC_LE => bd.build_or(
+                self.get_flag(Z)?,
+                bd.build_int_compare(IntPredicate::NE, self.get_flag(N)?, self.get_flag(V)?, "lt")?,
+                "le",
+            )?,
+            _ => panic!("invalid cond"),
         };
-        build(self).expect("LLVM codegen failed")
+        Ok(cond)
     }
 
-    fn get_flag(&self, flag: Flag) -> IntValue<'a> {
-        let build = || -> Result<IntValue> {
-            let bd = self.builder;
-            let shift = bd.build_right_shift(
-                self.reg_map.cpsr(),
-                self.i32_t.const_int(flag as u64, false),
-                false,
-                "shift",
-            )?;
-            let flag_i32 = bd.build_and(shift, self.i32_t.const_int(1, false), "flag")?;
-            Ok(bd.build_int_cast(flag_i32, self.bool_t, flag.to_str())?)
-        };
-        build().expect("LLVM codegen failed")
+    fn get_flag(&self, flag: Flag) -> Result<IntValue<'a>> {
+        let masked = self.builder.build_and(
+            self.reg_map.cpsr(),
+            self.i32_t.const_int(flag.0 as u64, false),
+            "flag",
+        )?;
+        Ok(self.builder.build_int_compare(
+            IntPredicate::NE,
+            self.i32_t.const_zero(),
+            masked,
+            flag.1,
+        )?)
     }
 
-    fn get_neg_flag(&self, flag: Flag) -> IntValue<'a> {
-        self.builder
-            .build_not(self.get_flag(flag), &format!("not_{}", flag.to_str()))
-            .expect("LLVM codegen failed")
+    fn get_neg_flag(&self, flag: Flag) -> Result<IntValue<'a>> {
+        let f = self.get_flag(flag)?;
+        let nf = self.builder.build_not(f, &format!("not_{}", flag.1))?;
+        Ok(nf)
     }
 
-    pub(super) fn set_flag(&self, flag: Flag, initial: IntValue, cond: IntValue) -> IntValue<'a> {
-        let ctx = &self.llvm_ctx;
-        let bd = &self.builder;
-        let if_block = ctx.append_basic_block(self.func, "if");
-        let else_block = ctx.append_basic_block(self.func, "else");
-        let end_block = ctx.append_basic_block(self.func, "end");
-
-        let int1 = self.i32_t.const_int(1, false);
-        let flag = self.i32_t.const_int(flag as u64, false);
-
-        let build = || -> Result<IntValue> {
-            let v0 = bd.build_left_shift(int1, flag, "v0")?;
-            bd.build_conditional_branch(cond, if_block, else_block)?;
-
-            bd.position_at_end(if_block);
-            let v1 = bd.build_or(v0, initial, "v1")?;
-            // bd.build_store(result, v1)?;
-            bd.build_unconditional_branch(end_block)?;
-
-            bd.position_at_end(else_block);
-            let v3 = bd.build_not(v0, "v3")?;
-            let v4 = bd.build_and(initial, v3, "v4")?;
-            // bd.build_store(result, v4)?;
-            bd.build_unconditional_branch(end_block)?;
-
-            bd.position_at_end(end_block);
-            let phi = bd.build_phi(self.i32_t, "phi")?;
-            phi.add_incoming(&[(&v1, if_block), (&v4, else_block)]);
-            Ok(phi.as_basic_value().into_int_value())
-        };
-        build().expect("LLVM codegen failed")
+    pub(super) fn set_flag(
+        &self,
+        flag: Flag,
+        initial: IntValue<'a>,
+        cond: IntValue<'a>,
+    ) -> Result<IntValue<'a>> {
+        // From Stanford's bithacks page - conditionally set or clear bits without branching
+        let bd = self.builder;
+        let f = bd.build_int_cast_sign_flag(cond, self.i32_t, false, "f")?;
+        let nf = bd.build_int_neg(f, "neg_f")?;
+        let m = self.i32_t.const_int(flag.0 as u64, false);
+        let lhs = bd.build_xor(nf, initial, "and_lhs")?;
+        let and = bd.build_and(lhs, m, "and")?;
+        let out = bd.build_xor(initial, and, &format!("set_{}", flag.1))?;
+        Ok(out)
     }
 }
 
@@ -146,8 +94,7 @@ mod tests {
     use inkwell::context::Context;
 
     use super::*;
-    use crate::arm::cpu::ArmState;
-    use crate::arm::disasm::cons::*;
+    use crate::arm::cpu::{ArmState, Reg};
     use crate::jit::Compiler;
 
     macro_rules! compile_and_run {
@@ -176,21 +123,21 @@ mod tests {
         let f = func.bool_t.const_zero();
         let t = func.bool_t.const_int(1, false);
         func.reg_map
-            .update(Reg::R0, func.set_flag(Flag::V, func.reg_map.r0(), t));
+            .update(Reg::R0, func.set_flag(V, func.reg_map.r0(), t)?);
         func.reg_map
-            .update(Reg::R1, func.set_flag(Flag::V, func.reg_map.r1(), f));
+            .update(Reg::R1, func.set_flag(V, func.reg_map.r1(), f)?);
         func.reg_map
-            .update(Reg::R2, func.set_flag(Flag::V, func.reg_map.r2(), t));
+            .update(Reg::R2, func.set_flag(V, func.reg_map.r2(), t)?);
         func.reg_map
-            .update(Reg::R3, func.set_flag(Flag::V, func.reg_map.r3(), f));
+            .update(Reg::R3, func.set_flag(V, func.reg_map.r3(), f)?);
         func.reg_map
-            .update(Reg::R4, func.set_flag(Flag::N, func.reg_map.r4(), t));
+            .update(Reg::R4, func.set_flag(N, func.reg_map.r4(), t)?);
         func.reg_map
-            .update(Reg::R5, func.set_flag(Flag::N, func.reg_map.r5(), f));
+            .update(Reg::R5, func.set_flag(N, func.reg_map.r5(), f)?);
         func.reg_map
-            .update(Reg::R6, func.set_flag(Flag::N, func.reg_map.r6(), t));
+            .update(Reg::R6, func.set_flag(N, func.reg_map.r6(), t)?);
         func.reg_map
-            .update(Reg::R7, func.set_flag(Flag::N, func.reg_map.r7(), f));
+            .update(Reg::R7, func.set_flag(N, func.reg_map.r7(), f)?);
         func.write_state_out().unwrap();
         func.builder.build_return(None).unwrap();
         compile_and_run!(comp, func, state);
