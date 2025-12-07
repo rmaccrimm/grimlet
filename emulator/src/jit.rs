@@ -13,11 +13,9 @@ use inkwell::{AddressSpace, OptimizationLevel};
 
 use crate::arm::cpu::{ArmState, NUM_REGS};
 
-type JumpTarget = unsafe extern "C" fn(*mut ArmState, *const i32);
+type JumpTarget = unsafe extern "C" fn(*mut ArmState);
 
 pub type CompiledFunction<'a> = JitFunction<'a, JumpTarget>;
-
-pub type EntryPoint<'a> = JitFunction<'a, unsafe extern "C" fn(*mut ArmState, JumpTarget)>;
 
 pub type FunctionCache<'ctx> = HashMap<usize, CompiledFunction<'ctx>>;
 
@@ -82,73 +80,5 @@ impl<'ctx> Compiler<'ctx> {
                 .expect("failed to create LLVM execution engine"),
         );
         self.modules.len() - 1
-    }
-
-    // Performs context switch from guest machine to LLVM code and jumps to provided function
-    pub fn compile_entry_point(&mut self) -> EntryPoint<'ctx> {
-        let i = self.create_module("m_entrypoint");
-        let ctx = self.llvm_ctx;
-        let bd = &self.builder;
-        let module = &self.modules[i];
-        let ee = &self.engines[i];
-
-        let i32_t = ctx.i32_type();
-        let ptr_t = ctx.ptr_type(AddressSpace::default());
-        let void_t = ctx.void_type();
-        let regs_t = i32_t.array_type(NUM_REGS as u32);
-        let arm_state_t = ArmState::get_llvm_type(ctx);
-        let fn_t = void_t.fn_type(&[ptr_t.into(), ptr_t.into()], false);
-
-        let entry_type = self
-            .llvm_ctx
-            .void_type()
-            .fn_type(&[ptr_t.into(), ptr_t.into()], false);
-        let f = module.add_function("entry_point", entry_type, None);
-        let basic_block = self.llvm_ctx.append_basic_block(f, "start");
-        bd.position_at_end(basic_block);
-
-        let build = || -> Result<()> {
-            let arm_state_ptr = get_ptr_param(&f, 0)?;
-            let fn_ptr_arg = get_ptr_param(&f, 1)?;
-            let regs_ptr = bd.build_alloca(regs_t, "regs_ptr")?;
-
-            // Perform context switch in, i.e. copy guest machine state into an array
-            let zero = i32_t.const_zero();
-            let one = i32_t.const_int(1, false);
-            for r in 0..NUM_REGS {
-                let reg_ind = i32_t.const_int(r as u64, false);
-                let gep_inds = [zero, one, reg_ind];
-                let name = format!("arm_state_r{}_ptr", r);
-                // Pointer to the register in the guest machine (ArmState object)
-                let arm_state_elem_ptr =
-                    unsafe { bd.build_gep(arm_state_t, arm_state_ptr, &gep_inds, &name)? };
-                let value = bd
-                    .build_load(i32_t, arm_state_elem_ptr, &format!("r{}", r))?
-                    .into_int_value();
-
-                let gep_inds = [zero, reg_ind];
-                let name = format!("reg_arr_r{}_ptr", r);
-                // Pointer to the local register (i32 array)
-                let reg_arr_elem_ptr = unsafe { bd.build_gep(regs_t, regs_ptr, &gep_inds, &name)? };
-                bd.build_store(reg_arr_elem_ptr, value)?;
-            }
-
-            // Call the actual processing func. Note this is not a tail call as the stack becomes
-            // corrupted (presumably because the regs_ptr array gets freed)
-            bd.build_indirect_call(
-                fn_t,
-                fn_ptr_arg,
-                &[arm_state_ptr.into(), regs_ptr.into()],
-                "call",
-            )?;
-            bd.build_return(None)?;
-            Ok(())
-        };
-        build().expect("LLVM codegen failed");
-        assert!(f.verify(true));
-        unsafe {
-            ee.get_function("entry_point")
-                .expect("failed to compile entry_point")
-        }
     }
 }

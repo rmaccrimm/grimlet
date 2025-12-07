@@ -3,7 +3,7 @@ mod branch;
 mod flags;
 mod reg_map;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::{Result, anyhow};
 use capstone::arch::arm::ArmInsn;
@@ -21,21 +21,6 @@ use super::{CompiledFunction, FunctionCache};
 use crate::arm::cpu::{ArmMode, ArmState, NUM_REGS, Reg};
 use crate::arm::disasm::{ArmInstruction, CodeBlock};
 use crate::jit::builder::reg_map::RegMap;
-
-/// Saves the values used to compute an instruction for the purpose of flag calculation
-struct InstrHist<'a> {
-    opcode: ArmInsn,
-    inputs: Vec<IntValue<'a>>,
-}
-
-impl<'a> Default for InstrHist<'a> {
-    fn default() -> Self {
-        Self {
-            opcode: ArmInsn::ARM_INS_NOP,
-            inputs: vec![],
-        }
-    }
-}
 
 #[allow(dead_code)]
 /// Builder for creating & compiling LLVM functions
@@ -58,12 +43,9 @@ where
     // Read only ref to already-compiled functions
     func_cache: &'a FunctionCache<'ctx>,
 
-    // Last instruction executed. Used to lazily evaluate status flags
-    last_instr: InstrHist<'a>,
-
     // Function arguments
     arm_state_ptr: PointerValue<'a>,
-    reg_array_ptr: PointerValue<'a>,
+    // reg_array_ptr: PointerValue<'a>,
 
     // Frequently used LLVM types
     arm_state_t: StructType<'a>,
@@ -118,7 +100,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             let bool_t = ctx.bool_type();
             let regs_t = i32_t.array_type(NUM_REGS as u32);
             let arm_state_t = ArmState::get_llvm_type(ctx);
-            let fn_t = void_t.fn_type(&[ptr_t.into(), ptr_t.into()], false);
+            let fn_t = void_t.fn_type(&[ptr_t.into()], false);
 
             let bd = builder;
             let func = module.add_function(&name, fn_t, None);
@@ -129,17 +111,6 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             blocks.insert(addr, basic_block);
 
             let arm_state_ptr = get_ptr_param(&func, 0)?;
-            let reg_array_ptr = get_ptr_param(&func, 1)?;
-
-            let mut reg_map = Vec::new();
-            for i in 0..NUM_REGS {
-                let name = format!("r{}_elem_ptr", i);
-                let gep_inds = [i32_t.const_zero(), i32_t.const_int(i as u64, false)];
-                let ptr = unsafe { bd.build_gep(regs_t, reg_array_ptr, &gep_inds, &name)? };
-                let name = format!("r{}", i);
-                let v = bd.build_load(i32_t, ptr, &name)?.into_int_value();
-                reg_map.push(v);
-            }
 
             // Declare intrinsics
             let sadd_with_overflow = get_intrinsic("llvm.sadd.with.overflow", module)?;
@@ -149,10 +120,10 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
             Ok(FunctionBuilder {
                 name,
-                reg_map: RegMap::new(reg_map),
+                reg_map: RegMap::new(),
                 func,
                 arm_state_ptr,
-                reg_array_ptr,
+                // reg_array_ptr,
                 llvm_ctx: ctx,
                 builder,
                 execution_engine,
@@ -165,7 +136,6 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                 reg_array_t: regs_t,
                 void_t,
                 bool_t,
-                last_instr: InstrHist::default(),
                 sadd_with_overflow,
                 ssub_with_overflow,
                 uadd_with_overflow,
@@ -175,7 +145,12 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         build().expect("Function initialization failed")
     }
 
-    pub fn build_body(mut self, code_block: CodeBlock) -> Self {
+    pub fn build_body(mut self, mut code_block: CodeBlock) -> Self {
+        // slightly hacky, just always load these 2 for simplicity
+        code_block.regs_read.insert(Reg::CPSR);
+        code_block.regs_read.insert(Reg::PC);
+        self.load_initial_reg_values(&code_block.regs_read)
+            .expect("initial register load failed");
         for instr in code_block.instrs {
             self.build(instr);
         }
@@ -188,6 +163,27 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         } else {
             Err(anyhow!("Function verification failed"))
         }
+    }
+
+    fn load_initial_reg_values(&mut self, regs_read: &HashSet<Reg>) -> Result<()> {
+        let bd = self.builder;
+        for r in regs_read.iter() {
+            let i = *r as usize;
+            let name = format!("r{}_elem_ptr", i);
+            let gep_inds = [
+                self.i32_t.const_zero(),
+                self.i32_t.const_int(1, false),
+                self.i32_t.const_int(i as u64, false),
+            ];
+            let ptr =
+                unsafe { bd.build_gep(self.arm_state_t, self.arm_state_ptr, &gep_inds, &name)? };
+            let name = format!("r{}", i);
+            let v = bd.build_load(self.i32_t, ptr, &name)?.into_int_value();
+            // Go around the update method to not mark as dirty.
+            // TODO - probably belongs in reg_map somewhere
+            self.reg_map.llvm_values[i] = Some(v);
+        }
+        Ok(())
     }
 
     fn increment_pc(&mut self, mode: ArmMode) {
@@ -242,46 +238,22 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     /// When context switching, write out the latest values in reg_map to the guest state
     fn write_state_out(&self) -> Result<()> {
         let bd = &self.builder;
-        let zero = self.i32_t.const_zero();
-        let one = self.i32_t.const_int(1, false);
-        for (i, rval) in self.reg_map.llvm_values.iter().enumerate() {
-            let reg_ind = self.i32_t.const_int(i as u64, false);
-            let gep_inds = [zero, one, reg_ind];
-            let name = format!("arm_state_r{}_ptr", i);
-            // Pointer to the register in the guest machine (ArmState object)
-            let arm_state_elem_ptr =
+        for (i, r) in self.reg_map.llvm_values.iter().enumerate() {
+            if !self.reg_map.dirty[i] {
+                continue;
+            }
+            let name = format!("r{}_elem_ptr", i);
+            let gep_inds = [
+                self.i32_t.const_zero(),
+                self.i32_t.const_int(1, false),
+                self.i32_t.const_int(i as u64, false),
+            ];
+            let ptr =
                 unsafe { bd.build_gep(self.arm_state_t, self.arm_state_ptr, &gep_inds, &name)? };
 
-            bd.build_store(arm_state_elem_ptr, *rval)?;
+            bd.build_store(ptr, *r.as_ref().expect("reg has no value"))?;
         }
         Ok(())
-    }
-
-    // For jumping without context switching. Updates the reg array allocated in entry point with
-    // latest values in reg_map
-    fn update_reg_array(&self) -> Result<()> {
-        let bd = &self.builder;
-        let zero = self.i32_t.const_zero();
-        for (i, rval) in self.reg_map.llvm_values.iter().enumerate() {
-            let reg_ind = self.i32_t.const_int(i as u64, false);
-            let gep_inds = [zero, reg_ind];
-            let name = format!("reg_arr_r{}_ptr", i);
-            // Pointer to the local register (i32 array)
-            let reg_arr_elem_ptr =
-                unsafe { bd.build_gep(self.reg_array_t, self.reg_array_ptr, &gep_inds, &name)? };
-            bd.build_store(reg_arr_elem_ptr, *rval)?;
-        }
-        Ok(())
-    }
-
-    /// To be called by instructions that modify flags
-    /// TODO - does this need to be a list? Can some instructions modify some flags but leave others
-    /// alone?
-    fn set_last_instr(&mut self, instr: &ArmInstruction, inputs: Vec<IntValue<'a>>) {
-        self.last_instr = InstrHist {
-            opcode: instr.opcode,
-            inputs,
-        };
     }
 
     pub fn build(&mut self, instr: ArmInstruction) {
@@ -774,8 +746,7 @@ mod tests {
     macro_rules! compile_and_run {
         ($compiler:ident, $func:ident, $state:ident) => {
             unsafe {
-                let fptr = $func.compile().unwrap().as_raw();
-                $compiler.compile_entry_point().call(&mut $state, fptr);
+                $func.compile().unwrap().call(&mut $state);
             }
         };
     }
@@ -792,7 +763,10 @@ mod tests {
         let context = Context::create();
         let mut comp = Compiler::new(&context);
         let func_cache = HashMap::new();
-        let f = comp.new_function(0, &func_cache);
+        let mut f = comp.new_function(0, &func_cache);
+
+        let all_regs: HashSet<Reg> = (0..NUM_REGS).map(Reg::from).collect();
+        f.load_initial_reg_values(&all_regs).unwrap();
 
         let add_res = f
             .builder
@@ -837,21 +811,17 @@ mod tests {
 
         let context = Context::create();
         let mut comp = Compiler::new(&context);
-        let entry_point = comp.compile_entry_point();
         let mut cache = HashMap::new();
 
-        let f1 = comp.new_function(0, &cache);
+        let all_regs: HashSet<Reg> = (0..NUM_REGS).map(Reg::from).collect();
+        let mut f1 = comp.new_function(0, &cache);
+        f1.load_initial_reg_values(&all_regs).unwrap();
+
         let r0 = f1.reg_map.get(Reg::R0);
         let r2 = f1.reg_map.get(Reg::R2);
         let r3 = f1.reg_map.get(Reg::R3);
         let v0 = f1.builder.build_int_add(r3, r2, "v0").unwrap();
-        let v1 = f1
-            .builder
-            .build_int_sub(
-                // r0,
-                r0, v0, "v1",
-            )
-            .unwrap();
+        let v1 = f1.builder.build_int_sub(r0, v0, "v1").unwrap();
 
         // Perform context switch out before jumping to ArmState code
         f1.write_state_out().unwrap();
@@ -883,8 +853,9 @@ mod tests {
         cache.insert(0, compiled1);
 
         let mut f2 = comp.new_function(1, &cache);
+        f2.load_initial_reg_values(&all_regs).unwrap();
         f2.reg_map.update(Reg::R0, f2.i32_t.const_int(999, false));
-        f2.update_reg_array().unwrap();
+        f2.write_state_out().unwrap();
 
         // Construct the function pointer using raw pointer obtained from function cache
         let func_ptr_param = f2.get_compiled_func_pointer(0).unwrap().unwrap();
@@ -892,12 +863,7 @@ mod tests {
         // Perform indirect call through pointer
         let call = f2
             .builder
-            .build_indirect_call(
-                f2.fn_t,
-                func_ptr_param,
-                &[f2.arm_state_ptr.into(), f2.reg_array_ptr.into()],
-                "call",
-            )
+            .build_indirect_call(f2.fn_t, func_ptr_param, &[f2.arm_state_ptr.into()], "call")
             .unwrap();
         call.set_tail_call(true);
         f2.builder.build_return(None).unwrap();
@@ -906,7 +872,7 @@ mod tests {
 
         println!("{:?}", state.regs);
         unsafe {
-            entry_point.call(&mut state, cache.get(&1).unwrap().as_raw());
+            cache.get(&1).unwrap().call(&mut state);
         }
         println!("{:?}", state.regs);
 
@@ -925,6 +891,10 @@ mod tests {
         let cache = HashMap::new();
         let mut comp = Compiler::new(&context);
         let mut f = comp.new_function(0, &cache);
+
+        let all_regs: HashSet<Reg> = (0..NUM_REGS).map(Reg::from).collect();
+        f.load_initial_reg_values(&all_regs).unwrap();
+
         let bd = f.builder;
         let call = bd
             .build_call(

@@ -6,6 +6,7 @@ use capstone::{
 };
 
 use super::ArmInstruction;
+use crate::arm::cpu::Reg;
 
 fn reg(r: u16) -> ArmOperand {
     ArmOperand {
@@ -35,6 +36,7 @@ pub fn op_reg_imm(opcode: ArmInsn, r: u16, i: i32, cc: Option<ArmCC>) -> ArmInst
         opcode,
         cond: cc.unwrap_or(ArmCC::ARM_CC_AL),
         operands: vec![reg(r), imm(i)],
+        regs_read: vec![Reg::from(r as usize)],
         ..Default::default()
     }
 }
@@ -44,6 +46,7 @@ pub fn op_reg_reg(opcode: ArmInsn, r1: u16, r2: u16, cc: Option<ArmCC>) -> ArmIn
         opcode,
         cond: cc.unwrap_or(ArmCC::ARM_CC_AL),
         operands: vec![reg(r1), reg(r2)],
+        regs_read: vec![Reg::from(r1 as usize), Reg::from(r2 as usize)],
         ..Default::default()
     }
 }
@@ -59,6 +62,7 @@ pub fn op_reg_reg_imm(
         opcode,
         cond: cc.unwrap_or(ArmCC::ARM_CC_AL),
         operands: vec![reg(r1), reg(r2), imm(i)],
+        regs_read: vec![Reg::from(r1 as usize), Reg::from(r2 as usize)],
         ..Default::default()
     }
 }
@@ -74,6 +78,11 @@ pub fn op_reg_reg_reg(
         opcode,
         cond: cc.unwrap_or(ArmCC::ARM_CC_AL),
         operands: vec![reg(r1), reg(r2), reg(r3)],
+        regs_read: vec![
+            Reg::from(r1 as usize),
+            Reg::from(r2 as usize),
+            Reg::from(r3 as usize),
+        ],
         ..Default::default()
     }
 }

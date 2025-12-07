@@ -37,7 +37,7 @@ pub enum ArmMode {
     THUMB,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Reg {
     R0 = 0,
     R1 = 1,

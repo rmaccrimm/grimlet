@@ -1,5 +1,7 @@
 pub mod cons;
 
+use core::arch;
+use std::collections::HashSet;
 use std::fmt::Display;
 
 use capstone::arch::arm::{ArmCC, ArmInsn, ArmOperand, ArmOperandType};
@@ -19,6 +21,7 @@ pub struct ArmInstruction {
     pub cond: ArmCC,
     pub mode: ArmMode,
     pub updates_flags: bool,
+    pub regs_read: Vec<Reg>,
 }
 
 impl Default for ArmInstruction {
@@ -31,6 +34,7 @@ impl Default for ArmInstruction {
             repr: None,
             mode: ArmMode::ARM,
             updates_flags: true,
+            regs_read: vec![],
         }
     }
 }
@@ -40,6 +44,13 @@ impl ArmInstruction {
         let detail = cs
             .insn_detail(insn)
             .expect("failed to get instruction detail");
+
+        let regs_read = detail
+            .regs_read()
+            .iter()
+            .map(|r| Reg::from(r.0 as usize))
+            .collect();
+
         let arch_detail = detail.arch_detail();
         let arm_detail = arch_detail.arm().expect("expected an arm instruction");
         let cond = arm_detail.cc();
@@ -58,6 +69,7 @@ impl ArmInstruction {
             cond,
             mode,
             updates_flags: arm_detail.update_flags(),
+            regs_read,
         }
     }
 
@@ -100,6 +112,7 @@ impl Display for ArmInstruction {
 #[derive(Debug)]
 pub struct CodeBlock {
     pub instrs: Vec<ArmInstruction>,
+    pub regs_read: HashSet<Reg>,
     pub start_addr: usize,
 }
 
@@ -113,6 +126,7 @@ impl Display for CodeBlock {
                 None => writeln!(f, "{:?}", instr)?,
             }
         }
+        writeln!(f, "regs_read: {:?}", self.regs_read)?;
         writeln!(f, "---------------")
     }
 }
@@ -123,7 +137,7 @@ impl CodeBlock {
         start_addr: usize,
     ) -> Self {
         let mut instrs = Vec::new();
-
+        let mut regs_read = HashSet::new();
         for instr in instr_iter {
             instrs.push(instr);
             let instr = instrs.last().unwrap();
@@ -133,8 +147,15 @@ impl CodeBlock {
                 }
                 _ => {}
             }
+            for r in instr.regs_read.iter() {
+                regs_read.insert(*r);
+            }
         }
-        CodeBlock { instrs, start_addr }
+        CodeBlock {
+            instrs,
+            start_addr,
+            regs_read,
+        }
     }
 }
 

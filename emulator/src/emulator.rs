@@ -3,13 +3,12 @@ use inkwell::context::Context;
 
 use crate::arm::cpu::ArmState;
 use crate::arm::disasm::Disasm;
-use crate::jit::{Compiler, EntryPoint, FunctionCache};
+use crate::jit::{Compiler, FunctionCache};
 
 pub struct Emulator<'ctx> {
     state: ArmState,
     disasm: Box<dyn Disasm>,
     compiler: Compiler<'ctx>,
-    entry_point: EntryPoint<'ctx>,
     func_cache: FunctionCache<'ctx>,
 }
 
@@ -23,15 +22,13 @@ impl<'ctx> Emulator<'ctx> {
             Some(path) => ArmState::with_bios(path)?,
             None => ArmState::default(),
         };
-        let mut compiler = Compiler::new(context);
-        let entry_point = compiler.compile_entry_point();
+        let compiler = Compiler::new(context);
         let func_cache = FunctionCache::new();
 
         Ok(Self {
             state,
             disasm: Box::new(disasm),
             compiler,
-            entry_point,
             func_cache,
         })
     }
@@ -70,7 +67,7 @@ impl<'ctx> Emulator<'ctx> {
                 }
             };
             unsafe {
-                self.entry_point.call(&mut self.state, func.as_raw());
+                func.call(&mut self.state);
             }
         }
     }

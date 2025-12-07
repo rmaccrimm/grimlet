@@ -106,20 +106,19 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
 
     use anyhow::Result;
     use inkwell::context::Context;
 
     use super::*;
-    use crate::arm::cpu::{ArmState, Reg};
+    use crate::arm::cpu::{ArmState, NUM_REGS, Reg};
     use crate::jit::Compiler;
 
     macro_rules! compile_and_run {
         ($compiler:ident, $func:ident, $state:ident) => {
             unsafe {
-                let fptr = $func.compile().unwrap().as_raw();
-                $compiler.compile_entry_point().call(&mut $state, fptr);
+                $func.compile().unwrap().call(&mut $state);
             }
         };
     }
@@ -133,10 +132,14 @@ mod tests {
         for i in [2, 3, 6, 7] {
             state.regs[i] |= 0xff000000;
         }
+
         let context = Context::create();
         let cache = HashMap::new();
         let mut comp = Compiler::new(&context);
         let mut func = comp.new_function(0, &cache);
+
+        let all_regs: HashSet<Reg> = (0..NUM_REGS).map(Reg::from).collect();
+        func.load_initial_reg_values(&all_regs).unwrap();
 
         let f = func.bool_t.const_zero();
         let t = func.bool_t.const_int(1, false);

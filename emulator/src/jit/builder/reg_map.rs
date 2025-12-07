@@ -3,23 +3,27 @@ use inkwell::values::IntValue;
 use crate::arm::cpu::{NUM_REGS, Reg};
 
 pub struct RegMap<'a> {
-    pub llvm_values: Vec<IntValue<'a>>,
+    pub llvm_values: Vec<Option<IntValue<'a>>>,
+    pub dirty: Vec<bool>,
 }
 
 #[allow(dead_code)]
 impl<'a> RegMap<'a> {
-    pub fn new(llvm_values: Vec<IntValue<'a>>) -> Self {
-        if llvm_values.len() != NUM_REGS {
-            panic!("Expected exactly {} values", llvm_values.len());
+    pub fn new() -> Self {
+        Self {
+            llvm_values: vec![None; NUM_REGS],
+            dirty: vec![false; NUM_REGS],
         }
-        Self { llvm_values }
     }
 
     pub fn update(&mut self, reg: Reg, value: IntValue<'a>) {
-        self.llvm_values[reg as usize] = value;
+        self.llvm_values[reg as usize] = Some(value);
+        self.dirty[reg as usize] = true;
     }
 
-    pub fn get(&self, reg: Reg) -> IntValue<'a> { self.llvm_values[reg as usize] }
+    pub fn get(&self, reg: Reg) -> IntValue<'a> {
+        self.llvm_values[reg as usize].unwrap_or_else(|| panic!("reg {:?} was not loaded", reg))
+    }
 
     pub fn r0(&self) -> IntValue<'a> { self.get(Reg::R0) }
 
