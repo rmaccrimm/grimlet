@@ -78,7 +78,7 @@ impl<'ctx> Compiler<'ctx> {
         let module = self.modules.last().unwrap();
         self.engines.push(
             module
-                .create_jit_execution_engine(OptimizationLevel::Less)
+                .create_jit_execution_engine(OptimizationLevel::None)
                 .expect("failed to create LLVM execution engine"),
         );
         self.modules.len() - 1

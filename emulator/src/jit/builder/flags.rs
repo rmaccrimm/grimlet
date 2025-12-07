@@ -7,7 +7,7 @@ use crate::arm::cpu::Reg;
 use crate::jit::FunctionBuilder;
 
 #[derive(Copy, Clone, Debug)]
-enum Flag {
+pub(super) enum Flag {
     V = 28,
     C = 29,
     Z = 30,
@@ -15,7 +15,7 @@ enum Flag {
 }
 
 impl Flag {
-    fn to_str(self) -> &'static str {
+    pub fn to_str(self) -> &'static str {
         match self {
             Flag::V => "v",
             Flag::C => "c",
@@ -27,7 +27,6 @@ impl Flag {
 
 impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     pub(super) fn get_cond_value(&mut self, cond: ArmCC) -> IntValue<'a> {
-        self.compute_flags();
         let build = |f: &mut Self| -> Result<IntValue<'a>> {
             let bd = f.builder;
             let cond = match cond {
@@ -105,7 +104,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             .expect("LLVM codegen failed")
     }
 
-    fn set_flag(&self, flag: Flag, initial: IntValue, cond: IntValue) -> IntValue<'a> {
+    pub(super) fn set_flag(&self, flag: Flag, initial: IntValue, cond: IntValue) -> IntValue<'a> {
         let ctx = &self.llvm_ctx;
         let bd = &self.builder;
         let if_block = ctx.append_basic_block(self.func, "if");
@@ -134,90 +133,6 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             let phi = bd.build_phi(self.i32_t, "phi")?;
             phi.add_incoming(&[(&v1, if_block), (&v4, else_block)]);
             Ok(phi.as_basic_value().into_int_value())
-        };
-        build().expect("LLVM codegen failed")
-    }
-
-    fn compute_flags(&mut self) {
-        // C and V - use LLVM intrinsic and re-run last instruction with overflow check
-        let cpsr_next = match self.last_instr.opcode {
-            ArmInsn::ARM_INS_CMP | ArmInsn::ARM_INS_SUBS => self.compute_sub_flags(),
-            ArmInsn::ARM_INS_MOV => self.compute_mov_flags(),
-            ArmInsn::ARM_INS_MUL => self.compute_mul_flags(),
-            ArmInsn::ARM_INS_NOP => self.reg_map.cpsr(),
-            _ => todo!(),
-        };
-        self.reg_map.update(Reg::CPSR, cpsr_next);
-    }
-
-    fn compute_mov_flags(&self) -> IntValue<'a> {
-        // TODO
-        self.reg_map.cpsr()
-    }
-
-    fn compute_mul_flags(&self) -> IntValue<'a> {
-        // TODO
-        self.reg_map.cpsr()
-    }
-
-    fn compute_sub_flags(&mut self) -> IntValue<'a> {
-        let mut build = || -> Result<IntValue> {
-            let mut cpsr = self.reg_map.cpsr();
-            let bd = &self.builder;
-            let imm = self
-                .last_instr
-                .inputs
-                .pop()
-                .ok_or(anyhow!("Missing operand"))?;
-            let reg_val = self
-                .last_instr
-                .inputs
-                .pop()
-                .ok_or(anyhow!("Missing operand"))?;
-
-            let ures = bd
-                .build_call(
-                    self.usub_with_overflow,
-                    &[reg_val.into(), imm.into()],
-                    "ures",
-                )?
-                .try_as_basic_value()
-                .left()
-                .unwrap()
-                .into_struct_value();
-
-            let sres = bd
-                .build_call(
-                    self.ssub_with_overflow,
-                    &[reg_val.into(), imm.into()],
-                    "sres",
-                )?
-                .try_as_basic_value()
-                .left()
-                .unwrap()
-                .into_struct_value();
-
-            let sres_val = bd
-                .build_extract_value(sres, 0, "sres_val")?
-                .into_int_value();
-
-            let v_flag = bd.build_extract_value(sres, 1, "v")?.into_int_value();
-            let c_flag = bd.build_not(
-                bd.build_extract_value(ures, 1, "not_c")?.into_int_value(),
-                "c",
-            )?;
-
-            let z_flag =
-                bd.build_int_compare(IntPredicate::EQ, sres_val, self.i32_t.const_zero(), "n")?;
-
-            let n_flag =
-                bd.build_int_compare(IntPredicate::SLT, sres_val, self.i32_t.const_zero(), "z")?;
-
-            cpsr = self.set_flag(Flag::C, cpsr, c_flag);
-            cpsr = self.set_flag(Flag::Z, cpsr, z_flag);
-            cpsr = self.set_flag(Flag::N, cpsr, n_flag);
-            cpsr = self.set_flag(Flag::V, cpsr, v_flag);
-            Ok(cpsr)
         };
         build().expect("LLVM codegen failed")
     }
@@ -293,64 +208,5 @@ mod tests {
             ]
         );
         Ok(())
-    }
-
-    #[test]
-    fn test_compute_flags_cmp() {
-        let cmp_instr = op_reg_imm(ArmInsn::ARM_INS_CMP, 0, 1, None);
-
-        let mut state = ArmState::default();
-        let context = Context::create();
-        let cache = HashMap::new();
-        let mut comp = Compiler::new(&context);
-
-        let mut f1 = comp.new_function(0, &cache);
-        f1.build(&cmp_instr);
-        f1.compute_flags();
-        f1.write_state_out().unwrap();
-        f1.builder.build_return(None).unwrap();
-        let cmp = f1.compile().unwrap();
-        let entry_point = comp.compile_entry_point();
-
-        // Positive result
-        state.regs[0] = 2;
-        state.regs[16] = 0;
-        unsafe {
-            entry_point.call(&mut state, cmp.as_raw());
-        }
-        assert_eq!(state.regs[16] >> 28, 0b0010); // nzcv
-
-        // 0 result
-        state.regs[0] = 1;
-        state.regs[16] = 0;
-        unsafe {
-            entry_point.call(&mut state, cmp.as_raw());
-        }
-        assert_eq!(state.regs[16] >> 28, 0b0110);
-
-        // negative result (unsigned underflow)
-        state.regs[0] = 0;
-        state.regs[16] = 0;
-        unsafe {
-            entry_point.call(&mut state, cmp.as_raw());
-        }
-        assert_eq!(state.regs[16] >> 28, 0b1000);
-
-        // negative result (no underflow)
-        state.regs[0] = -1i32 as u32;
-        state.regs[16] = 0;
-        unsafe {
-            entry_point.call(&mut state, cmp.as_raw());
-        }
-        assert_eq!(state.regs[16] >> 28, 0b1010);
-
-        // signed underflow only (positive result)
-        state.regs[0] = i32::MIN as u32;
-        state.regs[16] = 0;
-        unsafe {
-            entry_point.call(&mut state, cmp.as_raw());
-        }
-        println!("{}", state.regs[0]);
-        assert_eq!(state.regs[16] >> 28, 0b0011);
     }
 }

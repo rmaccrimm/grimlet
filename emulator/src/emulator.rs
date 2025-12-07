@@ -130,7 +130,8 @@ mod tests {
             emulator.run(Some(|st: &ArmState| -> bool { st.pc() == 44 }));
             emulator.state.regs[Reg::R1 as usize]
         };
-
+        assert_eq!(run(0), 1);
+        assert_eq!(run(1), 1);
         assert_eq!(run(2), 2);
         assert_eq!(run(3), 6);
         assert_eq!(run(4), 24);
@@ -138,7 +139,7 @@ mod tests {
         assert_eq!(run(12), 479001600);
     }
 
-    fn cond_test_case(cond: ArmCC, flags: u32, should_execute: bool) {
+    fn cond_test_case(cond: ArmCC, flags: u32) -> bool {
         // Conditionally move r1 to r0, then exit
         let disasm = VecDisassembler::new(vec![
             op_reg_reg(ArmInsn::ARM_INS_MOV, 0, 1, Some(cond)),
@@ -154,69 +155,106 @@ mod tests {
         emulator.state.regs[Reg::CPSR as usize] = flags << 28;
         emulator.run(Some(|st: &ArmState| -> bool { st.pc() == 100 }));
         emulator.compiler.dump().unwrap();
-        assert_eq!(
-            emulator.state.r0(),
-            if should_execute { confirm_val } else { 0 }
-        );
+
+        // True if it ran, false if skipped
+        emulator.state.r0() == confirm_val
+    }
+
+    #[rustfmt::skip]
+    #[test]
+    fn test_conditions() {
+        //                                          _z__
+        assert!(!cond_test_case(ArmCC::ARM_CC_EQ, 0b0001));
+        assert!(cond_test_case(ArmCC::ARM_CC_EQ,  0b0111));
+        assert!(cond_test_case(ArmCC::ARM_CC_NE,  0b1000));
+        assert!(!cond_test_case(ArmCC::ARM_CC_NE, 0b1110));
+        //                                          __c_
+        assert!(!cond_test_case(ArmCC::ARM_CC_HS, 0b0100));
+        assert!(cond_test_case(ArmCC::ARM_CC_HS,  0b1010));
+        assert!(cond_test_case(ArmCC::ARM_CC_LO,  0b1001));
+        assert!(!cond_test_case(ArmCC::ARM_CC_LO, 0b1110));
+        //                                          n___
+        assert!(!cond_test_case(ArmCC::ARM_CC_MI, 0b0000));
+        assert!(cond_test_case(ArmCC::ARM_CC_MI,  0b1001));
+        assert!(cond_test_case(ArmCC::ARM_CC_PL,  0b0000));
+        assert!(!cond_test_case(ArmCC::ARM_CC_PL, 0b1000));
+        //                                          ___v
+        assert!(!cond_test_case(ArmCC::ARM_CC_VS, 0b0010));
+        assert!(cond_test_case(ArmCC::ARM_CC_VS,  0b1001));
+        assert!(cond_test_case(ArmCC::ARM_CC_VC,  0b1100));
+        assert!(!cond_test_case(ArmCC::ARM_CC_VC, 0b1101));
+        //                                          _zc_
+        assert!(!cond_test_case(ArmCC::ARM_CC_HI, 0b0001));
+        assert!(cond_test_case(ArmCC::ARM_CC_HI,  0b0011));
+        assert!(!cond_test_case(ArmCC::ARM_CC_HI, 0b1100));
+        assert!(!cond_test_case(ArmCC::ARM_CC_HI, 0b0110));
+        assert!(cond_test_case(ArmCC::ARM_CC_LS,  0b0000));
+        assert!(!cond_test_case(ArmCC::ARM_CC_LS, 0b0010));
+        assert!(cond_test_case(ArmCC::ARM_CC_LS,  0b0100));
+        assert!(cond_test_case(ArmCC::ARM_CC_LS,  0b0110));
+        //                                          n__v
+        assert!(cond_test_case(ArmCC::ARM_CC_GE,  0b0000));
+        assert!(!cond_test_case(ArmCC::ARM_CC_GE, 0b0001));
+        assert!(!cond_test_case(ArmCC::ARM_CC_GE, 0b1000));
+        assert!(cond_test_case(ArmCC::ARM_CC_GE,  0b1001));
+        assert!(!cond_test_case(ArmCC::ARM_CC_LT, 0b0000));
+        assert!(cond_test_case(ArmCC::ARM_CC_LT,  0b0001));
+        assert!(cond_test_case(ArmCC::ARM_CC_LT,  0b1000));
+        assert!(!cond_test_case(ArmCC::ARM_CC_LT, 0b1001));
+        //                                          nz_v
+        assert!(cond_test_case(ArmCC::ARM_CC_GT,  0b0010));
+        assert!(!cond_test_case(ArmCC::ARM_CC_GT, 0b0001));
+        assert!(!cond_test_case(ArmCC::ARM_CC_GT, 0b1000));
+        assert!(cond_test_case(ArmCC::ARM_CC_GT,  0b1011));
+        assert!(!cond_test_case(ArmCC::ARM_CC_GT, 0b0110));
+        assert!(!cond_test_case(ArmCC::ARM_CC_GT, 0b0101));
+        assert!(!cond_test_case(ArmCC::ARM_CC_GT, 0b1100));
+        assert!(!cond_test_case(ArmCC::ARM_CC_GT, 0b1111));
+        //                                          nz_v
+        assert!(!cond_test_case(ArmCC::ARM_CC_LE, 0b0000));
+        assert!(cond_test_case(ArmCC::ARM_CC_LE,  0b0001));
+        assert!(cond_test_case(ArmCC::ARM_CC_LE,  0b1000));
+        assert!(!cond_test_case(ArmCC::ARM_CC_LE, 0b1011));
+        assert!(cond_test_case(ArmCC::ARM_CC_LE,  0b0110));
+        assert!(cond_test_case(ArmCC::ARM_CC_LE,  0b0101));
+        assert!(cond_test_case(ArmCC::ARM_CC_LE,  0b1100));
+        assert!(cond_test_case(ArmCC::ARM_CC_LE,  0b1101));
     }
 
     #[test]
-    fn test_conditions() {
-        //                                 _z__
-        cond_test_case(ArmCC::ARM_CC_EQ, 0b0001, false);
-        cond_test_case(ArmCC::ARM_CC_EQ, 0b0111, true);
-        cond_test_case(ArmCC::ARM_CC_NE, 0b1000, true);
-        cond_test_case(ArmCC::ARM_CC_NE, 0b1110, false);
-        //                                 __c_
-        cond_test_case(ArmCC::ARM_CC_HS, 0b0100, false);
-        cond_test_case(ArmCC::ARM_CC_HS, 0b1010, true);
-        cond_test_case(ArmCC::ARM_CC_LO, 0b1001, true);
-        cond_test_case(ArmCC::ARM_CC_LO, 0b1110, false);
-        //                                 n___
-        cond_test_case(ArmCC::ARM_CC_MI, 0b0000, false);
-        cond_test_case(ArmCC::ARM_CC_MI, 0b1001, true);
-        cond_test_case(ArmCC::ARM_CC_PL, 0b0000, true);
-        cond_test_case(ArmCC::ARM_CC_PL, 0b1000, false);
-        //                                 ___v
-        cond_test_case(ArmCC::ARM_CC_VS, 0b0010, false);
-        cond_test_case(ArmCC::ARM_CC_VS, 0b1001, true);
-        cond_test_case(ArmCC::ARM_CC_VC, 0b1100, true);
-        cond_test_case(ArmCC::ARM_CC_VC, 0b1101, false);
-        //                                 _zc_
-        cond_test_case(ArmCC::ARM_CC_HI, 0b0001, false);
-        cond_test_case(ArmCC::ARM_CC_HI, 0b0011, true);
-        cond_test_case(ArmCC::ARM_CC_HI, 0b1100, false);
-        cond_test_case(ArmCC::ARM_CC_HI, 0b0110, false);
-        cond_test_case(ArmCC::ARM_CC_LS, 0b0000, true);
-        cond_test_case(ArmCC::ARM_CC_LS, 0b0010, false);
-        cond_test_case(ArmCC::ARM_CC_LS, 0b0100, true);
-        cond_test_case(ArmCC::ARM_CC_LS, 0b0110, true);
-        //                                 n__v
-        cond_test_case(ArmCC::ARM_CC_GE, 0b0000, true);
-        cond_test_case(ArmCC::ARM_CC_GE, 0b0001, false);
-        cond_test_case(ArmCC::ARM_CC_GE, 0b1000, false);
-        cond_test_case(ArmCC::ARM_CC_GE, 0b1001, true);
-        cond_test_case(ArmCC::ARM_CC_LT, 0b0000, false);
-        cond_test_case(ArmCC::ARM_CC_LT, 0b0001, true);
-        cond_test_case(ArmCC::ARM_CC_LT, 0b1000, true);
-        cond_test_case(ArmCC::ARM_CC_LT, 0b1001, false);
-        //                                 nz_v
-        cond_test_case(ArmCC::ARM_CC_GT, 0b0010, true);
-        cond_test_case(ArmCC::ARM_CC_GT, 0b0001, false);
-        cond_test_case(ArmCC::ARM_CC_GT, 0b1000, false);
-        cond_test_case(ArmCC::ARM_CC_GT, 0b1011, true);
-        cond_test_case(ArmCC::ARM_CC_GT, 0b0110, false);
-        cond_test_case(ArmCC::ARM_CC_GT, 0b0101, false);
-        cond_test_case(ArmCC::ARM_CC_GT, 0b1100, false);
-        cond_test_case(ArmCC::ARM_CC_GT, 0b1111, false);
-        //                                 nz_v
-        cond_test_case(ArmCC::ARM_CC_LE, 0b0000, false);
-        cond_test_case(ArmCC::ARM_CC_LE, 0b0001, true);
-        cond_test_case(ArmCC::ARM_CC_LE, 0b1000, true);
-        cond_test_case(ArmCC::ARM_CC_LE, 0b1011, false);
-        cond_test_case(ArmCC::ARM_CC_LE, 0b0110, true);
-        cond_test_case(ArmCC::ARM_CC_LE, 0b0101, true);
-        cond_test_case(ArmCC::ARM_CC_LE, 0b1100, true);
-        cond_test_case(ArmCC::ARM_CC_LE, 0b1101, true);
+    fn test_cmp_flags() {
+        // cmp r0, #1
+        // b 100
+        let disasm = VecDisassembler::new(vec![
+            op_reg_imm(ArmInsn::ARM_INS_CMP, 0, 1, None),
+            op_imm(ArmInsn::ARM_INS_B, 100, None),
+        ]);
+
+        let llvm_ctx = Context::create();
+        let mut em = Emulator::new(&llvm_ctx, disasm, None).unwrap();
+
+        let exit = Some(|st: &ArmState| -> bool { st.pc() == 100 });
+        let r0 = Reg::R0 as usize;
+        let pc = Reg::PC as usize;
+        let cpsr = Reg::CPSR as usize;
+
+        let mut test_case = |n: u32| -> u32 {
+            em.state.regs[r0] = n;
+            em.state.regs[pc] = 0;
+            em.state.regs[cpsr] = 0;
+            em.run(exit);
+            em.state.regs[cpsr] >> 28
+        };
+
+        // Positive result
+        assert_eq!(test_case(2), 0b0010); // nzcv
+        // 0 result
+        assert_eq!(test_case(1), 0b0110); // nzcv
+        // negative result (unsigned underflow)
+        assert_eq!(test_case(0), 0b1000); // nzcv
+        // negative result (no underflow)
+        assert_eq!(test_case(-1i32 as u32), 0b1010); // nzcv
+        // signed underflow only (positive result)
+        assert_eq!(test_case(i32::MIN as u32), 0b0011); // nzcv
     }
 }

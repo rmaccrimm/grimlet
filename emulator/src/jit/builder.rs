@@ -92,7 +92,7 @@ pub(super) fn get_ptr_param<'a>(func: &FunctionValue<'a>, i: usize) -> Result<Po
 }
 
 pub fn get_intrinsic<'a>(name: &str, module: &Module<'a>) -> Result<FunctionValue<'a>> {
-    Intrinsic::find("llvm.sadd.with.overflow")
+    Intrinsic::find(name)
         .ok_or(anyhow!("could not find intrinsic '{}'", name))?
         .get_declaration(module, &[module.get_context().i32_type().into()])
         .ok_or(anyhow!("failed to insert declaration for '{}'", name))
@@ -176,7 +176,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     pub fn build_body(mut self, code_block: CodeBlock) -> Self {
-        for instr in code_block.instrs.iter() {
+        for instr in code_block.instrs {
             self.build(instr);
         }
         self
@@ -284,7 +284,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         };
     }
 
-    pub fn build(&mut self, instr: &ArmInstruction) {
+    pub fn build(&mut self, instr: ArmInstruction) {
         match instr.opcode {
             ArmInsn::ARM_INS_INVALID => todo!(),
             ArmInsn::ARM_INS_ADC => todo!(),
