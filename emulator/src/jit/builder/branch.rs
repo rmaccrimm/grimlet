@@ -47,17 +47,9 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         // TODO - backwards jumps
         match self.get_compiled_func_pointer(target)? {
-            Some(func_ptr) => {
-                // Jump directly to compiled function
-                self.update_reg_array()?;
-                let call = bd.build_indirect_call(
-                    self.fn_t,
-                    func_ptr,
-                    &[self.arm_state_ptr.into(), self.reg_array_ptr.into()],
-                    "call",
-                )?;
-                call.set_tail_call(true);
-                bd.build_return(None)?;
+            Some(_) => {
+                // Not sure how/if we ever reach this yet
+                todo!()
             }
             None => {
                 // Context switch and jump out to the interpreter
