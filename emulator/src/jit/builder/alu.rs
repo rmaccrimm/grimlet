@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result, anyhow};
 use capstone::RegId;
 use capstone::arch::arm::{ArmCC, ArmOperandType};
 use inkwell::IntPredicate;
@@ -15,36 +15,43 @@ struct DataProcResult<'a> {
     cpsr: Option<IntValue<'a>>,
 }
 
+macro_rules! exec_and_expect {
+    ($self:ident, $arg:ident, Self::$method:ident) => {
+        $self
+            .exec_alu_conditional($arg, Self::$method)
+            .with_context(|| format!("\"{}\"", stringify!($method)))
+            .expect("LLVM codegen failed")
+    };
+}
+
 impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     pub(super) fn arm_cmp(&mut self, instr: ArmInstruction) {
-        self.exec_alu_conditional(instr, Self::cmp);
+        exec_and_expect!(self, instr, Self::cmp)
     }
 
-    /// TODO flags dependent on shift (is this encoded in cs instruction somehow?)
-    /// TODO branch when mov'ing to PC
     pub(super) fn arm_mov(&mut self, instr: ArmInstruction) {
-        self.exec_alu_conditional(instr, Self::mov)
+        exec_and_expect!(self, instr, Self::mov)
     }
 
     pub(super) fn arm_sub(&mut self, instr: ArmInstruction) {
-        self.exec_alu_conditional(instr, Self::sub);
+        exec_and_expect!(self, instr, Self::sub)
     }
 
     pub(super) fn arm_mul(&mut self, instr: ArmInstruction) {
-        self.exec_alu_conditional(instr, Self::mul);
+        exec_and_expect!(self, instr, Self::mul)
     }
 
     /// Wraps a function for emitting an instruction in a conditional block, evaluates flags and
     /// executes based on instruction condition Leaves the builder positioned in the else block and
     /// emits code to increment program counter.
-    fn exec_alu_conditional<F>(&mut self, instr: ArmInstruction, inner: F)
+    fn exec_alu_conditional<F>(&mut self, instr: ArmInstruction, inner: F) -> Result<()>
     where
         F: Fn(&mut Self, ArmInstruction) -> Result<DataProcResult<'a>>,
     {
         let mode = instr.mode;
 
         if instr.cond == ArmCC::ARM_CC_AL {
-            let calc_result = inner(self, instr).expect("LLVM codegen failed");
+            let calc_result = inner(self, instr)?;
             if let Some(rd) = calc_result.dest {
                 self.reg_map.update(rd, calc_result.value);
             }
@@ -53,46 +60,43 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             }
 
             self.increment_pc(mode);
-            return;
+            return Ok(());
         }
 
-        let build = |f: &mut Self| -> Result<()> {
-            let ctx = f.llvm_ctx;
-            let bd = f.builder;
-            let if_block = ctx.append_basic_block(f.func, "if");
-            let end_block = ctx.append_basic_block(f.func, "end");
-            // If not executing instruction, init dest value is kept;
-            let rd = instr.get_reg_op(0);
-            let dest_init = f.reg_map.get(rd);
-            let cpsr_init = f.reg_map.cpsr();
-            let cond = f.get_cond_value(instr.cond);
-            bd.build_conditional_branch(cond, if_block, end_block)?;
-            bd.position_at_end(if_block);
+        let ctx = self.llvm_ctx;
+        let bd = self.builder;
+        let if_block = ctx.append_basic_block(self.func, "if");
+        let end_block = ctx.append_basic_block(self.func, "end");
+        // If not executing instruction, init dest value is kept;
+        let rd = instr.get_reg_op(0);
+        let dest_init = self.reg_map.get(rd);
+        let cpsr_init = self.reg_map.cpsr();
+        let cond = self.get_cond_value(instr.cond);
+        bd.build_conditional_branch(cond, if_block, end_block)?;
+        bd.position_at_end(if_block);
 
-            let calc_result = inner(f, instr)?;
-            bd.build_unconditional_branch(end_block)?;
-            bd.position_at_end(end_block);
+        let calc_result = inner(self, instr)?;
+        bd.build_unconditional_branch(end_block)?;
+        bd.position_at_end(end_block);
 
-            if let Some(rd) = calc_result.dest {
-                let phi = bd.build_phi(f.i32_t, "phi_dest")?;
-                phi.add_incoming(&[
-                    (&dest_init, f.current_block),
-                    (&calc_result.value, if_block),
-                ]);
-                f.reg_map.update(rd, phi.as_basic_value().into_int_value());
-            }
-            if let Some(cpsr) = calc_result.cpsr {
-                let phi = bd.build_phi(f.i32_t, "phi_cpsr")?;
-                phi.add_incoming(&[(&cpsr_init, f.current_block), (&cpsr, if_block)]);
-                f.reg_map
-                    .update(Reg::CPSR, phi.as_basic_value().into_int_value());
-            }
-            f.increment_pc(mode);
-            f.current_block = end_block;
-            Ok(())
-        };
-
-        build(self).expect("LLVM codegen failed");
+        if let Some(rd) = calc_result.dest {
+            let phi = bd.build_phi(self.i32_t, "phi_dest")?;
+            phi.add_incoming(&[
+                (&dest_init, self.current_block),
+                (&calc_result.value, if_block),
+            ]);
+            self.reg_map
+                .update(rd, phi.as_basic_value().into_int_value());
+        }
+        if let Some(cpsr) = calc_result.cpsr {
+            let phi = bd.build_phi(self.i32_t, "phi_cpsr")?;
+            phi.add_incoming(&[(&cpsr_init, self.current_block), (&cpsr, if_block)]);
+            self.reg_map
+                .update(Reg::CPSR, phi.as_basic_value().into_int_value());
+        }
+        self.increment_pc(mode);
+        self.current_block = end_block;
+        Ok(())
     }
 
     // Incomplete, no shift operands or flags
