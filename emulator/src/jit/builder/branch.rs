@@ -78,12 +78,4 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         };
         self.exec_branch_conditional(instr, build);
     }
-
-    fn arm_bl(&self, _instr: &ArmInstruction) {
-        todo!();
-    }
-
-    fn arm_bx(&self, _instr: &ArmInstruction) {
-        todo!();
-    }
 }

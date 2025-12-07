@@ -8,7 +8,6 @@ use std::collections::HashMap;
 use anyhow::{Result, anyhow};
 use capstone::arch::arm::ArmInsn;
 use inkwell::AddressSpace;
-use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::execution_engine::ExecutionEngine;
@@ -37,12 +36,12 @@ impl<'a> Default for InstrHist<'a> {
     }
 }
 
+#[allow(dead_code)]
 /// Builder for creating & compiling LLVM functions
 pub struct FunctionBuilder<'ctx, 'a>
 where
     'ctx: 'a,
 {
-    addr: usize,
     name: String,
     func: FunctionValue<'a>,
 
@@ -52,7 +51,7 @@ where
     // References to parent compiler LLVM state
     llvm_ctx: &'ctx Context,
     builder: &'a Builder<'ctx>,
-    module: &'a Module<'ctx>,
+
     execution_engine: &'a ExecutionEngine<'ctx>,
 
     // Read only ref to already-compiled functions
@@ -74,17 +73,11 @@ where
     void_t: VoidType<'a>,
     bool_t: IntType<'a>,
 
-    // Return type of add/sub with overflow intrinsics
-    intrinsic_t: StructType<'a>,
-
     // Overflow arithmetic intrinsics
     sadd_with_overflow: FunctionValue<'a>,
     ssub_with_overflow: FunctionValue<'a>,
     uadd_with_overflow: FunctionValue<'a>,
     usub_with_overflow: FunctionValue<'a>,
-
-    // map guest instruction addresses to LLVM blocks (branch targets)
-    blocks: HashMap<usize, BasicBlock<'a>>,
 }
 
 /// Helper that converts the LLVMString error message into an anyhow error
@@ -146,8 +139,6 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         }
 
         // Declare intrinsics
-        let intrinsic_t = ctx.struct_type(&[i32_t.into(), ctx.bool_type().into()], false);
-
         let sadd_intrinsic = Intrinsic::find("llvm.sadd.with.overflow").unwrap();
         let sadd_with_overflow = sadd_intrinsic
             .get_declaration(module, &[i32_t.into()])
@@ -166,7 +157,6 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             .unwrap();
 
         FunctionBuilder {
-            addr,
             name,
             reg_map: RegMap::new(reg_map),
             func,
@@ -174,7 +164,6 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             reg_array_ptr,
             llvm_ctx: ctx,
             builder,
-            module,
             execution_engine,
             func_cache,
             arm_state_t,
@@ -185,12 +174,10 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             void_t,
             bool_t,
             last_instr: InstrHist::default(),
-            intrinsic_t,
             sadd_with_overflow,
             ssub_with_overflow,
             uadd_with_overflow,
             usub_with_overflow,
-            blocks,
         }
     }
 

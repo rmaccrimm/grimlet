@@ -1,11 +1,12 @@
 use inkwell::values::IntValue;
 
-use crate::arm::cpu::{Reg, NUM_REGS};
+use crate::arm::cpu::{NUM_REGS, Reg};
 
 pub struct RegMap<'a> {
     pub llvm_values: Vec<IntValue<'a>>,
 }
 
+#[allow(dead_code)]
 impl<'a> RegMap<'a> {
     pub fn new(llvm_values: Vec<IntValue<'a>>) -> Self {
         if llvm_values.len() != NUM_REGS {

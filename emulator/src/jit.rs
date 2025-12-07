@@ -12,7 +12,6 @@ use inkwell::module::Module;
 use inkwell::{AddressSpace, OptimizationLevel};
 
 use crate::arm::cpu::{ArmState, NUM_REGS};
-use crate::arm::disasm::CodeBlock;
 
 type JumpTarget = unsafe extern "C" fn(*mut ArmState, *const i32);
 
