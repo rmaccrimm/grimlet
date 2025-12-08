@@ -1,4 +1,5 @@
 use std::fs;
+use std::ops::{Index, IndexMut};
 use std::slice::Chunks;
 
 use anyhow::{Result, anyhow};
@@ -36,6 +37,15 @@ impl MainMemory {
 pub enum ArmMode {
     ARM,
     THUMB,
+}
+
+impl ArmMode {
+    pub fn pc_byte_offset(&self) -> u32 {
+        match self {
+            ArmMode::ARM => 8,
+            ArmMode::THUMB => 4,
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -85,6 +95,16 @@ impl From<capstone::RegId> for Reg {
     }
 }
 
+impl Index<Reg> for [u32] {
+    type Output = u32;
+
+    fn index(&self, index: Reg) -> &Self::Output { &self[index as usize] }
+}
+
+impl IndexMut<Reg> for [u32] {
+    fn index_mut(&mut self, index: Reg) -> &mut Self::Output { &mut self[index as usize] }
+}
+
 pub const NUM_REGS: usize = 17;
 
 pub const REG_ITEMS: [Reg; NUM_REGS] = [
@@ -117,9 +137,11 @@ pub struct ArmState {
 
 impl Default for ArmState {
     fn default() -> Self {
+        let mut regs = [0; NUM_REGS];
+        regs[Reg::PC] = 8; // points 2 instructions ahead
         Self {
             mode: ArmMode::ARM,
-            regs: [0; NUM_REGS],
+            regs,
             mem: MainMemory::default(),
         }
     }
@@ -156,16 +178,18 @@ impl ArmState {
         })
     }
 
-    pub fn r0(&self) -> u32 { self.regs[Reg::R0 as usize] }
+    pub fn curr_instr_addr(&self) -> usize {
+        (self.regs[Reg::PC] - self.mode.pc_byte_offset()) as usize
+    }
 
-    pub fn r1(&self) -> u32 { self.regs[Reg::R1 as usize] }
+    pub fn r0(&self) -> u32 { self.regs[Reg::R0] }
+
+    pub fn r1(&self) -> u32 { self.regs[Reg::R1] }
 
     pub fn cpsr(&self) -> u32 { self.regs[Reg::CPSR as usize] }
 
-    pub fn pc(&self) -> u32 { self.regs[Reg::PC as usize] }
-
     pub fn jump_to(&mut self, addr: u32) {
         println!("JUMPING TO: {}", addr);
-        self.regs[Reg::PC as usize] = addr;
+        self.regs[Reg::PC] = addr + self.mode.pc_byte_offset();
     }
 }

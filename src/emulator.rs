@@ -43,21 +43,21 @@ impl<'ctx> Emulator<'ctx> {
             {
                 break;
             }
-            let pc = self.state.pc() as usize;
-            let func = match self.func_cache.get(&pc) {
+            let instr_addr = self.state.curr_instr_addr();
+            let func = match self.func_cache.get(&instr_addr) {
                 Some(func) => func,
                 None => {
-                    let code_block = self.disasm.next_code_block(&self.state.mem, pc);
+                    let code_block = self.disasm.next_code_block(&self.state.mem, instr_addr);
                     println!("{}", code_block);
                     match self
                         .compiler
-                        .new_function(pc, &self.func_cache)
+                        .new_function(instr_addr, &self.func_cache)
                         .build_body(code_block)
                         .compile()
                     {
                         Ok(compiled) => {
-                            self.func_cache.insert(pc, compiled);
-                            self.func_cache.get(&pc).unwrap()
+                            self.func_cache.insert(instr_addr, compiled);
+                            self.func_cache.get(&instr_addr).unwrap()
                         }
                         Err(e) => {
                             self.compiler.dump().unwrap();
@@ -112,10 +112,12 @@ mod tests {
         let mut emulator = Emulator::new(&llvm_ctx, disasm, None).unwrap();
         // Appears in R0 if MOV was successful
         let confirm_val = u32::MAX;
-        emulator.state.regs[Reg::R1 as usize] = confirm_val;
+        emulator.state.regs[Reg::R1] = confirm_val;
         // Prev instruction on initialization is just a NOP, so it won't override these flags
         emulator.state.regs[Reg::CPSR as usize] = flags << 28;
-        emulator.run(Some(|st: &ArmState| -> bool { st.pc() == 100 }));
+        emulator.run(Some(|st: &ArmState| -> bool {
+            st.curr_instr_addr() == 100
+        }));
 
         // True if it ran, false if skipped
         emulator.state.r0() == confirm_val
@@ -194,14 +196,14 @@ mod tests {
         let llvm_ctx = Context::create();
         let mut em = Emulator::new(&llvm_ctx, disasm, None).unwrap();
 
-        let exit = Some(|st: &ArmState| -> bool { st.pc() == 100 });
-        let r0 = Reg::R0 as usize;
-        let pc = Reg::PC as usize;
+        let exit = Some(|st: &ArmState| -> bool { st.curr_instr_addr() == 100 });
+        let r0 = Reg::R0;
+        let pc = Reg::PC;
         let cpsr = Reg::CPSR as usize;
 
         let mut test_case = |n: u32| -> u32 {
+            em.state.jump_to(0);
             em.state.regs[r0] = n;
-            em.state.regs[pc] = 0;
             em.state.regs[cpsr] = 0;
             em.run(exit);
             em.state.regs[cpsr] >> 28

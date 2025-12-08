@@ -794,7 +794,7 @@ mod tests {
         println!("{:?}", state.regs);
         compile_and_run!(comp, f, state);
         println!("{:?}", state.regs);
-        assert_eq!(state.pc(), 306);
+        assert_eq!(state.curr_instr_addr(), 306);
     }
 
     #[test]
@@ -874,8 +874,10 @@ mod tests {
 
         assert_eq!(
             state.regs,
+            // PC = jump target + 8 bytes
+            //    = 994
             [
-                999, 1, 4, 9, 16, 25, 36, 49, 64, 81, 100, 121, 144, 169, 196, 986, 256
+                999, 1, 4, 9, 16, 25, 36, 49, 64, 81, 100, 121, 144, 169, 196, 994, 256
             ]
         );
     }

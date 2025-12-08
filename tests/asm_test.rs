@@ -11,9 +11,9 @@ fn test_factorial() {
         Emulator::new(&context, disasm, Some("tests/programs/factorial.gba")).unwrap();
 
     let mut run = |n| -> u32 {
-        emulator.state.regs[Reg::PC as usize] = 0;
-        emulator.state.regs[Reg::R0 as usize] = n;
-        emulator.run(Some(|st: &ArmState| -> bool { st.pc() >= 40 }));
+        emulator.state.jump_to(0);
+        emulator.state.regs[Reg::R0] = n;
+        emulator.run(Some(|st: &ArmState| -> bool { st.curr_instr_addr() >= 40 }));
         emulator.state.r1()
     };
     assert_eq!(run(0), 1);

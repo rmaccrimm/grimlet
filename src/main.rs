@@ -13,8 +13,7 @@ fn main() -> Result<()> {
     let disasm = MemoryDisassembler::default();
     let mut emulator = Emulator::new(&context, disasm, Some(&bios_path))?;
     // run indefinitely
-    // let exit: Option<fn(&ArmState) -> bool> = None;
-    let exit = Some(|st: &ArmState| -> bool { st.pc() >= 40 });
+    let exit: Option<fn(&ArmState) -> bool> = None;
     emulator.run(exit);
     println!("{}", size_of::<ArmInstruction>());
     Ok(())

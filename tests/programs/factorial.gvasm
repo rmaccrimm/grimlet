@@ -15,6 +15,6 @@ base_case:
   mov r1, #1
   b end
 end:
-  // exit when pc >= 40
+  // exit when pc >= 48
   nop
 .end
