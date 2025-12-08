@@ -158,6 +158,8 @@ impl ArmState {
 
     pub fn r0(&self) -> u32 { self.regs[Reg::R0 as usize] }
 
+    pub fn r1(&self) -> u32 { self.regs[Reg::R1 as usize] }
+
     pub fn cpsr(&self) -> u32 { self.regs[Reg::CPSR as usize] }
 
     pub fn pc(&self) -> u32 { self.regs[Reg::PC as usize] }

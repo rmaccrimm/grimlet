@@ -9,16 +9,15 @@ fn test_factorial() {
     let disasm = MemoryDisassembler::default();
     let mut emulator =
         Emulator::new(&context, disasm, Some("tests/programs/factorial.gba")).unwrap();
-    let exit = Some(|st: &ArmState| -> bool { st.pc() >= 40 });
 
     let mut run = |n| -> u32 {
-        emulator.state = ArmState::default();
+        emulator.state.regs[Reg::PC as usize] = 0;
         emulator.state.regs[Reg::R0 as usize] = n;
-        emulator.run(Some(|st: &ArmState| -> bool { st.pc() == 44 }));
-        emulator.state.regs[Reg::R1 as usize]
+        emulator.run(Some(|st: &ArmState| -> bool { st.pc() >= 40 }));
+        emulator.state.r1()
     };
-    // assert_eq!(run(0), 1);
-    // assert_eq!(run(1), 1);
+    assert_eq!(run(0), 1);
+    assert_eq!(run(1), 1);
     assert_eq!(run(2), 2);
     assert_eq!(run(3), 6);
     assert_eq!(run(4), 24);

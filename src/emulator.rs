@@ -101,41 +101,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_factorial_program() {
-        // Computes factorial of R0. Result is stored in R1
-        let disasm = VecDisassembler::new(vec![
-            op_reg_imm(ArmInsn::ARM_INS_CMP, 0, 1, None), // 0
-            op_imm(ArmInsn::ARM_INS_B, 36, Some(ArmCC::ARM_CC_LE)), // 4
-            op_reg_reg(ArmInsn::ARM_INS_MOV, 1, 0, None), // 8
-            op_reg_imm(ArmInsn::ARM_INS_MOV, 0, 1, None), // 12
-            op_reg_reg_reg(ArmInsn::ARM_INS_MUL, 0, 0, 1, None), // 16
-            op_reg_reg_imm(ArmInsn::ARM_INS_SUBS, 1, 1, 1, None), // 20
-            op_imm(ArmInsn::ARM_INS_B, 16, Some(ArmCC::ARM_CC_GT)), // 24
-            op_reg_reg(ArmInsn::ARM_INS_MOV, 1, 0, None), // 28
-            op_imm(ArmInsn::ARM_INS_B, 44, None),         // 32
-            op_reg_imm(ArmInsn::ARM_INS_MOV, 1, 1, None), // 36
-            op_imm(ArmInsn::ARM_INS_B, 44, None),         // 40
-        ]);
-
-        let llvm_ctx = Context::create();
-        let mut emulator = Emulator::new(&llvm_ctx, disasm, None).unwrap();
-
-        let mut run = |n| -> u32 {
-            emulator.state = ArmState::default();
-            emulator.state.regs[Reg::R0 as usize] = n;
-            emulator.run(Some(|st: &ArmState| -> bool { st.pc() == 44 }));
-            emulator.state.regs[Reg::R1 as usize]
-        };
-        assert_eq!(run(0), 1);
-        assert_eq!(run(1), 1);
-        assert_eq!(run(2), 2);
-        assert_eq!(run(3), 6);
-        assert_eq!(run(4), 24);
-        assert_eq!(run(5), 120);
-        assert_eq!(run(12), 479001600);
-    }
-
     fn cond_test_case(cond: ArmCC, flags: u32) -> bool {
         // Conditionally move r1 to r0, then exit
         let disasm = VecDisassembler::new(vec![
