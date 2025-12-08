@@ -6,7 +6,7 @@ use crate::arm::disasm::Disasm;
 use crate::jit::{Compiler, FunctionCache};
 
 pub struct Emulator<'ctx> {
-    state: ArmState,
+    pub state: ArmState,
     disasm: Box<dyn Disasm>,
     compiler: Compiler<'ctx>,
     func_cache: FunctionCache<'ctx>,
