@@ -1,6 +1,6 @@
 use anyhow::{Context as _, Result};
 use capstone::RegId;
-use capstone::arch::arm::{ArmCC, ArmOperandType};
+use capstone::arch::arm::{ArmCC, ArmOperand, ArmOperandType};
 use inkwell::IntPredicate;
 use inkwell::values::IntValue;
 
@@ -98,11 +98,33 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         Ok(())
     }
 
+    fn shifter_operand(mut self, operand: &ArmOperand) -> Result<IntValue<'a>> {
+        let bd = self.builder;
+        let op = match operand.op_type {
+            ArmOperandType::Reg(RegId(r)) => match operand.shift {
+                capstone::arch::arm::ArmShift::Invalid => panic!("invalid shift"),
+                capstone::arch::arm::ArmShift::Asr(_) => todo!(),
+                capstone::arch::arm::ArmShift::Lsl(_) => todo!(),
+                capstone::arch::arm::ArmShift::Lsr(_) => todo!(),
+                capstone::arch::arm::ArmShift::Ror(_) => todo!(),
+                capstone::arch::arm::ArmShift::Rrx(_) => todo!(),
+                capstone::arch::arm::ArmShift::AsrReg(RegId(r)) => todo!(),
+                capstone::arch::arm::ArmShift::LslReg(RegId(r)) => todo!(),
+                capstone::arch::arm::ArmShift::LsrReg(RegId(r)) => todo!(),
+                capstone::arch::arm::ArmShift::RorReg(RegId(r)) => todo!(),
+                capstone::arch::arm::ArmShift::RrxReg(RegId(r)) => todo!(),
+            },
+            ArmOperandType::Imm(imm) => self.i32_t.const_int(imm as u64, false),
+            _ => panic!("unhandled operand type"),
+        };
+        Ok(op)
+    }
+
     // Incomplete, no shift operands or flags
     fn mov(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
         let rd = instr.get_reg_op(0);
         let value = match instr.operands.get(1).expect("Missing 2nd operand").op_type {
-            ArmOperandType::Reg(RegId(r)) => self.reg_map.get(Reg::from(r as usize)),
+            ArmOperandType::Reg(reg_id) => self.reg_map.get(Reg::from(reg_id)),
             ArmOperandType::Imm(imm) => self.i32_t.const_int(imm as u64, false),
             _ => panic!("unhandled op_type"),
         };
@@ -152,8 +174,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let rn = instr.get_reg_op(1);
         let rn_val = self.reg_map.get(rn);
         let rm_val = match instr.operands.get(2).expect("Missing 2nd operand").op_type {
-            ArmOperandType::Reg(RegId(r)) => {
-                let rm = Reg::from(r as usize);
+            ArmOperandType::Reg(reg_id) => {
+                let rm = Reg::from(reg_id);
                 self.reg_map.get(rm)
             }
             ArmOperandType::Imm(imm) => self.i32_t.const_int(imm as u64, false),

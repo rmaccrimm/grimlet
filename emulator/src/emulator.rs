@@ -151,7 +151,6 @@ mod tests {
         // Prev instruction on initialization is just a NOP, so it won't override these flags
         emulator.state.regs[Reg::CPSR as usize] = flags << 28;
         emulator.run(Some(|st: &ArmState| -> bool { st.pc() == 100 }));
-        emulator.compiler.dump().unwrap();
 
         // True if it ran, false if skipped
         emulator.state.r0() == confirm_val

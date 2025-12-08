@@ -2,6 +2,7 @@ use std::fs;
 use std::slice::Chunks;
 
 use anyhow::{Result, anyhow};
+use capstone::arch::arm::ArmReg;
 use inkwell::AddressSpace;
 use inkwell::context::Context;
 use inkwell::types::StructType;
@@ -58,32 +59,53 @@ pub enum Reg {
     CPSR = 16,
 }
 
-impl From<usize> for Reg {
-    fn from(value: usize) -> Self {
-        match value {
-            0 => Reg::R0,
-            1 => Reg::R1,
-            2 => Reg::R2,
-            3 => Reg::R3,
-            4 => Reg::R4,
-            5 => Reg::R5,
-            6 => Reg::R6,
-            7 => Reg::R7,
-            8 => Reg::R8,
-            9 => Reg::R9,
-            10 => Reg::R10,
-            11 => Reg::R11,
-            12 => Reg::R12,
-            13 => Reg::SP,
-            14 => Reg::LR,
-            15 => Reg::PC,
-            16 => Reg::CPSR,
-            _ => panic!("invalid register index: {}", value),
+impl From<capstone::RegId> for Reg {
+    fn from(value: capstone::RegId) -> Self {
+        match value.0 as u32 {
+            ArmReg::ARM_REG_R0 => Reg::R0,
+            ArmReg::ARM_REG_R1 => Reg::R1,
+            ArmReg::ARM_REG_R2 => Reg::R2,
+            ArmReg::ARM_REG_R3 => Reg::R3,
+            ArmReg::ARM_REG_R4 => Reg::R4,
+            ArmReg::ARM_REG_R5 => Reg::R5,
+            ArmReg::ARM_REG_R6 => Reg::R6,
+            ArmReg::ARM_REG_R7 => Reg::R7,
+            ArmReg::ARM_REG_R8 => Reg::R8,
+            ArmReg::ARM_REG_R9 => Reg::R9,
+            ArmReg::ARM_REG_R10 => Reg::R10,
+            ArmReg::ARM_REG_R11 => Reg::R11,
+            ArmReg::ARM_REG_R12 => Reg::R12,
+            ArmReg::ARM_REG_SP => Reg::SP,
+            ArmReg::ARM_REG_LR => Reg::LR,
+            ArmReg::ARM_REG_PC => Reg::PC,
+            // Not 100% sure about this one
+            ArmReg::ARM_REG_CPSR | ArmReg::ARM_REG_APSR => Reg::CPSR,
+            _ => panic!("unhandled register id: {}", value.0),
         }
     }
 }
 
 pub const NUM_REGS: usize = 17;
+
+pub const REG_ITEMS: [Reg; NUM_REGS] = [
+    Reg::R0,
+    Reg::R1,
+    Reg::R2,
+    Reg::R3,
+    Reg::R4,
+    Reg::R5,
+    Reg::R6,
+    Reg::R7,
+    Reg::R8,
+    Reg::R9,
+    Reg::R10,
+    Reg::R11,
+    Reg::R12,
+    Reg::SP,
+    Reg::LR,
+    Reg::PC,
+    Reg::CPSR,
+];
 
 /// Emulated CPU state and interpreter
 #[repr(C)]

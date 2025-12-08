@@ -147,9 +147,9 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
     pub fn build_body(mut self, mut code_block: CodeBlock) -> Self {
         // slightly hacky, just always load these 2 for simplicity
-        code_block.regs_read.insert(Reg::CPSR);
-        code_block.regs_read.insert(Reg::PC);
-        self.load_initial_reg_values(&code_block.regs_read)
+        code_block.regs_accessed.insert(Reg::CPSR);
+        code_block.regs_accessed.insert(Reg::PC);
+        self.load_initial_reg_values(&code_block.regs_accessed)
             .expect("initial register load failed");
         for instr in code_block.instrs {
             self.build(instr);
@@ -740,7 +740,7 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
-    use crate::arm::cpu::Reg;
+    use crate::arm::cpu::{REG_ITEMS, Reg};
     use crate::jit::Compiler;
 
     macro_rules! compile_and_run {
@@ -765,7 +765,7 @@ mod tests {
         let func_cache = HashMap::new();
         let mut f = comp.new_function(0, &func_cache);
 
-        let all_regs: HashSet<Reg> = (0..NUM_REGS).map(Reg::from).collect();
+        let all_regs: HashSet<Reg> = REG_ITEMS.into_iter().collect();
         f.load_initial_reg_values(&all_regs).unwrap();
 
         let add_res = f
@@ -813,7 +813,7 @@ mod tests {
         let mut comp = Compiler::new(&context);
         let mut cache = HashMap::new();
 
-        let all_regs: HashSet<Reg> = (0..NUM_REGS).map(Reg::from).collect();
+        let all_regs: HashSet<Reg> = REG_ITEMS.into_iter().collect();
         let mut f1 = comp.new_function(0, &cache);
         f1.load_initial_reg_values(&all_regs).unwrap();
 
@@ -840,10 +840,6 @@ mod tests {
                 interp_fn_t,
                 func_ptr_param,
                 &[f1.arm_state_ptr.into(), v1.into()],
-                // &[
-                //     f1.arm_state_ptr.into(),
-                //     f1.i32_t.const_int(843, false).into(),
-                // ],
                 "fn_result",
             )
             .unwrap();
@@ -892,7 +888,7 @@ mod tests {
         let mut comp = Compiler::new(&context);
         let mut f = comp.new_function(0, &cache);
 
-        let all_regs: HashSet<Reg> = (0..NUM_REGS).map(Reg::from).collect();
+        let all_regs: HashSet<Reg> = REG_ITEMS.into_iter().collect();
         f.load_initial_reg_values(&all_regs).unwrap();
 
         let bd = f.builder;

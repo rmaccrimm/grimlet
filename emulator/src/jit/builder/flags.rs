@@ -112,7 +112,7 @@ mod tests {
     use inkwell::context::Context;
 
     use super::*;
-    use crate::arm::cpu::{ArmState, NUM_REGS, Reg};
+    use crate::arm::cpu::{ArmState, NUM_REGS, REG_ITEMS, Reg};
     use crate::jit::Compiler;
 
     macro_rules! compile_and_run {
@@ -138,7 +138,7 @@ mod tests {
         let mut comp = Compiler::new(&context);
         let mut func = comp.new_function(0, &cache);
 
-        let all_regs: HashSet<Reg> = (0..NUM_REGS).map(Reg::from).collect();
+        let all_regs: HashSet<Reg> = REG_ITEMS.into_iter().collect();
         func.load_initial_reg_values(&all_regs).unwrap();
 
         let f = func.bool_t.const_zero();

@@ -1,12 +1,11 @@
 pub mod cons;
 
-use core::arch;
 use std::collections::HashSet;
 use std::fmt::Display;
 
 use capstone::arch::arm::{ArmCC, ArmInsn, ArmOperand, ArmOperandType};
 use capstone::arch::{ArchOperand, BuildsCapstone};
-use capstone::{Capstone, Insn};
+use capstone::{Capstone, Insn, RegId};
 
 use crate::arm::cpu::{ArmMode, MainMemory, Reg};
 
@@ -21,7 +20,7 @@ pub struct ArmInstruction {
     pub cond: ArmCC,
     pub mode: ArmMode,
     pub updates_flags: bool,
-    pub regs_read: Vec<Reg>,
+    pub regs_accessed: Vec<Reg>,
 }
 
 impl Default for ArmInstruction {
@@ -34,7 +33,7 @@ impl Default for ArmInstruction {
             repr: None,
             mode: ArmMode::ARM,
             updates_flags: true,
-            regs_read: vec![],
+            regs_accessed: vec![],
         }
     }
 }
@@ -45,15 +44,25 @@ impl ArmInstruction {
             .insn_detail(insn)
             .expect("failed to get instruction detail");
 
-        let regs_read = detail
-            .regs_read()
-            .iter()
-            .map(|r| Reg::from(r.0 as usize))
-            .collect();
-
         let arch_detail = detail.arch_detail();
         let arm_detail = arch_detail.arm().expect("expected an arm instruction");
+
+        let mut regs_accessed = Vec::new();
+        let mut operands = Vec::new();
+
+        for op in arch_detail.operands() {
+            if let ArchOperand::ArmOperand(a) = op {
+                if let ArmOperandType::Reg(reg_id) = a.op_type {
+                    regs_accessed.push(Reg::from(reg_id))
+                }
+                operands.push(a);
+            } else {
+                panic!("not an ARM operand")
+            }
+        }
+
         let cond = arm_detail.cc();
+
         Self {
             opcode: ArmInsn::from(insn.id().0),
             operands: arch_detail
@@ -69,7 +78,7 @@ impl ArmInstruction {
             cond,
             mode,
             updates_flags: arm_detail.update_flags(),
-            regs_read,
+            regs_accessed,
         }
     }
 
@@ -80,7 +89,7 @@ impl ArmInstruction {
             .unwrap_or_else(|| panic!("\"{}\" missing operand {}", self, ind))
             .op_type
         {
-            Reg::from(reg_id.0 as usize)
+            Reg::from(reg_id)
         } else {
             panic!("\"{}\" operand {} is not a register", self, ind);
         }
@@ -112,7 +121,7 @@ impl Display for ArmInstruction {
 #[derive(Debug)]
 pub struct CodeBlock {
     pub instrs: Vec<ArmInstruction>,
-    pub regs_read: HashSet<Reg>,
+    pub regs_accessed: HashSet<Reg>,
     pub start_addr: usize,
 }
 
@@ -126,7 +135,7 @@ impl Display for CodeBlock {
                 None => writeln!(f, "{:?}", instr)?,
             }
         }
-        writeln!(f, "regs_read: {:?}", self.regs_read)?;
+        writeln!(f, "regs accessed: {:?}", self.regs_accessed)?;
         writeln!(f, "---------------")
     }
 }
@@ -147,14 +156,14 @@ impl CodeBlock {
                 }
                 _ => {}
             }
-            for r in instr.regs_read.iter() {
+            for r in instr.regs_accessed.iter() {
                 regs_read.insert(*r);
             }
         }
         CodeBlock {
             instrs,
             start_addr,
-            regs_read,
+            regs_accessed: regs_read,
         }
     }
 }
