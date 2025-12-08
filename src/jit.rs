@@ -4,14 +4,14 @@ use std::collections::HashMap;
 use std::fs;
 
 use anyhow::Result;
-use builder::{FunctionBuilder, get_ptr_param};
+use builder::FunctionBuilder;
+use inkwell::OptimizationLevel;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::execution_engine::{ExecutionEngine, JitFunction};
 use inkwell::module::Module;
-use inkwell::{AddressSpace, OptimizationLevel};
 
-use crate::arm::cpu::{ArmState, NUM_REGS};
+use crate::arm::cpu::ArmState;
 
 type JumpTarget = unsafe extern "C" fn(*mut ArmState);
 

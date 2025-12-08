@@ -15,7 +15,7 @@ use inkwell::execution_engine::ExecutionEngine;
 use inkwell::intrinsics::Intrinsic;
 use inkwell::module::Module;
 use inkwell::types::{ArrayType, FunctionType, IntType, PointerType, StructType, VoidType};
-use inkwell::values::{BasicValueEnum, FunctionValue, IntValue, PointerValue};
+use inkwell::values::{BasicValueEnum, FunctionValue, PointerValue};
 
 use super::{CompiledFunction, FunctionCache};
 use crate::arm::cpu::{ArmMode, ArmState, NUM_REGS, Reg};

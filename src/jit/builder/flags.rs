@@ -1,7 +1,7 @@
 use std::iter::zip;
 
-use anyhow::{Result, anyhow};
-use capstone::arch::arm::{ArmCC, ArmInsn};
+use anyhow::Result;
+use capstone::arch::arm::ArmCC;
 use inkwell::IntPredicate;
 use inkwell::values::IntValue;
 
@@ -112,7 +112,7 @@ mod tests {
     use inkwell::context::Context;
 
     use super::*;
-    use crate::arm::cpu::{ArmState, NUM_REGS, REG_ITEMS, Reg};
+    use crate::arm::cpu::{ArmState, REG_ITEMS, Reg};
     use crate::jit::Compiler;
 
     macro_rules! compile_and_run {

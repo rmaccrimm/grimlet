@@ -6,7 +6,7 @@ use capstone::{
 };
 
 use super::ArmInstruction;
-use crate::arm::cpu::{REG_ITEMS, Reg};
+use crate::arm::cpu::REG_ITEMS;
 
 fn reg(r: usize) -> ArmOperand {
     // Janky, inverse of the conversion done in cpu::Reg. Would like to eliminate this

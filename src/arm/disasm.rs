@@ -5,7 +5,7 @@ use std::fmt::Display;
 
 use capstone::arch::arm::{ArmCC, ArmInsn, ArmOperand, ArmOperandType};
 use capstone::arch::{ArchOperand, BuildsCapstone};
-use capstone::{Capstone, Insn, RegId};
+use capstone::{Capstone, Insn};
 
 use crate::arm::cpu::{ArmMode, MainMemory, Reg};
 
