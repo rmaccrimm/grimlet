@@ -2,11 +2,12 @@ use anyhow::{Context as _, Result};
 use capstone::RegId;
 use capstone::arch::arm::{ArmCC, ArmOperand, ArmOperandType};
 use inkwell::IntPredicate;
-use inkwell::values::IntValue;
+use inkwell::values::{IntValue, StructValue};
 
 use crate::arm::cpu::Reg;
 use crate::arm::disasm::ArmInstruction;
 use crate::jit::FunctionBuilder;
+use crate::jit::builder::flags::C;
 
 struct DataProcResult<'a> {
     dest: Option<Reg>,
@@ -98,41 +99,60 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         Ok(())
     }
 
-    fn shifter_operand(mut self, operand: &ArmOperand) -> Result<IntValue<'a>> {
+    // Returns (i32, i1) - the value of the operand and the shifter carry-out value
+    fn shifter_operand(&self, operand: &ArmOperand) -> Result<(IntValue<'a>, IntValue<'a>)> {
         let bd = self.builder;
-        let op = match operand.op_type {
-            ArmOperandType::Reg(RegId(r)) => match operand.shift {
-                capstone::arch::arm::ArmShift::Invalid => panic!("invalid shift"),
-                capstone::arch::arm::ArmShift::Asr(_) => todo!(),
-                capstone::arch::arm::ArmShift::Lsl(_) => todo!(),
-                capstone::arch::arm::ArmShift::Lsr(_) => todo!(),
-                capstone::arch::arm::ArmShift::Ror(_) => todo!(),
-                capstone::arch::arm::ArmShift::Rrx(_) => todo!(),
-                capstone::arch::arm::ArmShift::AsrReg(RegId(r)) => todo!(),
-                capstone::arch::arm::ArmShift::LslReg(RegId(r)) => todo!(),
-                capstone::arch::arm::ArmShift::LsrReg(RegId(r)) => todo!(),
-                capstone::arch::arm::ArmShift::RorReg(RegId(r)) => todo!(),
-                capstone::arch::arm::ArmShift::RrxReg(RegId(r)) => todo!(),
+        match operand.op_type {
+            ArmOperandType::Reg(reg_id) => match operand.shift {
+                capstone::arch::arm::ArmShift::Invalid => {
+                    Ok((self.reg_map.get(Reg::from(reg_id)), self.get_flag(C)?))
+                }
+                capstone::arch::arm::ArmShift::Asr(s) => todo!(),
+                capstone::arch::arm::ArmShift::Lsl(s) => todo!(),
+                capstone::arch::arm::ArmShift::Lsr(s) => todo!(),
+                capstone::arch::arm::ArmShift::Ror(s) => todo!(),
+                capstone::arch::arm::ArmShift::Rrx(s) => todo!(),
+                capstone::arch::arm::ArmShift::AsrReg(reg_id) => todo!(),
+                capstone::arch::arm::ArmShift::LslReg(reg_id) => todo!(),
+                capstone::arch::arm::ArmShift::LsrReg(reg_id) => todo!(),
+                capstone::arch::arm::ArmShift::RorReg(reg_id) => todo!(),
+                capstone::arch::arm::ArmShift::RrxReg(reg_id) => todo!(),
             },
-            ArmOperandType::Imm(imm) => self.i32_t.const_int(imm as u64, false),
+            ArmOperandType::Imm(imm) => {
+                let imm_val = self.i32_t.const_int(imm as u64, false);
+                let shifted =
+                    bd.build_right_shift(imm_val, self.i32_t.const_int(31, false), false, "sh")?;
+                let imm_msb =
+                    bd.build_int_cast_sign_flag(shifted, self.bool_t, false, "imm_msb")?;
+                Ok((imm_val, imm_msb))
+            }
             _ => panic!("unhandled operand type"),
-        };
-        Ok(op)
+        }
     }
 
-    // Incomplete, no shift operands or flags
     fn mov(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
         let rd = instr.get_reg_op(0);
-        let value = match instr.operands.get(1).expect("Missing 2nd operand").op_type {
-            ArmOperandType::Reg(reg_id) => self.reg_map.get(Reg::from(reg_id)),
-            ArmOperandType::Imm(imm) => self.i32_t.const_int(imm as u64, false),
-            _ => panic!("unhandled op_type"),
-        };
-        Ok(DataProcResult {
-            dest: Some(rd),
-            value,
-            cpsr: None,
-        })
+        let (shifter, c) =
+            self.shifter_operand(instr.operands.get(1).expect("missing 2nd operand"))?;
+
+        if instr.updates_flags {
+            let bd = self.builder;
+            let zero = self.i32_t.const_int(0, false);
+            let n = bd.build_int_compare(IntPredicate::SLT, shifter, zero, "n")?;
+            let z = bd.build_int_compare(IntPredicate::EQ, shifter, zero, "z")?;
+            let cpsr = self.set_flags(Some(n), Some(z), Some(c), None)?;
+            Ok(DataProcResult {
+                dest: Some(rd),
+                value: shifter,
+                cpsr: Some(cpsr),
+            })
+        } else {
+            Ok(DataProcResult {
+                dest: Some(rd),
+                value: shifter,
+                cpsr: None,
+            })
+        }
     }
 
     // Flags not implemented

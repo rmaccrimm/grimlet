@@ -7,13 +7,14 @@ use inkwell::values::IntValue;
 
 use crate::jit::FunctionBuilder;
 
+// A bitmask for a flag, and its name
 #[derive(Copy, Clone, Debug)]
-struct Flag(u32, &'static str);
+pub(super) struct Flag(u32, &'static str);
 
-const V: Flag = Flag(1 << 28, "v");
-const C: Flag = Flag(1 << 29, "c");
-const Z: Flag = Flag(1 << 30, "z");
-const N: Flag = Flag(1 << 31, "n");
+pub(super) const V: Flag = Flag(1 << 28, "v");
+pub(super) const C: Flag = Flag(1 << 29, "c");
+pub(super) const Z: Flag = Flag(1 << 30, "z");
+pub(super) const N: Flag = Flag(1 << 31, "n");
 
 impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     pub(super) fn eval_cond(&mut self, cond: ArmCC) -> Result<IntValue<'a>> {
@@ -50,7 +51,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         Ok(cond)
     }
 
-    fn get_flag(&self, flag: Flag) -> Result<IntValue<'a>> {
+    /// Returns i1 IntValue
+    pub(super) fn get_flag(&self, flag: Flag) -> Result<IntValue<'a>> {
         let masked = self.builder.build_and(
             self.reg_map.cpsr(),
             self.i32_t.const_int(flag.0 as u64, false),
@@ -64,7 +66,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         )?)
     }
 
-    fn get_neg_flag(&self, flag: Flag) -> Result<IntValue<'a>> {
+    /// Returns i1 IntValue
+    pub(super) fn get_neg_flag(&self, flag: Flag) -> Result<IntValue<'a>> {
         let f = self.get_flag(flag)?;
         let nf = self.builder.build_not(f, &format!("not_{}", flag.1))?;
         Ok(nf)
@@ -87,6 +90,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         Ok(out)
     }
 
+    /// Each flags value is expected to be an i1 (i.e. bool_t) IntValue
     pub(super) fn set_flags(
         &self,
         n: Option<IntValue<'a>>,
