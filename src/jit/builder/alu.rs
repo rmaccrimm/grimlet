@@ -1,8 +1,7 @@
 use anyhow::{Context as _, Result};
-use capstone::RegId;
 use capstone::arch::arm::{ArmCC, ArmOperand, ArmOperandType, ArmShift};
 use inkwell::IntPredicate;
-use inkwell::values::{IntValue, StructValue};
+use inkwell::values::IntValue;
 
 use crate::arm::cpu::Reg;
 use crate::arm::disasm::ArmInstruction;
@@ -116,12 +115,17 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let zero = imm!(self, 0);
 
         match operand.op_type {
+            ArmOperandType::Imm(imm) => {
+                let imm_val = self.i32_t.const_int(imm as u64, false);
+                let shifted = bd.build_right_shift(imm_val, imm!(self, 31), false, "sh")?;
+                let imm_msb = bd.build_int_compare(IntPredicate::EQ, shifted, one, "imm_msb")?;
+                Ok((imm_val, Some(imm_msb)))
+            }
             ArmOperandType::Reg(reg_id) => {
                 let reg = self.reg_map.get(Reg::from(reg_id));
+
                 match operand.shift {
                     ArmShift::Invalid => Ok((reg, None)),
-                    ArmShift::Asr(imm) => todo!(),
-                    ArmShift::AsrReg(reg_id) => todo!(),
                     ArmShift::Lsl(imm) => {
                         // imm guaranteed to be < 32
                         if imm == 0 {
@@ -183,20 +187,78 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                         let c = bd.build_int_compare(IntPredicate::EQ, last_bit, one, "cf")?;
                         Ok((shift, Some(c)))
                     }
-                    ArmShift::Lsr(imm) => todo!(),
-                    ArmShift::LsrReg(reg_id) => todo!(),
-                    ArmShift::Ror(imm) => todo!(),
-                    ArmShift::RorReg(reg_id) => todo!(),
-                    ArmShift::Rrx(imm) => todo!(),
-                    ArmShift::RrxReg(reg_id) => todo!(),
+                    ArmShift::Lsr(imm) => {
+                        // imm guaranteed to be between 1 and 32
+                        if imm == 32 {
+                            let shift = bd.build_right_shift(reg, imm!(self, 31), false, "sh")?;
+                            let last_bit = bd.build_and(shift, one, "b")?;
+                            let c = bd.build_int_compare(IntPredicate::EQ, last_bit, one, "c")?;
+                            Ok((zero, Some(c)))
+                        } else {
+                            let shift = bd.build_right_shift(reg, imm!(self, imm), false, "sh")?;
+                            let shift_1_less =
+                                bd.build_right_shift(reg, imm!(self, imm - 1), false, "shl")?;
+                            let last_bit = bd.build_and(shift_1_less, one, "b")?;
+                            let c = bd.build_int_compare(IntPredicate::EQ, last_bit, one, "c")?;
+                            Ok((shift, Some(c)))
+                        }
+                    }
+                    ArmShift::LsrReg(_reg_id) => {
+                        let shift_reg = self.reg_map.get(Reg::from(reg_id));
+                        let curr_c =
+                            bd.build_int_cast_sign_flag(self.get_flag(C)?, self.i32_t, false, "c")?;
+
+                        // Only use 1st byte of shift reg
+                        let mask = imm!(self, 0xff);
+                        let shift_amt = bd.build_and(shift_reg, mask, "s")?;
+
+                        let shift_eq_0 =
+                            bd.build_int_compare(IntPredicate::EQ, shift_amt, zero, "seq")?;
+                        let shift_lt_32 = bd.build_int_compare(
+                            IntPredicate::ULT,
+                            shift_amt,
+                            imm!(self, 32),
+                            "slt",
+                        )?;
+                        let shift_le_32 = bd.build_int_compare(
+                            IntPredicate::ULE,
+                            shift_amt,
+                            imm!(self, 32),
+                            "sle",
+                        )?;
+                        // Shifter operand calc
+                        // (reg >> shift_reg) if shift_reg < 32 else 0
+                        let shift_in_range = bd.build_right_shift(reg, shift_reg, false, "sh")?;
+                        let shift = bd
+                            .build_select(shift_lt_32, shift_in_range, zero, "shlt")?
+                            .into_int_value();
+
+                        // Carry out calc
+                        // curr_c if shift_reg = 0 else
+                        //    (bit(shift_reg - 1) if 0 < shift_reg <= 32) else 0
+                        let rshift_amt = bd.build_int_sub(shift_amt, one, "r")?;
+                        let rshift_in_range =
+                            bd.build_right_shift(reg, rshift_amt, false, "rsh")?;
+                        let rshift_eq_0 = bd
+                            .build_select(shift_eq_0, curr_c, rshift_in_range, "rsheq")?
+                            .into_int_value();
+                        let rshift = bd
+                            .build_select(shift_le_32, rshift_eq_0, zero, "rshle")?
+                            .into_int_value();
+
+                        let last_bit = bd.build_and(rshift, one, "b")?;
+                        let c = bd.build_int_compare(IntPredicate::EQ, last_bit, one, "cf")?;
+                        Ok((shift, Some(c)))
+                    }
+                    ArmShift::Asr(_imm) => todo!(),
+                    ArmShift::AsrReg(_reg_id) => todo!(),
+                    ArmShift::Ror(_imm) => todo!(),
+                    ArmShift::RorReg(_reg_id) => todo!(),
+                    ArmShift::Rrx(_imm) => todo!(),
+                    ArmShift::RrxReg(_reg_id) => todo!(),
                 }
             }
-            ArmOperandType::Imm(imm) => {
-                let imm_val = self.i32_t.const_int(imm as u64, false);
-                let shifted = bd.build_right_shift(imm_val, imm!(self, 31), false, "sh")?;
-                let imm_msb = bd.build_int_compare(IntPredicate::EQ, shifted, one, "imm_msb")?;
-                Ok((imm_val, Some(imm_msb)))
-            }
+            ArmOperandType::Mem(_) => todo!(),
             _ => panic!("unhandled operand type"),
         }
     }
@@ -329,15 +391,105 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 #[cfg(test)]
 mod tests {
 
+    use capstone::RegId;
     use capstone::arch::arm::ArmReg;
     use inkwell::context::Context;
 
     use super::*;
     use crate::arm::cpu::ArmState;
-    use crate::jit::{Compiler, FunctionCache};
+    use crate::jit::{CompiledFunction, Compiler, FunctionCache};
+
+    fn make_shift_func<'ctx>(
+        compiler: &mut Compiler<'ctx>,
+        func_cache: &FunctionCache<'ctx>,
+        op: &ArmOperand,
+    ) -> CompiledFunction<'ctx> {
+        let mut f = compiler.new_function(0, func_cache);
+        f.load_initial_reg_values(&vec![Reg::R0, Reg::R1, Reg::CPSR].into_iter().collect())
+            .unwrap();
+
+        let (shifted, carry_out) = f.shifter_operand(op).unwrap();
+        let carry32 = f
+            .builder
+            .build_int_cast_sign_flag(carry_out.unwrap(), f.i32_t, false, "c32")
+            .unwrap();
+        f.reg_map.update(Reg::R0, shifted);
+        f.reg_map.update(Reg::R1, carry32);
+        f.reg_map
+            .update(Reg::CPSR, f.set_flags(None, None, carry_out, None).unwrap());
+        f.write_state_out().unwrap();
+        f.builder.build_return(None).unwrap();
+        let f = f.compile().unwrap();
+        compiler.dump().unwrap();
+        f
+    }
 
     #[test]
     fn test_lsl_reg() {
+        let op = ArmOperand {
+            op_type: ArmOperandType::Reg(RegId(ArmReg::ARM_REG_R0 as u16)),
+            shift: ArmShift::LslReg(RegId(ArmReg::ARM_REG_R1 as u16)),
+            ..Default::default()
+        };
+        let ctx = Context::create();
+        let mut compiler = Compiler::new(&ctx);
+        let func_cache = FunctionCache::new();
+        let f = make_shift_func(&mut compiler, &func_cache, &op);
+
+        let mut state = ArmState::default();
+
+        let mut test_case = |r: u32, shift: u32| -> (u32, bool) {
+            state.regs[Reg::R0] = r;
+            state.regs[Reg::R1] = shift;
+            unsafe {
+                f.call(&mut state);
+            }
+            (state.regs[Reg::R0], (state.regs[Reg::CPSR] & C.0) > 0)
+        };
+
+        let res = test_case(0b0000_0000_0001_0000_0000_0000_0000_1101, 12);
+        let expected_res = (0b0000_0000_0000_0000_1101_0000_0000_0000, true);
+        assert_eq!(res, expected_res);
+
+        // only last byte used
+        let res = test_case(0b0000_0000_0001_0000_0000_0000_0000_1101, 0x803eff0c);
+        let expected_res = (0b0000_0000_0000_0000_1101_0000_0000_0000, true);
+        assert_eq!(res, expected_res);
+
+        let res = test_case(0b0000_0000_0001_0000_0000_0000_0000_1101, 0);
+        let expected_res = (0b0000_0000_0001_0000_0000_0000_0000_1101, true); // c unchanged
+        assert_eq!(res, expected_res);
+
+        let res = test_case(0b0000_0000_0001_0000_0000_0000_0000_1101, 7);
+        let expected_res = (0b0000_1000_0000_0000_0000_0110_1000_0000, false);
+        assert_eq!(res, expected_res);
+
+        let res = test_case(0b0000_0000_0001_0000_0000_0000_0000_1101, 0);
+        let expected_res = (0b0000_0000_0001_0000_0000_0000_0000_1101, false); // c unchanged
+        assert_eq!(res, expected_res);
+
+        let res = test_case(0b0000_0000_0001_0000_0000_0000_0000_1111, 31);
+        let expected_res = (0b1000_0000_0000_0000_0000_0000_0000_0000, true);
+        assert_eq!(res, expected_res);
+
+        let res = test_case(0b0000_0000_0001_0000_0000_0000_0000_1111, 32);
+        let expected_res = (0b0000_0000_0000_0000_0000_0000_0000_0000, true);
+        assert_eq!(res, expected_res);
+
+        let res = test_case(0b0000_0000_0001_0000_0000_0000_0000_1110, 32);
+        let expected_res = (0b0000_0000_0000_0000_0000_0000_0000_0000, false);
+        assert_eq!(res, expected_res);
+
+        let res = test_case(0b0000_0000_0001_0000_0000_0000_0000_1111, 33);
+        let expected_res = (0b0000_0000_0000_0000_0000_0000_0000_0000, false);
+
+        let res = test_case(0b0000_0000_0001_0000_0000_0000_0000_1110, 33);
+        let expected_res = (0b0000_0000_0000_0000_0000_0000_0000_0000, false);
+        assert_eq!(res, expected_res)
+    }
+
+    #[test]
+    fn test_lsr_reg() {
         let ctx = Context::create();
         let func_cache = FunctionCache::new();
         let mut comp = Compiler::new(&ctx);

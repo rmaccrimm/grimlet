@@ -165,11 +165,12 @@ impl ArmState {
         )
     }
 
-    pub fn with_bios(bios_path: &str) -> Result<Self> {
-        if !fs::exists(bios_path)? {
+    pub fn with_bios(bios_path: impl AsRef<str>) -> Result<Self> {
+        let path = bios_path.as_ref();
+        if !fs::exists(path)? {
             return Err(anyhow!("BIOS file not found"));
         }
-        let bios = fs::read(bios_path)?;
+        let bios = fs::read(path)?;
 
         Ok(Self {
             mode: ArmMode::ARM,

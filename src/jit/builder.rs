@@ -22,7 +22,6 @@ use crate::arm::cpu::{ArmMode, ArmState, NUM_REGS, Reg};
 use crate::arm::disasm::{ArmInstruction, CodeBlock};
 use crate::jit::builder::reg_map::RegMap;
 
-#[allow(dead_code)]
 /// Builder for creating & compiling LLVM functions
 pub struct FunctionBuilder<'ctx, 'a>
 where

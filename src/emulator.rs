@@ -198,7 +198,6 @@ mod tests {
 
         let exit = Some(|st: &ArmState| -> bool { st.curr_instr_addr() == 100 });
         let r0 = Reg::R0;
-        let pc = Reg::PC;
         let cpsr = Reg::CPSR as usize;
 
         let mut test_case = |n: u32| -> u32 {

@@ -90,7 +90,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         Ok(out)
     }
 
-    /// Each flags value is expected to be an i1 (i.e. bool_t) IntValue
+    /// Return a copy of the current CPSR register with flags updated. Each flags value is
+    /// expected to be an i1 (i.e. bool_t) IntValue.
     pub(super) fn set_flags(
         &self,
         n: Option<IntValue<'a>>,
