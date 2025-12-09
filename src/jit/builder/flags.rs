@@ -9,7 +9,7 @@ use crate::jit::FunctionBuilder;
 
 // A bitmask for a flag, and its name
 #[derive(Copy, Clone, Debug)]
-pub(super) struct Flag(u32, &'static str);
+pub(super) struct Flag(pub u32, pub &'static str);
 
 pub(super) const V: Flag = Flag(1 << 28, "v");
 pub(super) const C: Flag = Flag(1 << 29, "c");
