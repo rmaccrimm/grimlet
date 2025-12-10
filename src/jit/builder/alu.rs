@@ -29,6 +29,7 @@ macro_rules! imm {
     };
 }
 
+#[allow(dead_code)]
 impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     pub(super) fn arm_cmp(&mut self, instr: ArmInstruction) {
         exec_and_expect!(self, instr, Self::cmp)
@@ -395,6 +396,35 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         }
     }
 
+    fn adc(&mut self, _instr: ArmInstruction) -> Result<DataProcResult<'a>> { todo!() }
+
+    fn add(&mut self, _instr: ArmInstruction) -> Result<DataProcResult<'a>> { todo!() }
+
+    fn and(&mut self, _instr: ArmInstruction) -> Result<DataProcResult<'a>> { todo!() }
+
+    fn bic(&mut self, _instr: ArmInstruction) -> Result<DataProcResult<'a>> { todo!() }
+
+    fn cmd(&mut self, _instr: ArmInstruction) -> Result<DataProcResult<'a>> { todo!() }
+
+    fn cmp(&mut self, mut instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+        let op1 = instr.operands[0].clone();
+        let op2 = instr.operands[1].clone();
+        // Insert a dummy operand because sub expects it.
+        instr.operands = vec![op1.clone(), op1, op2];
+        let DataProcResult {
+            dest: _,
+            value,
+            cpsr,
+        } = self.sub(instr)?;
+        Ok(DataProcResult {
+            dest: None,
+            value,
+            cpsr,
+        })
+    }
+
+    fn eor(&mut self, _instr: ArmInstruction) -> Result<DataProcResult<'a>> { todo!() }
+
     fn mov(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
         let rd = instr.get_reg_op(0);
         let (shifter, c) =
@@ -420,52 +450,23 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         }
     }
 
-    // Flags not implemented
-    fn mul(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
-        let rd = instr.get_reg_op(0);
-        let rm = instr.get_reg_op(1);
-        let rs = instr.get_reg_op(2);
-        let rm_val = self.reg_map.get(rm);
-        let rs_val = self.reg_map.get(rs);
-        let res = self.builder.build_int_mul(rm_val, rs_val, "mul")?;
-        Ok(DataProcResult {
-            dest: Some(rd),
-            value: res,
-            cpsr: None,
-        })
-    }
+    fn mvn(&mut self, _instr: ArmInstruction) -> Result<DataProcResult<'a>> { todo!() }
 
-    fn cmp(&mut self, mut instr: ArmInstruction) -> Result<DataProcResult<'a>> {
-        let op1 = instr.operands[0].clone();
-        let op2 = instr.operands[1].clone();
-        // Insert a dummy operand because sub expects it.
-        instr.operands = vec![op1.clone(), op1, op2];
-        let DataProcResult {
-            dest: _,
-            value,
-            cpsr,
-        } = self.sub(instr)?;
-        Ok(DataProcResult {
-            dest: None,
-            value,
-            cpsr,
-        })
-    }
+    fn orr(&mut self, _instr: ArmInstruction) -> Result<DataProcResult<'a>> { todo!() }
 
-    // TODO some way of sharing shifter operand code
+    fn rsb(&mut self, _instr: ArmInstruction) -> Result<DataProcResult<'a>> { todo!() }
+
+    fn rsc(&mut self, _instr: ArmInstruction) -> Result<DataProcResult<'a>> { todo!() }
+
+    fn sbc(&mut self, _instr: ArmInstruction) -> Result<DataProcResult<'a>> { todo!() }
+
     fn sub(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
         let bd = self.builder;
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
         let rn_val = self.reg_map.get(rn);
-        let rm_val = match instr.operands.get(2).expect("Missing 2nd operand").op_type {
-            ArmOperandType::Reg(reg_id) => {
-                let rm = Reg::from(reg_id);
-                self.reg_map.get(rm)
-            }
-            ArmOperandType::Imm(imm) => self.i32_t.const_int(imm as u64, false),
-            _ => panic!("unhandled op_type"),
-        };
+        let (rm_val, _c_flag) =
+            self.shifter_operand(instr.operands.get(2).expect("Missing 2nd operand"))?;
 
         if !instr.updates_flags {
             return Ok(DataProcResult {
@@ -518,6 +519,34 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             cpsr: Some(cpsr),
         })
     }
+
+    fn teq(&mut self, _instr: ArmInstruction) -> Result<DataProcResult<'a>> { todo!() }
+
+    fn tst(&mut self, _instr: ArmInstruction) -> Result<DataProcResult<'a>> { todo!() }
+
+    fn mla(&mut self, _instr: ArmInstruction) -> Result<DataProcResult<'a>> { todo!() }
+
+    fn mul(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+        let rd = instr.get_reg_op(0);
+        let rm = instr.get_reg_op(1);
+        let rs = instr.get_reg_op(2);
+        let rm_val = self.reg_map.get(rm);
+        let rs_val = self.reg_map.get(rs);
+        let res = self.builder.build_int_mul(rm_val, rs_val, "mul")?;
+        Ok(DataProcResult {
+            dest: Some(rd),
+            value: res,
+            cpsr: None,
+        })
+    }
+
+    fn smlal(&mut self, _instr: ArmInstruction) -> Result<DataProcResult<'a>> { todo!() }
+
+    fn smull(&mut self, _instr: ArmInstruction) -> Result<DataProcResult<'a>> { todo!() }
+
+    fn umlal(&mut self, _instr: ArmInstruction) -> Result<DataProcResult<'a>> { todo!() }
+
+    fn umull(&mut self, _instr: ArmInstruction) -> Result<DataProcResult<'a>> { todo!() }
 }
 
 #[cfg(test)]
