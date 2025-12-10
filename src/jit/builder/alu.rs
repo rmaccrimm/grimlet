@@ -121,20 +121,20 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                 let imm_msb = bd.build_int_compare(IntPredicate::EQ, shifted, one, "imm_msb")?;
                 Ok((imm_val, Some(imm_msb)))
             }
-            ArmOperandType::Reg(reg_id) => {
-                let reg = self.reg_map.get(Reg::from(reg_id));
+            ArmOperandType::Reg(base_reg_id) => {
+                let base = self.reg_map.get(Reg::from(base_reg_id));
 
                 match operand.shift {
-                    ArmShift::Invalid => Ok((reg, None)),
+                    ArmShift::Invalid => Ok((base, None)),
                     ArmShift::Lsl(imm) => {
                         // imm guaranteed to be < 32
                         if imm == 0 {
-                            Ok((reg, None))
+                            Ok((base, None))
                         } else {
-                            let shifted = bd.build_left_shift(reg, imm!(self, imm), "lsh")?;
+                            let shifted = bd.build_left_shift(base, imm!(self, imm), "lsh")?;
                             // Get the last bit shifted out
                             let rshift =
-                                bd.build_right_shift(reg, imm!(self, 32 - imm), false, "rsh")?;
+                                bd.build_right_shift(base, imm!(self, 32 - imm), false, "rsh")?;
                             let last_bit = bd.build_and(rshift, one, "b")?;
                             let c = bd.build_int_compare(IntPredicate::EQ, last_bit, one, "c")?;
                             Ok((shifted, Some(c)))
@@ -165,7 +165,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                         )?;
                         // Shifter operand calc
                         // (reg << shift_reg) if shift_reg < 32 else 0
-                        let shift_in_range = bd.build_left_shift(reg, shift_reg, "sh")?;
+                        let shift_in_range = bd.build_left_shift(base, shift_reg, "sh")?;
                         let shift = bd
                             .build_select(shift_lt_32, shift_in_range, zero, "shlt")?
                             .into_int_value();
@@ -175,7 +175,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                         //    (bit(32 - shift_reg) if 0 < shift_reg <= 32) else 0
                         let rshift_amt = bd.build_int_sub(imm!(self, 32), shift_amt, "r")?;
                         let rshift_in_range =
-                            bd.build_right_shift(reg, rshift_amt, false, "rsh")?;
+                            bd.build_right_shift(base, rshift_amt, false, "rsh")?;
                         let rshift_eq_0 = bd
                             .build_select(shift_eq_0, curr_c, rshift_in_range, "rsheq")?
                             .into_int_value();
@@ -190,20 +190,20 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                     ArmShift::Lsr(imm) => {
                         // imm guaranteed to be between 1 and 32
                         if imm == 32 {
-                            let shift = bd.build_right_shift(reg, imm!(self, 31), false, "sh")?;
+                            let shift = bd.build_right_shift(base, imm!(self, 31), false, "sh")?;
                             let last_bit = bd.build_and(shift, one, "b")?;
                             let c = bd.build_int_compare(IntPredicate::EQ, last_bit, one, "c")?;
                             Ok((zero, Some(c)))
                         } else {
-                            let shift = bd.build_right_shift(reg, imm!(self, imm), false, "sh")?;
+                            let shift = bd.build_right_shift(base, imm!(self, imm), false, "sh")?;
                             let shift_1_less =
-                                bd.build_right_shift(reg, imm!(self, imm - 1), false, "shl")?;
+                                bd.build_right_shift(base, imm!(self, imm - 1), false, "shl")?;
                             let last_bit = bd.build_and(shift_1_less, one, "b")?;
                             let c = bd.build_int_compare(IntPredicate::EQ, last_bit, one, "c")?;
                             Ok((shift, Some(c)))
                         }
                     }
-                    ArmShift::LsrReg(_reg_id) => {
+                    ArmShift::LsrReg(reg_id) => {
                         let shift_reg = self.reg_map.get(Reg::from(reg_id));
                         let curr_c =
                             bd.build_int_cast_sign_flag(self.get_flag(C)?, self.i32_t, false, "c")?;
@@ -228,7 +228,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                         )?;
                         // Shifter operand calc
                         // (reg >> shift_reg) if shift_reg < 32 else 0
-                        let shift_in_range = bd.build_right_shift(reg, shift_reg, false, "sh")?;
+                        let shift_in_range = bd.build_right_shift(base, shift_reg, false, "sh")?;
                         let shift = bd
                             .build_select(shift_lt_32, shift_in_range, zero, "shlt")?
                             .into_int_value();
@@ -238,7 +238,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                         //    (bit(shift_reg - 1) if 0 < shift_reg <= 32) else 0
                         let rshift_amt = bd.build_int_sub(shift_amt, one, "r")?;
                         let rshift_in_range =
-                            bd.build_right_shift(reg, rshift_amt, false, "rsh")?;
+                            bd.build_right_shift(base, rshift_amt, false, "rsh")?;
                         let rshift_eq_0 = bd
                             .build_select(shift_eq_0, curr_c, rshift_in_range, "rsheq")?
                             .into_int_value();
@@ -397,174 +397,144 @@ mod tests {
 
     use super::*;
     use crate::arm::cpu::ArmState;
-    use crate::jit::{CompiledFunction, Compiler, FunctionCache};
+    use crate::jit::{CompiledFunction, Compiler};
 
-    fn make_shift_func<'ctx>(
-        compiler: &mut Compiler<'ctx>,
-        func_cache: &FunctionCache<'ctx>,
-        op: &ArmOperand,
-    ) -> CompiledFunction<'ctx> {
-        let mut f = compiler.new_function(0, func_cache);
-        f.load_initial_reg_values(&vec![Reg::R0, Reg::R1, Reg::CPSR].into_iter().collect())
-            .unwrap();
+    struct ShiftTestCase<'ctx> {
+        f: CompiledFunction<'ctx>,
+        state: ArmState,
+    }
 
-        let (shifted, carry_out) = f.shifter_operand(op).unwrap();
-        let carry32 = f
-            .builder
-            .build_int_cast_sign_flag(carry_out.unwrap(), f.i32_t, false, "c32")
-            .unwrap();
-        f.reg_map.update(Reg::R0, shifted);
-        f.reg_map.update(Reg::R1, carry32);
-        f.reg_map
-            .update(Reg::CPSR, f.set_flags(None, None, carry_out, None).unwrap());
-        f.write_state_out().unwrap();
-        f.builder.build_return(None).unwrap();
-        let f = f.compile().unwrap();
-        compiler.dump().unwrap();
-        f
+    impl<'ctx> ShiftTestCase<'ctx> {
+        fn for_op(context: &'ctx Context, op: &ArmOperand) -> Self {
+            let mut compiler = Compiler::new(context);
+            let mut f = compiler.new_function(0, None);
+            f.load_initial_reg_values(&vec![Reg::R0, Reg::R1, Reg::CPSR].into_iter().collect())
+                .unwrap();
+
+            let (shifted, carry_out) = f.shifter_operand(op).unwrap();
+            let carry32 = f
+                .builder
+                .build_int_cast_sign_flag(carry_out.unwrap(), f.i32_t, false, "c32")
+                .unwrap();
+            f.reg_map.update(Reg::R0, shifted);
+            f.reg_map.update(Reg::R1, carry32);
+            f.reg_map
+                .update(Reg::CPSR, f.set_flags(None, None, carry_out, None).unwrap());
+            f.write_state_out().unwrap();
+            f.builder.build_return(None).unwrap();
+            let f = f.compile().unwrap();
+            Self {
+                f,
+                state: ArmState::default(),
+            }
+        }
+
+        fn run(&mut self, r: u32, shift: u32) -> (u32, bool) {
+            self.state.regs[Reg::R0] = r;
+            self.state.regs[Reg::R1] = shift;
+            unsafe {
+                self.f.call(&mut self.state);
+            }
+            (
+                self.state.regs[Reg::R0],
+                (self.state.regs[Reg::CPSR] & C.0) > 0,
+            )
+        }
     }
 
     #[test]
     fn test_lsl_reg() {
+        let ctx = Context::create();
         let op = ArmOperand {
             op_type: ArmOperandType::Reg(RegId(ArmReg::ARM_REG_R0 as u16)),
             shift: ArmShift::LslReg(RegId(ArmReg::ARM_REG_R1 as u16)),
             ..Default::default()
         };
-        let ctx = Context::create();
-        let mut compiler = Compiler::new(&ctx);
-        let func_cache = FunctionCache::new();
-        let f = make_shift_func(&mut compiler, &func_cache, &op);
+        let mut tst = ShiftTestCase::for_op(&ctx, &op);
 
-        let mut state = ArmState::default();
-
-        let mut test_case = |r: u32, shift: u32| -> (u32, bool) {
-            state.regs[Reg::R0] = r;
-            state.regs[Reg::R1] = shift;
-            unsafe {
-                f.call(&mut state);
-            }
-            (state.regs[Reg::R0], (state.regs[Reg::CPSR] & C.0) > 0)
-        };
-
-        let res = test_case(0b0000_0000_0001_0000_0000_0000_0000_1101, 12);
-        let expected_res = (0b0000_0000_0000_0000_1101_0000_0000_0000, true);
-        assert_eq!(res, expected_res);
+        let res = tst.run(0b0000_0000_0001_0000_0000_0000_0000_1101, 12);
+        let expect_res = (0b0000_0000_0000_0000_1101_0000_0000_0000, true);
+        assert_eq!(res, expect_res);
 
         // only last byte used
-        let res = test_case(0b0000_0000_0001_0000_0000_0000_0000_1101, 0x803eff0c);
-        let expected_res = (0b0000_0000_0000_0000_1101_0000_0000_0000, true);
-        assert_eq!(res, expected_res);
+        let res = tst.run(0b0000_0000_0001_0000_0000_0000_0000_1101, 0x803eff0c);
+        let expect_res = (0b0000_0000_0000_0000_1101_0000_0000_0000, true);
+        assert_eq!(res, expect_res);
 
-        let res = test_case(0b0000_0000_0001_0000_0000_0000_0000_1101, 0);
-        let expected_res = (0b0000_0000_0001_0000_0000_0000_0000_1101, true); // c unchanged
-        assert_eq!(res, expected_res);
+        let res = tst.run(0b0000_0000_0001_0000_0000_0000_0000_1101, 0);
+        let expect_res = (0b0000_0000_0001_0000_0000_0000_0000_1101, true); // c unchanged
+        assert_eq!(res, expect_res);
 
-        let res = test_case(0b0000_0000_0001_0000_0000_0000_0000_1101, 7);
-        let expected_res = (0b0000_1000_0000_0000_0000_0110_1000_0000, false);
-        assert_eq!(res, expected_res);
+        let res = tst.run(0b0000_0000_0001_0000_0000_0000_0000_1101, 7);
+        let expect_res = (0b0000_1000_0000_0000_0000_0110_1000_0000, false);
+        assert_eq!(res, expect_res);
 
-        let res = test_case(0b0000_0000_0001_0000_0000_0000_0000_1101, 0);
-        let expected_res = (0b0000_0000_0001_0000_0000_0000_0000_1101, false); // c unchanged
-        assert_eq!(res, expected_res);
+        let res = tst.run(0b0000_0000_0001_0000_0000_0000_0000_1101, 0);
+        let expect_res = (0b0000_0000_0001_0000_0000_0000_0000_1101, false); // c unchanged
+        assert_eq!(res, expect_res);
 
-        let res = test_case(0b0000_0000_0001_0000_0000_0000_0000_1111, 31);
-        let expected_res = (0b1000_0000_0000_0000_0000_0000_0000_0000, true);
-        assert_eq!(res, expected_res);
+        let res = tst.run(0b0000_0000_0001_0000_0000_0000_0000_1111, 31);
+        let expect_res = (0b1000_0000_0000_0000_0000_0000_0000_0000, true);
+        assert_eq!(res, expect_res);
 
-        let res = test_case(0b0000_0000_0001_0000_0000_0000_0000_1111, 32);
-        let expected_res = (0b0000_0000_0000_0000_0000_0000_0000_0000, true);
-        assert_eq!(res, expected_res);
+        let res = tst.run(0b0000_0000_0001_0000_0000_0000_0000_1111, 32);
+        let expect_res = (0b0000_0000_0000_0000_0000_0000_0000_0000, true);
+        assert_eq!(res, expect_res);
 
-        let res = test_case(0b0000_0000_0001_0000_0000_0000_0000_1110, 32);
-        let expected_res = (0b0000_0000_0000_0000_0000_0000_0000_0000, false);
-        assert_eq!(res, expected_res);
+        let res = tst.run(0b0000_0000_0001_0000_0000_0000_0000_1110, 32);
+        let expect_res = (0b0000_0000_0000_0000_0000_0000_0000_0000, false);
+        assert_eq!(res, expect_res);
 
-        let res = test_case(0b0000_0000_0001_0000_0000_0000_0000_1111, 33);
-        let expected_res = (0b0000_0000_0000_0000_0000_0000_0000_0000, false);
+        let res = tst.run(0b0000_0000_0001_0000_0000_0000_0000_1111, 33);
+        let expect_res = (0b0000_0000_0000_0000_0000_0000_0000_0000, false);
+        assert_eq!(res, expect_res);
 
-        let res = test_case(0b0000_0000_0001_0000_0000_0000_0000_1110, 33);
-        let expected_res = (0b0000_0000_0000_0000_0000_0000_0000_0000, false);
-        assert_eq!(res, expected_res)
+        let res = tst.run(0b0000_0000_0001_0000_0000_0000_0000_1110, 33);
+        let expect_res = (0b0000_0000_0000_0000_0000_0000_0000_0000, false);
+        assert_eq!(res, expect_res);
     }
 
     #[test]
     fn test_lsr_reg() {
         let ctx = Context::create();
-        let func_cache = FunctionCache::new();
-        let mut comp = Compiler::new(&ctx);
-        let mut f = comp.new_function(0, &func_cache);
-        f.load_initial_reg_values(&vec![Reg::R0, Reg::R1, Reg::CPSR].into_iter().collect())
-            .unwrap();
-
         let op = ArmOperand {
             op_type: ArmOperandType::Reg(RegId(ArmReg::ARM_REG_R0 as u16)),
-            shift: ArmShift::LslReg(RegId(ArmReg::ARM_REG_R1 as u16)),
+            shift: ArmShift::LsrReg(RegId(ArmReg::ARM_REG_R1 as u16)),
             ..Default::default()
         };
-        let (shifted, carry_out) = f.shifter_operand(&op).unwrap();
-        let carry32 = f
-            .builder
-            .build_int_cast_sign_flag(carry_out.unwrap(), f.i32_t, false, "c32")
-            .unwrap();
-        f.reg_map.update(Reg::R0, shifted);
-        f.reg_map.update(Reg::R1, carry32);
-        f.reg_map
-            .update(Reg::CPSR, f.set_flags(None, None, carry_out, None).unwrap());
-        f.write_state_out().unwrap();
-        f.builder.build_return(None).unwrap();
-        let f = f.compile().unwrap();
-        comp.dump().unwrap();
+        let mut tst = ShiftTestCase::for_op(&ctx, &op);
 
-        let mut state = ArmState::default();
-
-        let mut test_case = |r: u32, shift: u32| -> (u32, bool) {
-            state.regs[Reg::R0] = r;
-            state.regs[Reg::R1] = shift;
-            unsafe {
-                f.call(&mut state);
-            }
-            (state.regs[Reg::R0], (state.regs[Reg::CPSR] & C.0) > 0)
-        };
-
-        let res = test_case(0b0000_0000_0001_0000_0000_0000_0000_1101, 12);
-        let expected_res = (0b0000_0000_0000_0000_1101_0000_0000_0000, true);
-        assert_eq!(res, expected_res);
+        let res = tst.run(0b0000_0000_1001_0000_1110_0000_0000_1101, 16);
+        let expect_res = (0b0000_0000_0000_0000_0000_0000_1001_0000, true);
+        assert_eq!(res, expect_res);
 
         // only last byte used
-        let res = test_case(0b0000_0000_0001_0000_0000_0000_0000_1101, 0x803eff0c);
-        let expected_res = (0b0000_0000_0000_0000_1101_0000_0000_0000, true);
-        assert_eq!(res, expected_res);
+        let res = tst.run(0b0000_0000_1001_0000_1110_0000_0000_1101, 0x9e018410);
+        let expect_res = (0b0000_0000_0000_0000_0000_0000_1001_0000, true);
+        assert_eq!(res, expect_res);
 
-        let res = test_case(0b0000_0000_0001_0000_0000_0000_0000_1101, 0);
-        let expected_res = (0b0000_0000_0001_0000_0000_0000_0000_1101, true); // c unchanged
-        assert_eq!(res, expected_res);
+        let res = tst.run(0b0000_0000_1001_0000_1110_0000_0000_1101, 0);
+        let expect_res = (0b0000_0000_1001_0000_1110_0000_0000_1101, true); // unchanged
+        assert_eq!(res, expect_res);
 
-        let res = test_case(0b0000_0000_0001_0000_0000_0000_0000_1101, 7);
-        let expected_res = (0b0000_1000_0000_0000_0000_0110_1000_0000, false);
-        assert_eq!(res, expected_res);
+        let res = tst.run(0b1010_0000_1001_0000_1110_0000_0000_1101, 31);
+        let expect_res = (0b0000_0000_0000_0000_0000_0000_0000_0001, false);
+        assert_eq!(res, expect_res);
 
-        let res = test_case(0b0000_0000_0001_0000_0000_0000_0000_1101, 0);
-        let expected_res = (0b0000_0000_0001_0000_0000_0000_0000_1101, false); // c unchanged
-        assert_eq!(res, expected_res);
+        let res = tst.run(0b0000_0000_1001_0000_1110_0000_0000_1101, 0);
+        let expect_res = (0b0000_0000_1001_0000_1110_0000_0000_1101, false); // unchanged
+        assert_eq!(res, expect_res);
 
-        let res = test_case(0b0000_0000_0001_0000_0000_0000_0000_1111, 31);
-        let expected_res = (0b1000_0000_0000_0000_0000_0000_0000_0000, true);
-        assert_eq!(res, expected_res);
+        let res = tst.run(0b1000_0000_1001_0000_1110_0000_0000_1101, 32);
+        let expect_res = (0, true);
+        assert_eq!(res, expect_res);
 
-        let res = test_case(0b0000_0000_0001_0000_0000_0000_0000_1111, 32);
-        let expected_res = (0b0000_0000_0000_0000_0000_0000_0000_0000, true);
-        assert_eq!(res, expected_res);
+        let res = tst.run(0b0111_0000_1001_0000_1110_0000_0000_1101, 32);
+        let expect_res = (0, false);
+        assert_eq!(res, expect_res);
 
-        let res = test_case(0b0000_0000_0001_0000_0000_0000_0000_1110, 32);
-        let expected_res = (0b0000_0000_0000_0000_0000_0000_0000_0000, false);
-        assert_eq!(res, expected_res);
-
-        let res = test_case(0b0000_0000_0001_0000_0000_0000_0000_1111, 33);
-        let expected_res = (0b0000_0000_0000_0000_0000_0000_0000_0000, false);
-
-        let res = test_case(0b0000_0000_0001_0000_0000_0000_0000_1110, 33);
-        let expected_res = (0b0000_0000_0000_0000_0000_0000_0000_0000, false);
-        assert_eq!(res, expected_res)
+        let res = tst.run(0b0110_1111_1001_0000_1110_0000_0000_1101, 255);
+        let expect_res = (0, false);
+        assert_eq!(res, expect_res);
     }
 }
