@@ -1,7 +1,6 @@
 use grimlet::arm::cpu::{ArmState, Reg};
 use grimlet::arm::disasm::MemoryDisassembler;
 use grimlet::emulator::Emulator;
-use inkwell::context::Context;
 
 #[test]
 fn test_factorial() {

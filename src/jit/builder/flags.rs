@@ -111,7 +111,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{HashMap, HashSet};
+    use std::collections::HashSet;
 
     use anyhow::Result;
     use inkwell::context::Context;

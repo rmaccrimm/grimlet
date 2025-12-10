@@ -1,4 +1,4 @@
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result, anyhow};
 use capstone::arch::arm::{ArmCC, ArmOperand, ArmOperandType, ArmShift};
 use inkwell::IntPredicate;
 use inkwell::values::IntValue;
@@ -121,8 +121,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                 let imm_msb = bd.build_int_compare(IntPredicate::EQ, shifted, one, "imm_msb")?;
                 Ok((imm_val, Some(imm_msb)))
             }
-            ArmOperandType::Reg(base_reg_id) => {
-                let base = self.reg_map.get(Reg::from(base_reg_id));
+            ArmOperandType::Reg(reg_id) => {
+                let base = self.reg_map.get(Reg::from(reg_id));
 
                 match operand.shift {
                     ArmShift::Invalid => Ok((base, None)),
@@ -250,12 +250,147 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                         let c = bd.build_int_compare(IntPredicate::EQ, last_bit, one, "cf")?;
                         Ok((shift, Some(c)))
                     }
-                    ArmShift::Asr(_imm) => todo!(),
-                    ArmShift::AsrReg(_reg_id) => todo!(),
-                    ArmShift::Ror(_imm) => todo!(),
-                    ArmShift::RorReg(_reg_id) => todo!(),
-                    ArmShift::Rrx(_imm) => todo!(),
-                    ArmShift::RrxReg(_reg_id) => todo!(),
+                    ArmShift::Asr(imm) => {
+                        if imm == 32 {
+                            let shift = bd.build_right_shift(base, imm!(self, 31), true, "sh")?;
+                            let last_bit = bd.build_and(shift, one, "b")?;
+                            let c = bd.build_int_compare(IntPredicate::EQ, last_bit, one, "c")?;
+                            Ok((shift, Some(c)))
+                        } else {
+                            let shift = bd.build_right_shift(base, imm!(self, imm), true, "sh")?;
+                            let shift_1_less =
+                                bd.build_right_shift(base, imm!(self, imm - 1), false, "shl")?;
+                            let last_bit = bd.build_and(shift_1_less, one, "b")?;
+                            let c = bd.build_int_compare(IntPredicate::EQ, last_bit, one, "c")?;
+                            Ok((shift, Some(c)))
+                        }
+                    }
+                    ArmShift::AsrReg(reg_id) => {
+                        let shift_reg = self.reg_map.get(Reg::from(reg_id));
+                        let curr_c =
+                            bd.build_int_cast_sign_flag(self.get_flag(C)?, self.i32_t, false, "c")?;
+
+                        // Only use 1st byte of shift reg
+                        let mask = imm!(self, 0xff);
+                        let shift_amt = bd.build_and(shift_reg, mask, "s")?;
+
+                        let shift_eq_0 =
+                            bd.build_int_compare(IntPredicate::EQ, shift_amt, zero, "seq")?;
+                        let shift_lt_32 = bd.build_int_compare(
+                            IntPredicate::ULT,
+                            shift_amt,
+                            imm!(self, 32),
+                            "slt",
+                        )?;
+                        let shift_le_32 = bd.build_int_compare(
+                            IntPredicate::ULE,
+                            shift_amt,
+                            imm!(self, 32),
+                            "sle",
+                        )?;
+                        // Shifter operand calc
+                        // (reg >> shift_reg) if shift_reg < 32 else 0
+                        let shift_in_range = bd.build_right_shift(base, shift_reg, true, "sh")?;
+                        let shift_ge_32 =
+                            bd.build_right_shift(base, imm!(self, 31), true, "shge")?;
+                        let shift = bd
+                            .build_select(shift_lt_32, shift_in_range, shift_ge_32, "shlt")?
+                            .into_int_value();
+
+                        // Carry out calc
+                        // curr_c if shift_reg = 0 else
+                        //    (bit(shift_reg - 1) if 0 < shift_reg <= 32) else 0
+                        let rshift_amt = bd.build_int_sub(shift_amt, one, "r")?;
+                        let rshift_in_range =
+                            bd.build_right_shift(base, rshift_amt, true, "rsh")?;
+                        let rshift_eq_0 = bd
+                            .build_select(shift_eq_0, curr_c, rshift_in_range, "rsheq")?
+                            .into_int_value();
+                        let rshift = bd
+                            .build_select(shift_le_32, rshift_eq_0, zero, "rshle")?
+                            .into_int_value();
+
+                        let last_bit = bd.build_and(rshift, one, "b")?;
+                        let c = bd.build_int_compare(IntPredicate::EQ, last_bit, one, "cf")?;
+                        Ok((shift, Some(c)))
+                    }
+                    ArmShift::Ror(imm) => {
+                        // imm guarantedd to be between 1 and 32 (0 encodes rrx)
+                        let rot = bd
+                            .build_call(
+                                self.fshr,
+                                &[base.into(), base.into(), imm!(self, imm).into()],
+                                "rot",
+                            )?
+                            .try_as_basic_value()
+                            .left()
+                            .ok_or_else(|| anyhow!("failed to get fshr return val"))?
+                            .into_int_value();
+
+                        let shift_1_less =
+                            bd.build_right_shift(base, imm!(self, imm - 1), false, "shl")?;
+                        let last_bit = bd.build_and(shift_1_less, one, "b")?;
+                        let c = bd.build_int_compare(IntPredicate::EQ, last_bit, one, "c")?;
+                        Ok((rot, Some(c)))
+                    }
+                    ArmShift::RorReg(reg_id) => {
+                        let shift_reg = self.reg_map.get(Reg::from(reg_id));
+                        let curr_c =
+                            bd.build_int_cast_sign_flag(self.get_flag(C)?, self.i32_t, false, "c")?;
+
+                        // Only use 1st byte of shift reg
+                        let byte_mask = imm!(self, 0xff);
+                        let shift_amt = bd.build_and(shift_reg, byte_mask, "s")?;
+
+                        let byte_eq_0 =
+                            bd.build_int_compare(IntPredicate::EQ, shift_amt, zero, "beq")?;
+
+                        let rot_mask = imm!(self, 0x1f);
+                        let shift_mod = bd.build_and(shift_reg, rot_mask, "r")?;
+
+                        let rot_in_range = bd
+                            .build_call(
+                                self.fshr,
+                                &[base.into(), base.into(), shift_mod.into()],
+                                "rot",
+                            )?
+                            .try_as_basic_value()
+                            .left()
+                            .ok_or_else(|| anyhow!("failed to get fshr return val"))?
+                            .into_int_value();
+
+                        let rot = bd
+                            .build_select(byte_eq_0, shift_reg, rot_in_range, "roteq")?
+                            .into_int_value();
+
+                        let shift_mod_1_less = bd.build_int_sub(shift_mod, one, "rl")?;
+                        let shift_1_less =
+                            bd.build_right_shift(base, shift_mod_1_less, false, "shl")?;
+                        let last_bit = bd.build_and(shift_1_less, one, "b")?;
+                        let c_non_zero =
+                            bd.build_int_compare(IntPredicate::EQ, last_bit, one, "cnz")?;
+
+                        let c = bd
+                            .build_select(byte_eq_0, curr_c, c_non_zero, "c")?
+                            .into_int_value();
+
+                        Ok((rot, Some(c)))
+                    }
+                    ArmShift::Rrx(_) => {
+                        let curr_c = self.get_flag(C)?;
+                        let c32 = bd.build_int_cast_sign_flag(curr_c, self.i32_t, false, "c_in")?;
+                        let rot = bd
+                            .build_call(self.fshr, &[c32.into(), base.into()], "rot")?
+                            .try_as_basic_value()
+                            .left()
+                            .ok_or_else(|| anyhow!("failed to get fshr return val"))?
+                            .into_int_value();
+
+                        let first_bit = bd.build_and(base, one, "lsb")?;
+                        let c = bd.build_int_compare(IntPredicate::EQ, first_bit, one, "c")?;
+                        Ok((rot, Some(c)))
+                    }
+                    ArmShift::RrxReg(_reg_id) => panic!("unsupported operand (RRX reg)"),
                 }
             }
             ArmOperandType::Mem(_) => todo!(),
@@ -536,5 +671,16 @@ mod tests {
         let res = tst.run(0b0110_1111_1001_0000_1110_0000_0000_1101, 255);
         let expect_res = (0, false);
         assert_eq!(res, expect_res);
+    }
+
+    #[test]
+    fn test_ror_reg() {
+        let ctx = Context::create();
+        let op = ArmOperand {
+            op_type: ArmOperandType::Reg(RegId(ArmReg::ARM_REG_R0 as u16)),
+            shift: ArmShift::RorReg(RegId(ArmReg::ARM_REG_R1 as u16)),
+            ..Default::default()
+        };
+        let mut tst = ShiftTestCase::for_op(&ctx, &op);
     }
 }

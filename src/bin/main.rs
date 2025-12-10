@@ -1,14 +1,8 @@
 use std::env;
-use std::mem::size_of;
 
 use anyhow::Result;
 use grimlet::arm::cpu::ArmState;
-use grimlet::arm::disasm::{ArmInstruction, Disasm, MemoryDisassembler};
-use grimlet::emulator::Emulator;
-use inkwell::context::Context;
-
-
-
+use grimlet::arm::disasm::{Disasm, MemoryDisassembler};
 
 fn main() -> Result<()> {
     let bios_path = env::args().nth(1).unwrap();

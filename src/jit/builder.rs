@@ -61,6 +61,7 @@ where
     ssub_with_overflow: FunctionValue<'a>,
     uadd_with_overflow: FunctionValue<'a>,
     usub_with_overflow: FunctionValue<'a>,
+    fshr: FunctionValue<'a>,
 }
 
 pub(super) fn get_ptr_param<'a>(func: &FunctionValue<'a>, i: usize) -> Result<PointerValue<'a>> {
@@ -117,6 +118,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             let ssub_with_overflow = get_intrinsic("llvm.ssub.with.overflow", module)?;
             let uadd_with_overflow = get_intrinsic("llvm.uadd.with.overflow", module)?;
             let usub_with_overflow = get_intrinsic("llvm.usub.with.overflow", module)?;
+            let fshr = get_intrinsic("llvm.fshr", module)?;
 
             Ok(FunctionBuilder {
                 name,
@@ -140,6 +142,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                 ssub_with_overflow,
                 uadd_with_overflow,
                 usub_with_overflow,
+                fshr,
             })
         };
         build().expect("Function initialization failed")
