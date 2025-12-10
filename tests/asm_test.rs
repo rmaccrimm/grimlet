@@ -5,10 +5,8 @@ use inkwell::context::Context;
 
 #[test]
 fn test_factorial() {
-    let context = Context::create();
     let disasm = MemoryDisassembler::default();
-    let mut emulator =
-        Emulator::new(&context, disasm, Some("tests/programs/factorial.gba")).unwrap();
+    let mut emulator = Emulator::new(disasm, Some("tests/programs/factorial.gba")).unwrap();
 
     let mut run = |n| -> u32 {
         emulator.state.jump_to(0);

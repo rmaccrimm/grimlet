@@ -22,6 +22,7 @@ use crate::arm::cpu::{ArmMode, ArmState, NUM_REGS, Reg};
 use crate::arm::disasm::{ArmInstruction, CodeBlock};
 use crate::jit::builder::reg_map::RegMap;
 
+#[allow(dead_code)]
 /// Builder for creating & compiling LLVM functions
 pub struct FunctionBuilder<'ctx, 'a>
 where
@@ -40,7 +41,7 @@ where
     current_block: BasicBlock<'a>,
 
     // Read only ref to already-compiled functions
-    func_cache: &'a FunctionCache<'ctx>,
+    func_cache: Option<&'a FunctionCache<'ctx>>,
 
     // Function arguments
     arm_state_ptr: PointerValue<'a>,
@@ -88,7 +89,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         builder: &'a Builder<'ctx>,
         module: &'a Module<'ctx>,
         execution_engine: &'a ExecutionEngine<'ctx>,
-        func_cache: &'a FunctionCache<'ctx>,
+        func_cache: Option<&'a FunctionCache<'ctx>>,
     ) -> Self {
         let build = || -> Result<Self> {
             let name = func_name(addr);
@@ -213,24 +214,29 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
     fn get_compiled_func_pointer(&self, key: usize) -> Result<Option<PointerValue<'a>>> {
         // TODO sort out which int type to use where
-        match self.func_cache.get(&key) {
-            Some(f) => {
-                // pretty sure it doesn't matter which we look at
-                let ee = &self.execution_engine;
-                let func_ptr = unsafe {
-                    self.builder.build_int_to_ptr(
-                        self.llvm_ctx
-                            .ptr_sized_int_type(ee.get_target_data(), None)
-                            // Double cast since usize ensures correct pointer size but inkwell
-                            // expects u64
-                            .const_int((f.as_raw() as usize) as u64, false),
-                        self.ptr_t,
-                        &format!("{}_ptr", func_name(key)),
-                    )?
-                };
-                Ok(Some(func_ptr))
-            }
+        match self.func_cache {
             None => Ok(None),
+            Some(cache) => {
+                match cache.get(&key) {
+                    Some(f) => {
+                        // pretty sure it doesn't matter which we look at
+                        let ee = &self.execution_engine;
+                        let func_ptr = unsafe {
+                            self.builder.build_int_to_ptr(
+                                self.llvm_ctx
+                                    .ptr_sized_int_type(ee.get_target_data(), None)
+                                    // Double cast since usize ensures correct pointer size but inkwell
+                                    // expects u64
+                                    .const_int((f.as_raw() as usize) as u64, false),
+                                self.ptr_t,
+                                &format!("{}_ptr", func_name(key)),
+                            )?
+                        };
+                        Ok(Some(func_ptr))
+                    }
+                    None => Ok(None),
+                }
+            }
         }
     }
 
@@ -761,8 +767,7 @@ mod tests {
 
         let context = Context::create();
         let mut comp = Compiler::new(&context);
-        let func_cache = HashMap::new();
-        let mut f = comp.new_function(0, &func_cache);
+        let mut f = comp.new_function(0, None);
 
         let all_regs: HashSet<Reg> = REG_ITEMS.into_iter().collect();
         f.load_initial_reg_values(&all_regs).unwrap();
@@ -813,7 +818,7 @@ mod tests {
         let mut cache = HashMap::new();
 
         let all_regs: HashSet<Reg> = REG_ITEMS.into_iter().collect();
-        let mut f1 = comp.new_function(0, &cache);
+        let mut f1 = comp.new_function(0, Some(&cache));
         f1.load_initial_reg_values(&all_regs).unwrap();
 
         let r0 = f1.reg_map.get(Reg::R0);
@@ -847,7 +852,7 @@ mod tests {
         let compiled1 = f1.compile().unwrap();
         cache.insert(0, compiled1);
 
-        let mut f2 = comp.new_function(1, &cache);
+        let mut f2 = comp.new_function(1, Some(&cache));
         f2.load_initial_reg_values(&all_regs).unwrap();
         f2.reg_map.update(Reg::R0, f2.i32_t.const_int(999, false));
         f2.write_state_out().unwrap();
@@ -885,9 +890,8 @@ mod tests {
     fn test_call_intrinsic() {
         let mut state = ArmState::default();
         let context = Context::create();
-        let cache = HashMap::new();
         let mut comp = Compiler::new(&context);
-        let mut f = comp.new_function(0, &cache);
+        let mut f = comp.new_function(0, None);
 
         let all_regs: HashSet<Reg> = REG_ITEMS.into_iter().collect();
         f.load_initial_reg_values(&all_regs).unwrap();

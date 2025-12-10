@@ -44,7 +44,7 @@ impl<'ctx> Compiler<'ctx> {
     pub fn new_function<'a>(
         &'a mut self,
         addr: usize,
-        func_cache: &'a FunctionCache<'ctx>,
+        func_cache: Option<&'a FunctionCache<'ctx>>,
     ) -> FunctionBuilder<'ctx, 'a>
     where
         'ctx: 'a,

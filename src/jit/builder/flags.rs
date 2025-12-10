@@ -139,9 +139,8 @@ mod tests {
         }
 
         let context = Context::create();
-        let cache = HashMap::new();
         let mut comp = Compiler::new(&context);
-        let mut func = comp.new_function(0, &cache);
+        let mut func = comp.new_function(0, None);
 
         let all_regs: HashSet<Reg> = REG_ITEMS.into_iter().collect();
         func.load_initial_reg_values(&all_regs).unwrap();

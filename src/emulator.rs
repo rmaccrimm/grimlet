@@ -5,31 +5,23 @@ use crate::arm::cpu::ArmState;
 use crate::arm::disasm::Disasm;
 use crate::jit::{Compiler, FunctionCache};
 
-pub struct Emulator<'ctx> {
+pub struct Emulator {
     pub state: ArmState,
+    llvm_ctx: Context,
     disasm: Box<dyn Disasm>,
-    compiler: Compiler<'ctx>,
-    func_cache: FunctionCache<'ctx>,
 }
 
-impl<'ctx> Emulator<'ctx> {
-    pub fn new(
-        context: &'ctx Context,
-        disasm: impl Disasm + 'static,
-        bios_path: Option<&str>,
-    ) -> Result<Self> {
+impl Emulator {
+    pub fn new(disasm: impl Disasm + 'static, bios_path: Option<&str>) -> Result<Self> {
         let state = match bios_path {
             Some(path) => ArmState::with_bios(path)?,
             None => ArmState::default(),
         };
-        let compiler = Compiler::new(context);
-        let func_cache = FunctionCache::new();
-
+        let llvm_ctx = Context::create();
         Ok(Self {
             state,
             disasm: Box::new(disasm),
-            compiler,
-            func_cache,
+            llvm_ctx,
         })
     }
 
@@ -37,6 +29,9 @@ impl<'ctx> Emulator<'ctx> {
     where
         F: Fn(&ArmState) -> bool,
     {
+        let mut compiler = Compiler::new(&self.llvm_ctx);
+        let mut func_cache = FunctionCache::new();
+
         loop {
             if let Some(exit) = exit_condition.as_ref()
                 && exit(&self.state)
@@ -44,23 +39,22 @@ impl<'ctx> Emulator<'ctx> {
                 break;
             }
             let instr_addr = self.state.curr_instr_addr();
-            let func = match self.func_cache.get(&instr_addr) {
+            let func = match func_cache.get(&instr_addr) {
                 Some(func) => func,
                 None => {
                     let code_block = self.disasm.next_code_block(&self.state.mem, instr_addr);
                     println!("{}", code_block);
-                    match self
-                        .compiler
-                        .new_function(instr_addr, &self.func_cache)
+                    match compiler
+                        .new_function(instr_addr, Some(&func_cache))
                         .build_body(code_block)
                         .compile()
                     {
                         Ok(compiled) => {
-                            self.func_cache.insert(instr_addr, compiled);
-                            self.func_cache.get(&instr_addr).unwrap()
+                            func_cache.insert(instr_addr, compiled);
+                            func_cache.get(&instr_addr).unwrap()
                         }
                         Err(e) => {
-                            self.compiler.dump().unwrap();
+                            compiler.dump().unwrap();
                             panic!("{}", e);
                         }
                     }
@@ -108,8 +102,7 @@ mod tests {
             op_imm(ArmInsn::ARM_INS_B, 100, None),
         ]);
 
-        let llvm_ctx = Context::create();
-        let mut emulator = Emulator::new(&llvm_ctx, disasm, None).unwrap();
+        let mut emulator = Emulator::new(disasm, None).unwrap();
         // Appears in R0 if MOV was successful
         let confirm_val = u32::MAX;
         emulator.state.regs[Reg::R1] = confirm_val;
@@ -193,8 +186,7 @@ mod tests {
             op_imm(ArmInsn::ARM_INS_B, 100, None),
         ]);
 
-        let llvm_ctx = Context::create();
-        let mut em = Emulator::new(&llvm_ctx, disasm, None).unwrap();
+        let mut em = Emulator::new(disasm, None).unwrap();
 
         let exit = Some(|st: &ArmState| -> bool { st.curr_instr_addr() == 100 });
         let r0 = Reg::R0;
