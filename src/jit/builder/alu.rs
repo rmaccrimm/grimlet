@@ -29,6 +29,20 @@ macro_rules! imm {
     };
 }
 
+macro_rules! call_intrinsic {
+    ($builder:ident, $self:ident . $intrinsic:ident, $($args:expr),+) => {
+        $builder
+            .build_call(
+                $self.$intrinsic,
+                &[$($args.into()),+],
+                &format!("{}_res", stringify!(intrinsic))
+            )?
+            .try_as_basic_value()
+            .left()
+            .ok_or_else(|| anyhow!("failed to get {} return val", stringify!(intrinsic)))?
+    };
+}
+
 #[allow(dead_code)]
 impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     pub(super) fn arm_cmp(&mut self, instr: ArmInstruction) {
@@ -315,15 +329,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                     }
                     ArmShift::Ror(imm) => {
                         debug_assert!(imm > 0 && imm <= 32);
-                        let rot = bd
-                            .build_call(
-                                self.fshr,
-                                &[base.into(), base.into(), imm!(self, imm).into()],
-                                "rot",
-                            )?
-                            .try_as_basic_value()
-                            .left()
-                            .ok_or_else(|| anyhow!("failed to get fshr return val"))?
+                        let rot = call_intrinsic!(bd, self.fshr, base, base, imm!(self, imm))
                             .into_int_value();
 
                         let shift_1_less =
@@ -346,16 +352,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                         let rot_mask = imm!(self, 0x1f);
                         let shift_mod = bd.build_and(shift_reg, rot_mask, "r")?;
 
-                        let rot_in_range = bd
-                            .build_call(
-                                self.fshr,
-                                &[base.into(), base.into(), shift_mod.into()],
-                                "rot",
-                            )?
-                            .try_as_basic_value()
-                            .left()
-                            .ok_or_else(|| anyhow!("failed to get fshr return val"))?
-                            .into_int_value();
+                        let rot_in_range =
+                            call_intrinsic!(bd, self.fshr, base, base, shift_mod).into_int_value();
 
                         let rot = bd
                             .build_select(byte_eq_0, base, rot_in_range, "roteq")?
@@ -377,12 +375,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                     ArmShift::Rrx(_) => {
                         let curr_c = self.get_flag(C)?;
                         let c32 = bd.build_int_cast_sign_flag(curr_c, self.i32_t, false, "c_in")?;
-                        let rot = bd
-                            .build_call(self.fshr, &[c32.into(), base.into(), one.into()], "rot")?
-                            .try_as_basic_value()
-                            .left()
-                            .ok_or_else(|| anyhow!("failed to get fshr return val"))?
-                            .into_int_value();
+                        let rot = call_intrinsic!(bd, self.fshr, c32, base, one).into_int_value();
 
                         let first_bit = bd.build_and(base, one, "lsb")?;
                         let c = bd.build_int_compare(IntPredicate::EQ, first_bit, one, "c")?;
@@ -396,7 +389,66 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         }
     }
 
-    fn adc(&mut self, _instr: ArmInstruction) -> Result<DataProcResult<'a>> { todo!() }
+    fn adc(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+        let rd = instr.get_reg_op(0);
+        let rn = instr.get_reg_op(1);
+        let rn_val = self.reg_map.get(rn);
+        let (shifter_op, _) = self.shifter_operand(&instr.operands[2])?;
+
+        let bd = self.builder;
+        let c_in = bd.build_int_cast(self.get_flag(C)?, self.i32_t, "c32")?;
+
+        let sadd_res_1 =
+            call_intrinsic!(bd, self.uadd_with_overflow, rn_val, shifter_op).into_struct_value();
+        let s1 = bd
+            .build_extract_value(sadd_res_1, 0, "v1")?
+            .into_int_value();
+        let v1 = bd
+            .build_extract_value(sadd_res_1, 1, "c1")?
+            .into_int_value();
+
+        let sadd_res_2 = call_intrinsic!(bd, self.uadd_with_overflow, s1, c_in).into_struct_value();
+        let s2 = bd
+            .build_extract_value(sadd_res_2, 0, "v1")?
+            .into_int_value();
+        let v2 = bd
+            .build_extract_value(sadd_res_2, 1, "c2")?
+            .into_int_value();
+
+        if !instr.updates_flags {
+            return Ok(DataProcResult {
+                dest: Some(rd),
+                value: s2,
+                cpsr: None,
+            });
+        };
+
+        let uadd_res_1 =
+            call_intrinsic!(bd, self.uadd_with_overflow, rn_val, shifter_op).into_struct_value();
+        let u1 = bd
+            .build_extract_value(uadd_res_1, 0, "v1")?
+            .into_int_value();
+        let c1 = bd
+            .build_extract_value(uadd_res_1, 1, "c1")?
+            .into_int_value();
+
+        let uadd_res_2 = call_intrinsic!(bd, self.uadd_with_overflow, u1, c_in).into_struct_value();
+        let c2 = bd
+            .build_extract_value(uadd_res_2, 1, "c2")?
+            .into_int_value();
+
+        let n = bd.build_int_compare(IntPredicate::SLT, s2, imm!(self, 0), "n")?;
+        let z = bd.build_int_compare(IntPredicate::EQ, s2, imm!(self, 0), "z")?;
+        let c = bd.build_or(c1, c2, "c")?;
+        let v = bd.build_or(v1, v2, "v")?;
+        let cpsr = self.set_flags(Some(n), Some(z), Some(c), Some(v))?;
+
+        Ok(DataProcResult {
+            dest: Some(rd),
+            value: s2,
+            cpsr: Some(cpsr),
+        })
+    }
 
     fn add(&mut self, _instr: ArmInstruction) -> Result<DataProcResult<'a>> { todo!() }
 
@@ -475,27 +527,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                 cpsr: None,
             });
         }
-        let ures = bd
-            .build_call(
-                self.usub_with_overflow,
-                &[rn_val.into(), rm_val.into()],
-                "ures",
-            )?
-            .try_as_basic_value()
-            .left()
-            .unwrap()
-            .into_struct_value();
-
-        let sres = bd
-            .build_call(
-                self.ssub_with_overflow,
-                &[rn_val.into(), rm_val.into()],
-                "sres",
-            )?
-            .try_as_basic_value()
-            .left()
-            .unwrap()
-            .into_struct_value();
+        let ures = call_intrinsic!(bd, self.usub_with_overflow, rn_val, rm_val).into_struct_value();
+        let sres = call_intrinsic!(bd, self.ssub_with_overflow, rn_val, rm_val).into_struct_value();
 
         let sres_val = bd
             .build_extract_value(sres, 0, "sres_val")?
