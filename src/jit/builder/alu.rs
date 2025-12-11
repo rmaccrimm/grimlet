@@ -1,6 +1,5 @@
 use anyhow::{Context as _, Result, anyhow};
-use capstone::RegId;
-use capstone::arch::arm::{ArmCC, ArmInsn, ArmOperand, ArmOperandType, ArmReg, ArmShift};
+use capstone::arch::arm::{ArmCC, ArmOperand, ArmOperandType, ArmShift};
 use inkwell::IntPredicate;
 use inkwell::values::IntValue;
 
@@ -1269,7 +1268,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 mod tests {
 
     use capstone::RegId;
-    use capstone::arch::arm::ArmReg;
+    use capstone::arch::arm::{ArmReg, ArmShift};
     use inkwell::context::Context;
 
     use super::*;
