@@ -29,6 +29,12 @@ macro_rules! imm {
     };
 }
 
+macro_rules! imm64 {
+    ($self:ident, $i:expr) => {
+        $self.llvm_ctx.i64_type().const_int($i as u64, false)
+    };
+}
+
 macro_rules! call_intrinsic {
     ($builder:ident, $self:ident . $intrinsic:ident, $($args:expr),+) => {
         $builder
@@ -608,6 +614,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let rm_op = instr.operands[1].clone();
         // Insert a dummy operand for rd
         instr.operands = vec![rd_op.clone(), rd_op, rm_op];
+        instr.updates_flags = true;
         let DataProcResult { result: _, cpsr } = self.add(instr)?;
         Ok(DataProcResult { result: None, cpsr })
     }
@@ -617,6 +624,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let rm_op = instr.operands[1].clone();
         // Insert a dummy operand for rd
         instr.operands = vec![rd_op.clone(), rd_op, rm_op];
+        instr.updates_flags = true;
         let DataProcResult { result: _, cpsr } = self.sub(instr)?;
         Ok(DataProcResult { result: None, cpsr })
     }
@@ -924,6 +932,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let rm_op = instr.operands[1].clone();
         // Insert a dummy operand for rd because eor expects it.
         instr.operands = vec![rd_op.clone(), rd_op, rm_op];
+        instr.updates_flags = true;
         let DataProcResult { result: _, cpsr } = self.eor(instr)?;
         Ok(DataProcResult { result: None, cpsr })
     }
@@ -933,6 +942,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let rm_op = instr.operands[1].clone();
         // Insert a dummy operand for rd because and expects it.
         instr.operands = vec![rd_op.clone(), rd_op, rm_op];
+        instr.updates_flags = true;
         let DataProcResult { result: _, cpsr } = self.and(instr)?;
         Ok(DataProcResult { result: None, cpsr })
     }
@@ -943,61 +953,70 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let rm = instr.get_reg_op(1);
         let rs = instr.get_reg_op(2);
         let rn = instr.get_reg_op(3);
-
         let rm_val = self.reg_map.get(rm);
         let rs_val = self.reg_map.get(rs);
         let rn_val = self.reg_map.get(rn);
-
-        let mul_res = bd.build_int_mul(rm_val, rs_val, "mul")?;
-        let res_val = bd.build_int_add(mul_res, rn_val, "mla")?;
+        let mul = bd.build_int_mul(rm_val, rs_val, "mul")?;
+        let mla = bd.build_int_add(mul, rn_val, "mla")?;
 
         if !instr.updates_flags {
             return Ok(DataProcResult {
-                result: Some((rd, res_val)),
+                result: Some((rd, mla)),
                 cpsr: None,
             });
         }
 
-        let n = bd.build_int_compare(IntPredicate::SLT, res_val, imm!(self, 0), "n")?;
-        let z = bd.build_int_compare(IntPredicate::EQ, res_val, imm!(self, 0), "z")?;
+        let n = bd.build_int_compare(IntPredicate::SLT, mla, imm!(self, 0), "n")?;
+        let z = bd.build_int_compare(IntPredicate::EQ, mla, imm!(self, 0), "z")?;
         let cpsr = self.set_flags(Some(n), Some(z), None, None)?;
 
         Ok(DataProcResult {
-            result: Some((rd, res_val)),
+            result: Some((rd, mla)),
             cpsr: Some(cpsr),
         })
     }
 
     fn mul(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+        let bd = self.builder;
         let rd = instr.get_reg_op(0);
         let rm = instr.get_reg_op(1);
         let rs = instr.get_reg_op(2);
         let rm_val = self.reg_map.get(rm);
         let rs_val = self.reg_map.get(rs);
-        let res = self.builder.build_int_mul(rm_val, rs_val, "mul")?;
+        let mul = bd.build_int_mul(rm_val, rs_val, "mul")?;
+
+        if !instr.updates_flags {
+            return Ok(DataProcResult {
+                result: Some((rd, mul)),
+                cpsr: None,
+            });
+        }
+
+        let n = bd.build_int_compare(IntPredicate::SLT, mul, imm!(self, 0), "n")?;
+        let z = bd.build_int_compare(IntPredicate::EQ, mul, imm!(self, 0), "z")?;
+        let cpsr = self.set_flags(Some(n), Some(z), None, None)?;
+
         Ok(DataProcResult {
-            result: Some((rd, res)),
-            cpsr: None,
+            result: Some((rd, mul)),
+            cpsr: Some(cpsr),
         })
     }
 
     fn smlal(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
         let bd = self.builder;
-        let rdhi = instr.get_reg_op(0);
-        let rdlo = instr.get_reg_op(1);
+        let rdlo = instr.get_reg_op(0);
+        let rdhi = instr.get_reg_op(1);
         let rm = instr.get_reg_op(2);
         let rs = instr.get_reg_op(3);
-
         let rm_val = self.reg_map.get(rm);
         let rs_val = self.reg_map.get(rs);
         let rdhi_val = self.reg_map.get(rdhi);
         let rdlo_val = self.reg_map.get(rdlo);
 
-        // Combine RdHi:RdLo into 64-bit value
-        let rdhi_i64 = bd.build_int_s_extend(rdhi_val, self.llvm_ctx.i64_type(), "rdhi_i64")?;
-        let rdlo_i64 = bd.build_int_z_extend(rdlo_val, self.llvm_ctx.i64_type(), "rdlo_i64")?;
-        let shift_32 = self.llvm_ctx.i64_type().const_int(32, false);
-        let acc = bd.build_left_shift(rdhi_i64, shift_32, "acc_hi")?;
+        let i64_t = self.llvm_ctx.i64_type();
+        let rdhi_i64 = bd.build_int_s_extend(rdhi_val, i64_t, "rdhi_i64")?;
+        let rdlo_i64 = bd.build_int_z_extend(rdlo_val, i64_t, "rdlo_i64")?;
+        let acc = bd.build_left_shift(rdhi_i64, imm64!(self, 32), "acc_hi")?;
         let acc = bd.build_or(acc, rdlo_i64, "acc")?;
 
         // Sign-extend operands to i64 and multiply
@@ -1006,10 +1025,10 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let mul_res = bd.build_int_mul(rm_i64, rs_i64, "mul")?;
 
         // Add to accumulator
-        let res = bd.build_int_add(mul_res, acc, "smlal")?;
+        let mla_res = bd.build_int_add(mul_res, acc, "smlal")?;
 
         // Extract high 32 bits for RdHi
-        let hi_val = bd.build_right_shift(res, shift_32, true, "hi")?;
+        let hi_val = bd.build_right_shift(mla_res, imm64!(self, 32), true, "hi")?;
         let hi_val = bd.build_int_truncate(hi_val, self.i32_t, "hi_i32")?;
 
         if !instr.updates_flags {
