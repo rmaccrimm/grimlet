@@ -389,6 +389,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         }
     }
 
+    /// TODO - handle rd = pc case
     fn adc(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
@@ -450,11 +451,103 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         })
     }
 
-    fn add(&mut self, _instr: ArmInstruction) -> Result<DataProcResult<'a>> { todo!() }
+    fn add(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+        let bd = self.builder;
+        let rd = instr.get_reg_op(0);
+        let rn = instr.get_reg_op(1);
+        let rn_val = self.reg_map.get(rn);
+        let (shifter_op, _) =
+            self.shifter_operand(instr.operands.get(2).expect("Missing operand"))?;
 
-    fn and(&mut self, _instr: ArmInstruction) -> Result<DataProcResult<'a>> { todo!() }
+        if !instr.updates_flags {
+            return Ok(DataProcResult {
+                dest: Some(rd),
+                value: bd.build_int_add(rn_val, shifter_op, "add")?,
+                cpsr: None,
+            });
+        }
 
-    fn bic(&mut self, _instr: ArmInstruction) -> Result<DataProcResult<'a>> { todo!() }
+        let sadd_res =
+            call_intrinsic!(bd, self.sadd_with_overflow, rn_val, shifter_op).into_struct_value();
+        let uadd_res =
+            call_intrinsic!(bd, self.uadd_with_overflow, rn_val, shifter_op).into_struct_value();
+
+        let res_val = bd
+            .build_extract_value(sadd_res, 0, "res_val")?
+            .into_int_value();
+        let v = bd.build_extract_value(sadd_res, 1, "v")?.into_int_value();
+        let c = bd.build_extract_value(uadd_res, 1, "c")?.into_int_value();
+
+        let n = bd.build_int_compare(IntPredicate::SLT, res_val, imm!(self, 0), "n")?;
+        let z = bd.build_int_compare(IntPredicate::EQ, res_val, imm!(self, 0), "z")?;
+        let cpsr = self.set_flags(Some(n), Some(z), Some(c), Some(v))?;
+
+        Ok(DataProcResult {
+            dest: Some(rd),
+            value: res_val,
+            cpsr: Some(cpsr),
+        })
+    }
+
+    fn and(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+        let bd = self.builder;
+        let rd = instr.get_reg_op(0);
+        let rn = instr.get_reg_op(1);
+        let rn_val = self.reg_map.get(rn);
+        let (shifter_op, c_flag) =
+            self.shifter_operand(instr.operands.get(2).expect("Missing operand"))?;
+
+        let res_val = bd.build_and(rn_val, shifter_op, "and")?;
+
+        if !instr.updates_flags {
+            return Ok(DataProcResult {
+                dest: Some(rd),
+                value: res_val,
+                cpsr: None,
+            });
+        }
+
+        let n = bd.build_int_compare(IntPredicate::SLT, res_val, imm!(self, 0), "n")?;
+        let z = bd.build_int_compare(IntPredicate::EQ, res_val, imm!(self, 0), "z")?;
+        let cpsr = self.set_flags(Some(n), Some(z), c_flag, None)?;
+
+        Ok(DataProcResult {
+            dest: Some(rd),
+            value: res_val,
+            cpsr: Some(cpsr),
+        })
+    }
+
+    fn bic(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+        let bd = self.builder;
+        let rd = instr.get_reg_op(0);
+        let rn = instr.get_reg_op(1);
+        let rn_val = self.reg_map.get(rn);
+        let (shifter_op, c_flag) =
+            self.shifter_operand(instr.operands.get(2).expect("Missing operand"))?;
+
+        // BIC: Rd = Rn AND NOT(shifter_op)
+        let not_shifter = bd.build_not(shifter_op, "not_shift")?;
+        let res_val = bd.build_and(rn_val, not_shifter, "bic")?;
+
+        if !instr.updates_flags {
+            return Ok(DataProcResult {
+                dest: Some(rd),
+                value: res_val,
+                cpsr: None,
+            });
+        }
+
+        let n = bd.build_int_compare(IntPredicate::SLT, res_val, imm!(self, 0), "n")?;
+        let z = bd.build_int_compare(IntPredicate::EQ, res_val, imm!(self, 0), "z")?;
+        let cpsr = self.set_flags(Some(n), Some(z), c_flag, None)?;
+
+        Ok(DataProcResult {
+            dest: Some(rd),
+            value: res_val,
+            cpsr: Some(cpsr),
+        })
+    }
 
     fn cmd(&mut self, _instr: ArmInstruction) -> Result<DataProcResult<'a>> { todo!() }
 
@@ -475,7 +568,34 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         })
     }
 
-    fn eor(&mut self, _instr: ArmInstruction) -> Result<DataProcResult<'a>> { todo!() }
+    fn eor(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+        let bd = self.builder;
+        let rd = instr.get_reg_op(0);
+        let rn = instr.get_reg_op(1);
+        let rn_val = self.reg_map.get(rn);
+        let (shifter_op, c_flag) =
+            self.shifter_operand(instr.operands.get(2).expect("Missing operand"))?;
+
+        let res_val = bd.build_xor(rn_val, shifter_op, "eor")?;
+
+        if !instr.updates_flags {
+            return Ok(DataProcResult {
+                dest: Some(rd),
+                value: res_val,
+                cpsr: None,
+            });
+        }
+
+        let n = bd.build_int_compare(IntPredicate::SLT, res_val, imm!(self, 0), "n")?;
+        let z = bd.build_int_compare(IntPredicate::EQ, res_val, imm!(self, 0), "z")?;
+        let cpsr = self.set_flags(Some(n), Some(z), c_flag, None)?;
+
+        Ok(DataProcResult {
+            dest: Some(rd),
+            value: res_val,
+            cpsr: Some(cpsr),
+        })
+    }
 
     fn mov(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
         let rd = instr.get_reg_op(0);
@@ -502,15 +622,229 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         }
     }
 
-    fn mvn(&mut self, _instr: ArmInstruction) -> Result<DataProcResult<'a>> { todo!() }
+    fn mvn(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+        let bd = self.builder;
+        let rd = instr.get_reg_op(0);
+        let (shifter, c_flag) =
+            self.shifter_operand(instr.operands.get(1).expect("Missing operand"))?;
 
-    fn orr(&mut self, _instr: ArmInstruction) -> Result<DataProcResult<'a>> { todo!() }
+        let res_val = bd.build_not(shifter, "mvn")?;
 
-    fn rsb(&mut self, _instr: ArmInstruction) -> Result<DataProcResult<'a>> { todo!() }
+        if !instr.updates_flags {
+            return Ok(DataProcResult {
+                dest: Some(rd),
+                value: res_val,
+                cpsr: None,
+            });
+        }
 
-    fn rsc(&mut self, _instr: ArmInstruction) -> Result<DataProcResult<'a>> { todo!() }
+        let n = bd.build_int_compare(IntPredicate::SLT, res_val, imm!(self, 0), "n")?;
+        let z = bd.build_int_compare(IntPredicate::EQ, res_val, imm!(self, 0), "z")?;
+        let cpsr = self.set_flags(Some(n), Some(z), c_flag, None)?;
 
-    fn sbc(&mut self, _instr: ArmInstruction) -> Result<DataProcResult<'a>> { todo!() }
+        Ok(DataProcResult {
+            dest: Some(rd),
+            value: res_val,
+            cpsr: Some(cpsr),
+        })
+    }
+
+    fn orr(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+        let bd = self.builder;
+        let rd = instr.get_reg_op(0);
+        let rn = instr.get_reg_op(1);
+        let rn_val = self.reg_map.get(rn);
+        let (shifter_op, c_flag) =
+            self.shifter_operand(instr.operands.get(2).expect("Missing operand"))?;
+
+        let res_val = bd.build_or(rn_val, shifter_op, "orr")?;
+
+        if !instr.updates_flags {
+            return Ok(DataProcResult {
+                dest: Some(rd),
+                value: res_val,
+                cpsr: None,
+            });
+        }
+
+        let n = bd.build_int_compare(IntPredicate::SLT, res_val, imm!(self, 0), "n")?;
+        let z = bd.build_int_compare(IntPredicate::EQ, res_val, imm!(self, 0), "z")?;
+        let cpsr = self.set_flags(Some(n), Some(z), c_flag, None)?;
+
+        Ok(DataProcResult {
+            dest: Some(rd),
+            value: res_val,
+            cpsr: Some(cpsr),
+        })
+    }
+
+    fn rsb(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+        let bd = self.builder;
+        let rd = instr.get_reg_op(0);
+        let rn = instr.get_reg_op(1);
+        let rn_val = self.reg_map.get(rn);
+        let (rm_val, _) = self.shifter_operand(instr.operands.get(2).expect("Missing operand"))?;
+
+        // RSB: Rd = shifter_op - Rn
+        if !instr.updates_flags {
+            return Ok(DataProcResult {
+                dest: Some(rd),
+                value: bd.build_int_sub(rm_val, rn_val, "rsb")?,
+                cpsr: None,
+            });
+        }
+
+        let ures = call_intrinsic!(bd, self.usub_with_overflow, rm_val, rn_val).into_struct_value();
+        let sres = call_intrinsic!(bd, self.ssub_with_overflow, rm_val, rn_val).into_struct_value();
+
+        let res_val = bd.build_extract_value(sres, 0, "res_val")?.into_int_value();
+        let v_flag = bd.build_extract_value(sres, 1, "v")?.into_int_value();
+        let c_flag = bd.build_not(
+            bd.build_extract_value(ures, 1, "not_c")?.into_int_value(),
+            "c",
+        )?;
+
+        let n = bd.build_int_compare(IntPredicate::SLT, res_val, imm!(self, 0), "n")?;
+        let z = bd.build_int_compare(IntPredicate::EQ, res_val, imm!(self, 0), "z")?;
+        let cpsr = self.set_flags(Some(n), Some(z), Some(c_flag), Some(v_flag))?;
+
+        Ok(DataProcResult {
+            dest: Some(rd),
+            value: res_val,
+            cpsr: Some(cpsr),
+        })
+    }
+
+    fn rsc(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+        let bd = self.builder;
+        let rd = instr.get_reg_op(0);
+        let rn = instr.get_reg_op(1);
+        let rn_val = self.reg_map.get(rn);
+        let (shifter_op, _) =
+            self.shifter_operand(instr.operands.get(2).expect("Missing operand"))?;
+
+        // RSC: Rd = shifter_op - Rn - NOT(C)
+        let c_in = bd.build_int_cast(self.get_flag(C)?, self.i32_t, "c32")?;
+        let not_c = bd.build_not(c_in, "not_c")?;
+
+        let sadd_res_1 =
+            call_intrinsic!(bd, self.ssub_with_overflow, shifter_op, rn_val).into_struct_value();
+        let s1 = bd
+            .build_extract_value(sadd_res_1, 0, "v1")?
+            .into_int_value();
+        let v1 = bd
+            .build_extract_value(sadd_res_1, 1, "v1")?
+            .into_int_value();
+
+        let sadd_res_2 =
+            call_intrinsic!(bd, self.ssub_with_overflow, s1, not_c).into_struct_value();
+        let s2 = bd
+            .build_extract_value(sadd_res_2, 0, "v2")?
+            .into_int_value();
+        let v2 = bd
+            .build_extract_value(sadd_res_2, 1, "v2")?
+            .into_int_value();
+
+        if !instr.updates_flags {
+            return Ok(DataProcResult {
+                dest: Some(rd),
+                value: s2,
+                cpsr: None,
+            });
+        }
+
+        let usub_res_1 =
+            call_intrinsic!(bd, self.usub_with_overflow, shifter_op, rn_val).into_struct_value();
+        let u1 = bd
+            .build_extract_value(usub_res_1, 0, "u1")?
+            .into_int_value();
+        let c1 = bd
+            .build_extract_value(usub_res_1, 1, "c1")?
+            .into_int_value();
+
+        let usub_res_2 =
+            call_intrinsic!(bd, self.usub_with_overflow, u1, not_c).into_struct_value();
+        let c2 = bd
+            .build_extract_value(usub_res_2, 1, "c2")?
+            .into_int_value();
+
+        let n = bd.build_int_compare(IntPredicate::SLT, s2, imm!(self, 0), "n")?;
+        let z = bd.build_int_compare(IntPredicate::EQ, s2, imm!(self, 0), "z")?;
+        let c = bd.build_or(c1, c2, "c")?;
+        let v = bd.build_or(v1, v2, "v")?;
+        let cpsr = self.set_flags(Some(n), Some(z), Some(c), Some(v))?;
+
+        Ok(DataProcResult {
+            dest: Some(rd),
+            value: s2,
+            cpsr: Some(cpsr),
+        })
+    }
+
+    fn sbc(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+        let bd = self.builder;
+        let rd = instr.get_reg_op(0);
+        let rn = instr.get_reg_op(1);
+        let rn_val = self.reg_map.get(rn);
+        let (rm_val, _) = self.shifter_operand(instr.operands.get(2).expect("Missing operand"))?;
+
+        // SBC: Rd = Rn - shifter_op - NOT(C)
+        let c_in = bd.build_int_cast(self.get_flag(C)?, self.i32_t, "c32")?;
+        let not_c = bd.build_not(c_in, "not_c")?;
+
+        let sadd_res_1 =
+            call_intrinsic!(bd, self.ssub_with_overflow, rn_val, rm_val).into_struct_value();
+        let s1 = bd
+            .build_extract_value(sadd_res_1, 0, "v1")?
+            .into_int_value();
+        let v1 = bd
+            .build_extract_value(sadd_res_1, 1, "v1")?
+            .into_int_value();
+
+        let sadd_res_2 =
+            call_intrinsic!(bd, self.ssub_with_overflow, s1, not_c).into_struct_value();
+        let s2 = bd
+            .build_extract_value(sadd_res_2, 0, "v2")?
+            .into_int_value();
+        let v2 = bd
+            .build_extract_value(sadd_res_2, 1, "v2")?
+            .into_int_value();
+
+        if !instr.updates_flags {
+            return Ok(DataProcResult {
+                dest: Some(rd),
+                value: s2,
+                cpsr: None,
+            });
+        }
+
+        let usub_res_1 =
+            call_intrinsic!(bd, self.usub_with_overflow, rn_val, rm_val).into_struct_value();
+        let u1 = bd
+            .build_extract_value(usub_res_1, 0, "u1")?
+            .into_int_value();
+        let c1 = bd
+            .build_extract_value(usub_res_1, 1, "c1")?
+            .into_int_value();
+
+        let usub_res_2 =
+            call_intrinsic!(bd, self.usub_with_overflow, u1, not_c).into_struct_value();
+        let c2 = bd
+            .build_extract_value(usub_res_2, 1, "c2")?
+            .into_int_value();
+
+        let n = bd.build_int_compare(IntPredicate::SLT, s2, imm!(self, 0), "n")?;
+        let z = bd.build_int_compare(IntPredicate::EQ, s2, imm!(self, 0), "z")?;
+        let c = bd.build_or(c1, c2, "c")?;
+        let v = bd.build_or(v1, v2, "v")?;
+        let cpsr = self.set_flags(Some(n), Some(z), Some(c), Some(v))?;
+
+        Ok(DataProcResult {
+            dest: Some(rd),
+            value: s2,
+            cpsr: Some(cpsr),
+        })
+    }
 
     fn sub(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
         let bd = self.builder;
@@ -553,11 +887,72 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         })
     }
 
-    fn teq(&mut self, _instr: ArmInstruction) -> Result<DataProcResult<'a>> { todo!() }
+    fn teq(&mut self, mut instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+        let rd_op = instr.operands[0].clone();
+        let rm_op = instr.operands[1].clone();
+        // Insert a dummy operand for rd because eor expects it.
+        instr.operands = vec![rd_op.clone(), rd_op, rm_op];
+        let DataProcResult {
+            dest: _,
+            value,
+            cpsr,
+        } = self.eor(instr)?;
+        Ok(DataProcResult {
+            dest: None,
+            value,
+            cpsr,
+        })
+    }
 
-    fn tst(&mut self, _instr: ArmInstruction) -> Result<DataProcResult<'a>> { todo!() }
+    fn tst(&mut self, mut instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+        let rd_op = instr.operands[0].clone();
+        let rm_op = instr.operands[1].clone();
+        // Insert a dummy operand for rd because and expects it.
+        instr.operands = vec![rd_op.clone(), rd_op, rm_op];
+        let DataProcResult {
+            dest: _,
+            value,
+            cpsr,
+        } = self.and(instr)?;
+        Ok(DataProcResult {
+            dest: None,
+            value,
+            cpsr,
+        })
+    }
 
-    fn mla(&mut self, _instr: ArmInstruction) -> Result<DataProcResult<'a>> { todo!() }
+    fn mla(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+        let bd = self.builder;
+        let rd = instr.get_reg_op(0);
+        let rm = instr.get_reg_op(1);
+        let rs = instr.get_reg_op(2);
+        let rn = instr.get_reg_op(3);
+
+        let rm_val = self.reg_map.get(rm);
+        let rs_val = self.reg_map.get(rs);
+        let rn_val = self.reg_map.get(rn);
+
+        let mul_res = bd.build_int_mul(rm_val, rs_val, "mul")?;
+        let res_val = bd.build_int_add(mul_res, rn_val, "mla")?;
+
+        if !instr.updates_flags {
+            return Ok(DataProcResult {
+                dest: Some(rd),
+                value: res_val,
+                cpsr: None,
+            });
+        }
+
+        let n = bd.build_int_compare(IntPredicate::SLT, res_val, imm!(self, 0), "n")?;
+        let z = bd.build_int_compare(IntPredicate::EQ, res_val, imm!(self, 0), "z")?;
+        let cpsr = self.set_flags(Some(n), Some(z), None, None)?;
+
+        Ok(DataProcResult {
+            dest: Some(rd),
+            value: res_val,
+            cpsr: Some(cpsr),
+        })
+    }
 
     fn mul(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
         let rd = instr.get_reg_op(0);
@@ -573,13 +968,227 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         })
     }
 
-    fn smlal(&mut self, _instr: ArmInstruction) -> Result<DataProcResult<'a>> { todo!() }
+    fn smlal(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+        let bd = self.builder;
+        let rdhi = instr.get_reg_op(0);
+        let rdlo = instr.get_reg_op(1);
+        let rm = instr.get_reg_op(2);
+        let rs = instr.get_reg_op(3);
 
-    fn smull(&mut self, _instr: ArmInstruction) -> Result<DataProcResult<'a>> { todo!() }
+        let rm_val = self.reg_map.get(rm);
+        let rs_val = self.reg_map.get(rs);
+        let rdhi_val = self.reg_map.get(rdhi);
+        let rdlo_val = self.reg_map.get(rdlo);
 
-    fn umlal(&mut self, _instr: ArmInstruction) -> Result<DataProcResult<'a>> { todo!() }
+        // Combine RdHi:RdLo into 64-bit value
+        let rdhi_i64 = bd.build_int_s_extend(rdhi_val, self.llvm_ctx.i64_type(), "rdhi_i64")?;
+        let rdlo_i64 = bd.build_int_z_extend(rdlo_val, self.llvm_ctx.i64_type(), "rdlo_i64")?;
+        let shift_32 = self.llvm_ctx.i64_type().const_int(32, false);
+        let acc = bd.build_left_shift(rdhi_i64, shift_32, "acc_hi")?;
+        let acc = bd.build_or(acc, rdlo_i64, "acc")?;
 
-    fn umull(&mut self, _instr: ArmInstruction) -> Result<DataProcResult<'a>> { todo!() }
+        // Sign-extend operands to i64 and multiply
+        let rm_i64 = bd.build_int_s_extend(rm_val, self.llvm_ctx.i64_type(), "rm_i64")?;
+        let rs_i64 = bd.build_int_s_extend(rs_val, self.llvm_ctx.i64_type(), "rs_i64")?;
+        let mul_res = bd.build_int_mul(rm_i64, rs_i64, "mul")?;
+
+        // Add to accumulator
+        let res = bd.build_int_add(mul_res, acc, "smlal")?;
+
+        // Extract high 32 bits for RdHi
+        let hi_val = bd.build_right_shift(res, shift_32, true, "hi")?;
+        let hi_val = bd.build_int_truncate(hi_val, self.i32_t, "hi_i32")?;
+
+        if !instr.updates_flags {
+            return Ok(DataProcResult {
+                dest: Some(rdhi),
+                value: hi_val,
+                cpsr: None,
+            });
+        }
+
+        let n = bd.build_int_compare(
+            IntPredicate::SLT,
+            res,
+            self.llvm_ctx.i64_type().const_zero(),
+            "n",
+        )?;
+        let z = bd.build_int_compare(
+            IntPredicate::EQ,
+            res,
+            self.llvm_ctx.i64_type().const_zero(),
+            "z",
+        )?;
+        let cpsr = self.set_flags(Some(n), Some(z), None, None)?;
+
+        Ok(DataProcResult {
+            dest: Some(rdhi),
+            value: hi_val,
+            cpsr: Some(cpsr),
+        })
+    }
+
+    fn smull(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+        let bd = self.builder;
+        let rdhi = instr.get_reg_op(0);
+        let rm = instr.get_reg_op(2);
+        let rs = instr.get_reg_op(3);
+
+        let rm_val = self.reg_map.get(rm);
+        let rs_val = self.reg_map.get(rs);
+
+        // Sign-extend to i64 and multiply
+        let rm_i64 = bd.build_int_s_extend(rm_val, self.llvm_ctx.i64_type(), "rm_i64")?;
+        let rs_i64 = bd.build_int_s_extend(rs_val, self.llvm_ctx.i64_type(), "rs_i64")?;
+        let mul_res = bd.build_int_mul(rm_i64, rs_i64, "smull")?;
+
+        // Note: RdLo would be updated separately in actual instruction dispatcher
+        let _lo_val = bd.build_int_truncate(mul_res, self.i32_t, "lo")?;
+
+        // Extract high 32 bits for RdHi
+        let shift_32 = self.llvm_ctx.i64_type().const_int(32, false);
+        let hi_val = bd.build_right_shift(mul_res, shift_32, true, "hi")?;
+        let hi_val = bd.build_int_truncate(hi_val, self.i32_t, "hi_i32")?;
+
+        if !instr.updates_flags {
+            return Ok(DataProcResult {
+                dest: Some(rdhi), // We'll update both in the caller
+                value: hi_val,
+                cpsr: None,
+            });
+        }
+
+        let n = bd.build_int_compare(
+            IntPredicate::SLT,
+            mul_res,
+            self.llvm_ctx.i64_type().const_zero(),
+            "n",
+        )?;
+        let z = bd.build_int_compare(
+            IntPredicate::EQ,
+            mul_res,
+            self.llvm_ctx.i64_type().const_zero(),
+            "z",
+        )?;
+        let cpsr = self.set_flags(Some(n), Some(z), None, None)?;
+
+        Ok(DataProcResult {
+            dest: Some(rdhi),
+            value: hi_val,
+            cpsr: Some(cpsr),
+        })
+    }
+
+    fn umlal(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+        let bd = self.builder;
+        let rdhi = instr.get_reg_op(0);
+        let rdlo = instr.get_reg_op(1);
+        let rm = instr.get_reg_op(2);
+        let rs = instr.get_reg_op(3);
+
+        let rm_val = self.reg_map.get(rm);
+        let rs_val = self.reg_map.get(rs);
+        let rdhi_val = self.reg_map.get(rdhi);
+        let rdlo_val = self.reg_map.get(rdlo);
+
+        // Combine RdHi:RdLo into 64-bit value
+        let rdhi_i64 = bd.build_int_z_extend(rdhi_val, self.llvm_ctx.i64_type(), "rdhi_i64")?;
+        let rdlo_i64 = bd.build_int_z_extend(rdlo_val, self.llvm_ctx.i64_type(), "rdlo_i64")?;
+        let shift_32 = self.llvm_ctx.i64_type().const_int(32, false);
+        let acc = bd.build_left_shift(rdhi_i64, shift_32, "acc_hi")?;
+        let acc = bd.build_or(acc, rdlo_i64, "acc")?;
+
+        // Zero-extend operands to i64 and multiply
+        let rm_i64 = bd.build_int_z_extend(rm_val, self.llvm_ctx.i64_type(), "rm_i64")?;
+        let rs_i64 = bd.build_int_z_extend(rs_val, self.llvm_ctx.i64_type(), "rs_i64")?;
+        let mul_res = bd.build_int_mul(rm_i64, rs_i64, "mul")?;
+
+        // Add to accumulator
+        let res = bd.build_int_add(mul_res, acc, "umlal")?;
+
+        // Extract high 32 bits for RdHi
+        let hi_val = bd.build_right_shift(res, shift_32, false, "hi")?;
+        let hi_val = bd.build_int_truncate(hi_val, self.i32_t, "hi_i32")?;
+
+        if !instr.updates_flags {
+            return Ok(DataProcResult {
+                dest: Some(rdhi),
+                value: hi_val,
+                cpsr: None,
+            });
+        }
+
+        let n = bd.build_int_compare(
+            IntPredicate::SLT,
+            res,
+            self.llvm_ctx.i64_type().const_zero(),
+            "n",
+        )?;
+        let z = bd.build_int_compare(
+            IntPredicate::EQ,
+            res,
+            self.llvm_ctx.i64_type().const_zero(),
+            "z",
+        )?;
+        let cpsr = self.set_flags(Some(n), Some(z), None, None)?;
+
+        Ok(DataProcResult {
+            dest: Some(rdhi),
+            value: hi_val,
+            cpsr: Some(cpsr),
+        })
+    }
+
+    fn umull(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+        let bd = self.builder;
+        let rdhi = instr.get_reg_op(0);
+        let rm = instr.get_reg_op(2);
+        let rs = instr.get_reg_op(3);
+
+        let rm_val = self.reg_map.get(rm);
+        let rs_val = self.reg_map.get(rs);
+
+        // Zero-extend to i64 and multiply
+        let rm_i64 = bd.build_int_z_extend(rm_val, self.llvm_ctx.i64_type(), "rm_i64")?;
+        let rs_i64 = bd.build_int_z_extend(rs_val, self.llvm_ctx.i64_type(), "rs_i64")?;
+        let mul_res = bd.build_int_mul(rm_i64, rs_i64, "umull")?;
+
+        // Note: RdLo would be updated separately in actual instruction dispatcher
+        let _lo_val = bd.build_int_truncate(mul_res, self.i32_t, "lo")?;
+
+        // Extract high 32 bits for RdHi
+        let shift_32 = self.llvm_ctx.i64_type().const_int(32, false);
+        let hi_val = bd.build_right_shift(mul_res, shift_32, false, "hi")?;
+        let hi_val = bd.build_int_truncate(hi_val, self.i32_t, "hi_i32")?;
+
+        if !instr.updates_flags {
+            return Ok(DataProcResult {
+                dest: Some(rdhi), // We'll update both in the caller
+                value: hi_val,
+                cpsr: None,
+            });
+        }
+
+        let n = bd.build_int_compare(
+            IntPredicate::SLT,
+            mul_res,
+            self.llvm_ctx.i64_type().const_zero(),
+            "n",
+        )?;
+        let z = bd.build_int_compare(
+            IntPredicate::EQ,
+            mul_res,
+            self.llvm_ctx.i64_type().const_zero(),
+            "z",
+        )?;
+        let cpsr = self.set_flags(Some(n), Some(z), None, None)?;
+
+        Ok(DataProcResult {
+            dest: Some(rdhi),
+            value: hi_val,
+            cpsr: Some(cpsr),
+        })
+    }
 }
 
 #[cfg(test)]
@@ -640,7 +1249,7 @@ mod tests {
     }
 
     #[test]
-    fn test_lsl_reg() {
+    fn test_shifter_op_lsl_reg() {
         let ctx = Context::create();
         let mut tst =
             ShifterOperandTestCase::new(&ctx, ArmShift::LslReg(RegId(ArmReg::ARM_REG_R1 as u16)));
@@ -688,7 +1297,7 @@ mod tests {
     }
 
     #[test]
-    fn test_lsr_reg() {
+    fn test_shifter_op_lsr_reg() {
         let ctx = Context::create();
         let mut tst =
             ShifterOperandTestCase::new(&ctx, ArmShift::LsrReg(RegId(ArmReg::ARM_REG_R1 as u16)));
@@ -728,7 +1337,7 @@ mod tests {
     }
 
     #[test]
-    fn test_asr_reg() {
+    fn test_shifter_op_asr_reg() {
         let ctx = Context::create();
         let mut tst =
             ShifterOperandTestCase::new(&ctx, ArmShift::AsrReg(RegId(ArmReg::ARM_REG_R1 as u16)));
@@ -775,7 +1384,7 @@ mod tests {
     }
 
     #[test]
-    fn test_ror_reg() {
+    fn test_shifter_op_ror_reg() {
         let ctx = Context::create();
         let mut tst =
             ShifterOperandTestCase::new(&ctx, ArmShift::RorReg(RegId(ArmReg::ARM_REG_R1 as u16)));
@@ -810,7 +1419,7 @@ mod tests {
     }
 
     #[test]
-    fn test_lsl_imm() {
+    fn test_shifter_op_lsl_imm() {
         let ctx = Context::create();
         let mut tst = ShifterOperandTestCase::new(&ctx, ArmShift::Lsl(0));
 
@@ -836,7 +1445,7 @@ mod tests {
     }
 
     #[test]
-    fn test_lsr_imm() {
+    fn test_shifter_op_lsr_imm() {
         let ctx = Context::create();
         let mut tst = ShifterOperandTestCase::new(&ctx, ArmShift::Lsr(4));
         let res = tst.run(0b1111_0001_1001_1100_1110_0000_0100_1101, None);
@@ -857,7 +1466,7 @@ mod tests {
     }
 
     #[test]
-    fn test_asr_imm() {
+    fn test_shifter_op_asr_imm() {
         let ctx = Context::create();
         let mut tst = ShifterOperandTestCase::new(&ctx, ArmShift::Asr(4));
         let res = tst.run(0b1111_0001_1001_1100_1110_0000_0100_1101, None);
@@ -878,7 +1487,7 @@ mod tests {
     }
 
     #[test]
-    fn test_ror_imm() {
+    fn test_shifter_op_ror_imm() {
         let ctx = Context::create();
         let mut tst = ShifterOperandTestCase::new(&ctx, ArmShift::Ror(8));
         let res = tst.run(0b1111_0001_1001_1100_1110_0000_0100_1101, None);
@@ -900,7 +1509,7 @@ mod tests {
     }
 
     #[test]
-    fn test_rrx() {
+    fn test_shifter_op_rrx() {
         let ctx = Context::create();
         let mut tst = ShifterOperandTestCase::new(&ctx, ArmShift::Rrx(13)); // imm value is ignored
 
@@ -914,4 +1523,10 @@ mod tests {
         let expect_res = (0b01111000110011100111000000100110, true);
         assert_eq!(res, expect_res);
     }
+
+    #[test]
+    fn test_adc() { todo!() }
+
+    #[test]
+    fn test_add() { todo!() }
 }
