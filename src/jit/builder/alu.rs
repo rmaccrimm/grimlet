@@ -1,5 +1,6 @@
 use anyhow::{Context as _, Result, anyhow};
-use capstone::arch::arm::{ArmCC, ArmOperand, ArmOperandType, ArmShift};
+use capstone::RegId;
+use capstone::arch::arm::{ArmCC, ArmInsn, ArmOperand, ArmOperandType, ArmReg, ArmShift};
 use inkwell::IntPredicate;
 use inkwell::values::IntValue;
 
@@ -9,8 +10,7 @@ use crate::jit::FunctionBuilder;
 use crate::jit::builder::flags::C;
 
 struct DataProcResult<'a> {
-    dest: Option<Reg>,
-    value: IntValue<'a>,
+    result: Option<(Reg, IntValue<'a>)>,
     cpsr: Option<IntValue<'a>>,
 }
 
@@ -140,8 +140,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         if instr.cond == ArmCC::ARM_CC_AL {
             let calc_result = inner(self, instr)?;
-            if let Some(rd) = calc_result.dest {
-                self.reg_map.update(rd, calc_result.value);
+            if let Some((rd, value)) = calc_result.result {
+                self.reg_map.update(rd, value);
             }
             if let Some(cpsr) = calc_result.cpsr {
                 self.reg_map.update(Reg::CPSR, cpsr);
@@ -167,12 +167,9 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         bd.build_unconditional_branch(end_block)?;
         bd.position_at_end(end_block);
 
-        if let Some(rd) = calc_result.dest {
+        if let Some((rd, value)) = calc_result.result {
             let phi = bd.build_phi(self.i32_t, "phi_dest")?;
-            phi.add_incoming(&[
-                (&dest_init, self.current_block),
-                (&calc_result.value, if_block),
-            ]);
+            phi.add_incoming(&[(&dest_init, self.current_block), (&value, if_block)]);
             self.reg_map
                 .update(rd, phi.as_basic_value().into_int_value());
         }
@@ -467,10 +464,18 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let bd = self.builder;
         let c_in = bd.build_int_cast(self.get_flag(C)?, self.i32_t, "c32")?;
 
+        if !instr.updates_flags {
+            let v1 = bd.build_int_add(rn_val, shifter_op, "add_res_1")?;
+            return Ok(DataProcResult {
+                result: Some((rd, bd.build_int_add(v1, c_in, "add_res_2")?)),
+                cpsr: None,
+            });
+        };
+
         let sadd_res_1 =
             call_intrinsic!(bd, self.uadd_with_overflow, rn_val, shifter_op).into_struct_value();
         let s1 = bd
-            .build_extract_value(sadd_res_1, 0, "v1")?
+            .build_extract_value(sadd_res_1, 0, "sres1")?
             .into_int_value();
         let v1 = bd
             .build_extract_value(sadd_res_1, 1, "c1")?
@@ -478,24 +483,16 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         let sadd_res_2 = call_intrinsic!(bd, self.uadd_with_overflow, s1, c_in).into_struct_value();
         let s2 = bd
-            .build_extract_value(sadd_res_2, 0, "v1")?
+            .build_extract_value(sadd_res_2, 0, "sres2")?
             .into_int_value();
         let v2 = bd
             .build_extract_value(sadd_res_2, 1, "c2")?
             .into_int_value();
 
-        if !instr.updates_flags {
-            return Ok(DataProcResult {
-                dest: Some(rd),
-                value: s2,
-                cpsr: None,
-            });
-        };
-
         let uadd_res_1 =
             call_intrinsic!(bd, self.uadd_with_overflow, rn_val, shifter_op).into_struct_value();
         let u1 = bd
-            .build_extract_value(uadd_res_1, 0, "v1")?
+            .build_extract_value(uadd_res_1, 0, "ures")?
             .into_int_value();
         let c1 = bd
             .build_extract_value(uadd_res_1, 1, "c1")?
@@ -513,24 +510,22 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let cpsr = self.set_flags(Some(n), Some(z), Some(c), Some(v))?;
 
         Ok(DataProcResult {
-            dest: Some(rd),
-            value: s2,
+            result: Some((rd, s2)),
             cpsr: Some(cpsr),
         })
     }
 
+    /// TODO rd = pc case
     fn add(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
         let bd = self.builder;
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
         let rn_val = self.reg_map.get(rn);
-        let (shifter_op, _) =
-            self.shifter_operand(instr.operands.get(2).expect("Missing operand"))?;
+        let (shifter_op, _) = self.shifter_operand(&instr.operands[2])?;
 
         if !instr.updates_flags {
             return Ok(DataProcResult {
-                dest: Some(rd),
-                value: bd.build_int_add(rn_val, shifter_op, "add")?,
+                result: Some((rd, bd.build_int_add(rn_val, shifter_op, "add_res")?)),
                 cpsr: None,
             });
         }
@@ -551,8 +546,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let cpsr = self.set_flags(Some(n), Some(z), Some(c), Some(v))?;
 
         Ok(DataProcResult {
-            dest: Some(rd),
-            value: res_val,
+            result: Some((rd, res_val)),
             cpsr: Some(cpsr),
         })
     }
@@ -562,26 +556,21 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
         let rn_val = self.reg_map.get(rn);
-        let (shifter_op, c_flag) =
-            self.shifter_operand(instr.operands.get(2).expect("Missing operand"))?;
+        let (shifter_op, c_flag) = self.shifter_operand(&instr.operands[2])?;
 
         let res_val = bd.build_and(rn_val, shifter_op, "and")?;
-
         if !instr.updates_flags {
             return Ok(DataProcResult {
-                dest: Some(rd),
-                value: res_val,
+                result: Some((rd, res_val)),
                 cpsr: None,
             });
         }
-
         let n = bd.build_int_compare(IntPredicate::SLT, res_val, imm!(self, 0), "n")?;
         let z = bd.build_int_compare(IntPredicate::EQ, res_val, imm!(self, 0), "z")?;
         let cpsr = self.set_flags(Some(n), Some(z), c_flag, None)?;
 
         Ok(DataProcResult {
-            dest: Some(rd),
-            value: res_val,
+            result: Some((rd, res_val)),
             cpsr: Some(cpsr),
         })
     }
@@ -591,8 +580,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
         let rn_val = self.reg_map.get(rn);
-        let (shifter_op, c_flag) =
-            self.shifter_operand(instr.operands.get(2).expect("Missing operand"))?;
+        let (shifter_op, c_flag) = self.shifter_operand(&instr.operands[2])?;
 
         // BIC: Rd = Rn AND NOT(shifter_op)
         let not_shifter = bd.build_not(shifter_op, "not_shift")?;
@@ -600,8 +588,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         if !instr.updates_flags {
             return Ok(DataProcResult {
-                dest: Some(rd),
-                value: res_val,
+                result: Some((rd, res_val)),
                 cpsr: None,
             });
         }
@@ -611,29 +598,45 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let cpsr = self.set_flags(Some(n), Some(z), c_flag, None)?;
 
         Ok(DataProcResult {
-            dest: Some(rd),
-            value: res_val,
+            result: Some((rd, res_val)),
             cpsr: Some(cpsr),
         })
     }
 
-    fn cmd(&mut self, _instr: ArmInstruction) -> Result<DataProcResult<'a>> { todo!() }
+    fn cmn(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+        let bd = self.builder;
+        let rn = instr.get_reg_op(1);
+        let rn_val = self.reg_map.get(rn);
+        let (shifter_op, _) = self.shifter_operand(&instr.operands[2])?;
+
+        let sadd_res =
+            call_intrinsic!(bd, self.sadd_with_overflow, rn_val, shifter_op).into_struct_value();
+        let uadd_res =
+            call_intrinsic!(bd, self.uadd_with_overflow, rn_val, shifter_op).into_struct_value();
+
+        let res_val = bd
+            .build_extract_value(sadd_res, 0, "res_val")?
+            .into_int_value();
+        let v = bd.build_extract_value(sadd_res, 1, "v")?.into_int_value();
+        let c = bd.build_extract_value(uadd_res, 1, "c")?.into_int_value();
+
+        let n = bd.build_int_compare(IntPredicate::SLT, res_val, imm!(self, 0), "n")?;
+        let z = bd.build_int_compare(IntPredicate::EQ, res_val, imm!(self, 0), "z")?;
+        let cpsr = self.set_flags(Some(n), Some(z), Some(c), Some(v))?;
+
+        Ok(DataProcResult {
+            result: None,
+            cpsr: Some(cpsr),
+        })
+    }
 
     fn cmp(&mut self, mut instr: ArmInstruction) -> Result<DataProcResult<'a>> {
-        let op1 = instr.operands[0].clone();
-        let op2 = instr.operands[1].clone();
-        // Insert a dummy operand because sub expects it.
-        instr.operands = vec![op1.clone(), op1, op2];
-        let DataProcResult {
-            dest: _,
-            value,
-            cpsr,
-        } = self.sub(instr)?;
-        Ok(DataProcResult {
-            dest: None,
-            value,
-            cpsr,
-        })
+        let rd_op = instr.operands[0].clone();
+        let rm_op = instr.operands[1].clone();
+        // Insert a dummy operand for rd because sub expects it.
+        instr.operands = vec![rd_op.clone(), rd_op, rm_op];
+        let DataProcResult { result: _, cpsr } = self.sub(instr)?;
+        Ok(DataProcResult { result: None, cpsr })
     }
 
     fn eor(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
@@ -648,8 +651,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         if !instr.updates_flags {
             return Ok(DataProcResult {
-                dest: Some(rd),
-                value: res_val,
+                result: Some((rd, res_val)),
                 cpsr: None,
             });
         }
@@ -659,8 +661,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let cpsr = self.set_flags(Some(n), Some(z), c_flag, None)?;
 
         Ok(DataProcResult {
-            dest: Some(rd),
-            value: res_val,
+            result: Some((rd, res_val)),
             cpsr: Some(cpsr),
         })
     }
@@ -677,14 +678,12 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             let z = bd.build_int_compare(IntPredicate::EQ, shifter, zero, "z")?;
             let cpsr = self.set_flags(Some(n), Some(z), c, None)?;
             Ok(DataProcResult {
-                dest: Some(rd),
-                value: shifter,
+                result: Some((rd, shifter)),
                 cpsr: Some(cpsr),
             })
         } else {
             Ok(DataProcResult {
-                dest: Some(rd),
-                value: shifter,
+                result: Some((rd, shifter)),
                 cpsr: None,
             })
         }
@@ -700,8 +699,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         if !instr.updates_flags {
             return Ok(DataProcResult {
-                dest: Some(rd),
-                value: res_val,
+                result: Some((rd, res_val)),
                 cpsr: None,
             });
         }
@@ -711,8 +709,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let cpsr = self.set_flags(Some(n), Some(z), c_flag, None)?;
 
         Ok(DataProcResult {
-            dest: Some(rd),
-            value: res_val,
+            result: Some((rd, res_val)),
             cpsr: Some(cpsr),
         })
     }
@@ -729,8 +726,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         if !instr.updates_flags {
             return Ok(DataProcResult {
-                dest: Some(rd),
-                value: res_val,
+                result: Some((rd, res_val)),
                 cpsr: None,
             });
         }
@@ -740,8 +736,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let cpsr = self.set_flags(Some(n), Some(z), c_flag, None)?;
 
         Ok(DataProcResult {
-            dest: Some(rd),
-            value: res_val,
+            result: Some((rd, res_val)),
             cpsr: Some(cpsr),
         })
     }
@@ -756,8 +751,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         // RSB: Rd = shifter_op - Rn
         if !instr.updates_flags {
             return Ok(DataProcResult {
-                dest: Some(rd),
-                value: bd.build_int_sub(rm_val, rn_val, "rsb")?,
+                result: Some((rd, bd.build_int_sub(rm_val, rn_val, "rsb")?)),
                 cpsr: None,
             });
         }
@@ -777,8 +771,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let cpsr = self.set_flags(Some(n), Some(z), Some(c_flag), Some(v_flag))?;
 
         Ok(DataProcResult {
-            dest: Some(rd),
-            value: res_val,
+            result: Some((rd, res_val)),
             cpsr: Some(cpsr),
         })
     }
@@ -815,8 +808,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         if !instr.updates_flags {
             return Ok(DataProcResult {
-                dest: Some(rd),
-                value: s2,
+                result: Some((rd, s2)),
                 cpsr: None,
             });
         }
@@ -843,8 +835,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let cpsr = self.set_flags(Some(n), Some(z), Some(c), Some(v))?;
 
         Ok(DataProcResult {
-            dest: Some(rd),
-            value: s2,
+            result: Some((rd, s2)),
             cpsr: Some(cpsr),
         })
     }
@@ -880,8 +871,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         if !instr.updates_flags {
             return Ok(DataProcResult {
-                dest: Some(rd),
-                value: s2,
+                result: Some((rd, s2)),
                 cpsr: None,
             });
         }
@@ -908,8 +898,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let cpsr = self.set_flags(Some(n), Some(z), Some(c), Some(v))?;
 
         Ok(DataProcResult {
-            dest: Some(rd),
-            value: s2,
+            result: Some((rd, s2)),
             cpsr: Some(cpsr),
         })
     }
@@ -924,8 +913,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         if !instr.updates_flags {
             return Ok(DataProcResult {
-                dest: Some(rd),
-                value: bd.build_int_sub(rn_val, rm_val, "sub")?,
+                result: Some((rd, bd.build_int_sub(rn_val, rm_val, "sub")?)),
                 cpsr: None,
             });
         }
@@ -949,8 +937,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let cpsr = self.set_flags(Some(n_flag), Some(z_flag), Some(c_flag), Some(v_flag))?;
 
         Ok(DataProcResult {
-            dest: Some(rd),
-            value: sres_val,
+            result: Some((rd, sres_val)),
             cpsr: Some(cpsr),
         })
     }
@@ -960,16 +947,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let rm_op = instr.operands[1].clone();
         // Insert a dummy operand for rd because eor expects it.
         instr.operands = vec![rd_op.clone(), rd_op, rm_op];
-        let DataProcResult {
-            dest: _,
-            value,
-            cpsr,
-        } = self.eor(instr)?;
-        Ok(DataProcResult {
-            dest: None,
-            value,
-            cpsr,
-        })
+        let DataProcResult { result: _, cpsr } = self.eor(instr)?;
+        Ok(DataProcResult { result: None, cpsr })
     }
 
     fn tst(&mut self, mut instr: ArmInstruction) -> Result<DataProcResult<'a>> {
@@ -977,16 +956,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let rm_op = instr.operands[1].clone();
         // Insert a dummy operand for rd because and expects it.
         instr.operands = vec![rd_op.clone(), rd_op, rm_op];
-        let DataProcResult {
-            dest: _,
-            value,
-            cpsr,
-        } = self.and(instr)?;
-        Ok(DataProcResult {
-            dest: None,
-            value,
-            cpsr,
-        })
+        let DataProcResult { result: _, cpsr } = self.and(instr)?;
+        Ok(DataProcResult { result: None, cpsr })
     }
 
     fn mla(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
@@ -1005,8 +976,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         if !instr.updates_flags {
             return Ok(DataProcResult {
-                dest: Some(rd),
-                value: res_val,
+                result: Some((rd, res_val)),
                 cpsr: None,
             });
         }
@@ -1016,8 +986,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let cpsr = self.set_flags(Some(n), Some(z), None, None)?;
 
         Ok(DataProcResult {
-            dest: Some(rd),
-            value: res_val,
+            result: Some((rd, res_val)),
             cpsr: Some(cpsr),
         })
     }
@@ -1030,8 +999,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let rs_val = self.reg_map.get(rs);
         let res = self.builder.build_int_mul(rm_val, rs_val, "mul")?;
         Ok(DataProcResult {
-            dest: Some(rd),
-            value: res,
+            result: Some((rd, res)),
             cpsr: None,
         })
     }
@@ -1069,8 +1037,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         if !instr.updates_flags {
             return Ok(DataProcResult {
-                dest: Some(rdhi),
-                value: hi_val,
+                result: Some((rdhi, hi_val)),
                 cpsr: None,
             });
         }
@@ -1090,8 +1057,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let cpsr = self.set_flags(Some(n), Some(z), None, None)?;
 
         Ok(DataProcResult {
-            dest: Some(rdhi),
-            value: hi_val,
+            result: Some((rdhi, hi_val)),
             cpsr: Some(cpsr),
         })
     }
@@ -1120,8 +1086,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         if !instr.updates_flags {
             return Ok(DataProcResult {
-                dest: Some(rdhi), // We'll update both in the caller
-                value: hi_val,
+                result: Some((rdhi, hi_val)),
                 cpsr: None,
             });
         }
@@ -1141,8 +1106,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let cpsr = self.set_flags(Some(n), Some(z), None, None)?;
 
         Ok(DataProcResult {
-            dest: Some(rdhi),
-            value: hi_val,
+            result: Some((rdhi, hi_val)),
             cpsr: Some(cpsr),
         })
     }
@@ -1180,8 +1144,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         if !instr.updates_flags {
             return Ok(DataProcResult {
-                dest: Some(rdhi),
-                value: hi_val,
+                result: Some((rdhi, hi_val)),
                 cpsr: None,
             });
         }
@@ -1201,8 +1164,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let cpsr = self.set_flags(Some(n), Some(z), None, None)?;
 
         Ok(DataProcResult {
-            dest: Some(rdhi),
-            value: hi_val,
+            result: Some((rdhi, hi_val)),
             cpsr: Some(cpsr),
         })
     }
@@ -1231,8 +1193,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         if !instr.updates_flags {
             return Ok(DataProcResult {
-                dest: Some(rdhi), // We'll update both in the caller
-                value: hi_val,
+                result: Some((rdhi, hi_val)),
                 cpsr: None,
             });
         }
@@ -1252,8 +1213,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let cpsr = self.set_flags(Some(n), Some(z), None, None)?;
 
         Ok(DataProcResult {
-            dest: Some(rdhi),
-            value: hi_val,
+            result: Some((rdhi, hi_val)),
             cpsr: Some(cpsr),
         })
     }
