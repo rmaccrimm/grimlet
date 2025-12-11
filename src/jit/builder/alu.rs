@@ -45,16 +45,84 @@ macro_rules! call_intrinsic {
 
 #[allow(dead_code)]
 impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
+    pub(super) fn arm_adc(&mut self, instr: ArmInstruction) {
+        exec_and_expect!(self, instr, Self::adc)
+    }
+
+    pub(super) fn arm_add(&mut self, instr: ArmInstruction) {
+        exec_and_expect!(self, instr, Self::add)
+    }
+
+    pub(super) fn arm_and(&mut self, instr: ArmInstruction) {
+        exec_and_expect!(self, instr, Self::and)
+    }
+
+    pub(super) fn arm_bic(&mut self, instr: ArmInstruction) {
+        exec_and_expect!(self, instr, Self::bic)
+    }
+
     pub(super) fn arm_cmp(&mut self, instr: ArmInstruction) {
         exec_and_expect!(self, instr, Self::cmp)
+    }
+
+    pub(super) fn arm_eor(&mut self, instr: ArmInstruction) {
+        exec_and_expect!(self, instr, Self::eor)
+    }
+
+    pub(super) fn arm_mla(&mut self, instr: ArmInstruction) {
+        exec_and_expect!(self, instr, Self::mla)
     }
 
     pub(super) fn arm_mov(&mut self, instr: ArmInstruction) {
         exec_and_expect!(self, instr, Self::mov)
     }
 
+    pub(super) fn arm_mvn(&mut self, instr: ArmInstruction) {
+        exec_and_expect!(self, instr, Self::mvn)
+    }
+
+    pub(super) fn arm_orr(&mut self, instr: ArmInstruction) {
+        exec_and_expect!(self, instr, Self::orr)
+    }
+
+    pub(super) fn arm_rsb(&mut self, instr: ArmInstruction) {
+        exec_and_expect!(self, instr, Self::rsb)
+    }
+
+    pub(super) fn arm_rsc(&mut self, instr: ArmInstruction) {
+        exec_and_expect!(self, instr, Self::rsc)
+    }
+
+    pub(super) fn arm_sbc(&mut self, instr: ArmInstruction) {
+        exec_and_expect!(self, instr, Self::sbc)
+    }
+
+    pub(super) fn arm_smlal(&mut self, instr: ArmInstruction) {
+        exec_and_expect!(self, instr, Self::smlal)
+    }
+
+    pub(super) fn arm_smull(&mut self, instr: ArmInstruction) {
+        exec_and_expect!(self, instr, Self::smull)
+    }
+
     pub(super) fn arm_sub(&mut self, instr: ArmInstruction) {
         exec_and_expect!(self, instr, Self::sub)
+    }
+
+    pub(super) fn arm_teq(&mut self, instr: ArmInstruction) {
+        exec_and_expect!(self, instr, Self::teq)
+    }
+
+    pub(super) fn arm_tst(&mut self, instr: ArmInstruction) {
+        exec_and_expect!(self, instr, Self::tst)
+    }
+
+    pub(super) fn arm_umlal(&mut self, instr: ArmInstruction) {
+        exec_and_expect!(self, instr, Self::umlal)
+    }
+
+    pub(super) fn arm_umull(&mut self, instr: ArmInstruction) {
+        exec_and_expect!(self, instr, Self::umull)
     }
 
     pub(super) fn arm_mul(&mut self, instr: ArmInstruction) {
