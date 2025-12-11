@@ -630,13 +630,35 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         })
     }
 
-    fn cmp(&mut self, mut instr: ArmInstruction) -> Result<DataProcResult<'a>> {
-        let rd_op = instr.operands[0].clone();
-        let rm_op = instr.operands[1].clone();
-        // Insert a dummy operand for rd because sub expects it.
-        instr.operands = vec![rd_op.clone(), rd_op, rm_op];
-        let DataProcResult { result: _, cpsr } = self.sub(instr)?;
-        Ok(DataProcResult { result: None, cpsr })
+    fn cmp(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+        let bd = self.builder;
+        let rn = instr.get_reg_op(0);
+        let rn_val = self.reg_map.get(rn);
+        let (rm_val, _) = self.shifter_operand(&instr.operands[1])?;
+
+        let ures = call_intrinsic!(bd, self.usub_with_overflow, rn_val, rm_val).into_struct_value();
+        let sres = call_intrinsic!(bd, self.ssub_with_overflow, rn_val, rm_val).into_struct_value();
+
+        let sres_val = bd
+            .build_extract_value(sres, 0, "sres_val")?
+            .into_int_value();
+
+        let v_flag = bd.build_extract_value(sres, 1, "v")?.into_int_value();
+        let c_flag = bd.build_not(
+            bd.build_extract_value(ures, 1, "not_c")?.into_int_value(),
+            "c",
+        )?;
+        let z_flag =
+            bd.build_int_compare(IntPredicate::EQ, sres_val, self.i32_t.const_zero(), "n")?;
+        let n_flag =
+            bd.build_int_compare(IntPredicate::SLT, sres_val, self.i32_t.const_zero(), "z")?;
+
+        let cpsr = self.set_flags(Some(n_flag), Some(z_flag), Some(c_flag), Some(v_flag))?;
+
+        Ok(DataProcResult {
+            result: None,
+            cpsr: Some(cpsr),
+        })
     }
 
     fn eor(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
