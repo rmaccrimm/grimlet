@@ -603,62 +603,22 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         })
     }
 
-    fn cmn(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
-        let bd = self.builder;
-        let rn = instr.get_reg_op(1);
-        let rn_val = self.reg_map.get(rn);
-        let (shifter_op, _) = self.shifter_operand(&instr.operands[2])?;
-
-        let sadd_res =
-            call_intrinsic!(bd, self.sadd_with_overflow, rn_val, shifter_op).into_struct_value();
-        let uadd_res =
-            call_intrinsic!(bd, self.uadd_with_overflow, rn_val, shifter_op).into_struct_value();
-
-        let res_val = bd
-            .build_extract_value(sadd_res, 0, "res_val")?
-            .into_int_value();
-        let v = bd.build_extract_value(sadd_res, 1, "v")?.into_int_value();
-        let c = bd.build_extract_value(uadd_res, 1, "c")?.into_int_value();
-
-        let n = bd.build_int_compare(IntPredicate::SLT, res_val, imm!(self, 0), "n")?;
-        let z = bd.build_int_compare(IntPredicate::EQ, res_val, imm!(self, 0), "z")?;
-        let cpsr = self.set_flags(Some(n), Some(z), Some(c), Some(v))?;
-
-        Ok(DataProcResult {
-            result: None,
-            cpsr: Some(cpsr),
-        })
+    fn cmn(&mut self, mut instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+        let rd_op = instr.operands[0].clone();
+        let rm_op = instr.operands[1].clone();
+        // Insert a dummy operand for rd
+        instr.operands = vec![rd_op.clone(), rd_op, rm_op];
+        let DataProcResult { result: _, cpsr } = self.add(instr)?;
+        Ok(DataProcResult { result: None, cpsr })
     }
 
-    fn cmp(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
-        let bd = self.builder;
-        let rn = instr.get_reg_op(0);
-        let rn_val = self.reg_map.get(rn);
-        let (rm_val, _) = self.shifter_operand(&instr.operands[1])?;
-
-        let ures = call_intrinsic!(bd, self.usub_with_overflow, rn_val, rm_val).into_struct_value();
-        let sres = call_intrinsic!(bd, self.ssub_with_overflow, rn_val, rm_val).into_struct_value();
-
-        let sres_val = bd
-            .build_extract_value(sres, 0, "sres_val")?
-            .into_int_value();
-
-        let v_flag = bd.build_extract_value(sres, 1, "v")?.into_int_value();
-        let c_flag = bd.build_not(
-            bd.build_extract_value(ures, 1, "not_c")?.into_int_value(),
-            "c",
-        )?;
-        let z_flag =
-            bd.build_int_compare(IntPredicate::EQ, sres_val, self.i32_t.const_zero(), "n")?;
-        let n_flag =
-            bd.build_int_compare(IntPredicate::SLT, sres_val, self.i32_t.const_zero(), "z")?;
-
-        let cpsr = self.set_flags(Some(n_flag), Some(z_flag), Some(c_flag), Some(v_flag))?;
-
-        Ok(DataProcResult {
-            result: None,
-            cpsr: Some(cpsr),
-        })
+    fn cmp(&mut self, mut instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+        let rd_op = instr.operands[0].clone();
+        let rm_op = instr.operands[1].clone();
+        // Insert a dummy operand for rd
+        instr.operands = vec![rd_op.clone(), rd_op, rm_op];
+        let DataProcResult { result: _, cpsr } = self.sub(instr)?;
+        Ok(DataProcResult { result: None, cpsr })
     }
 
     fn eor(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
@@ -666,8 +626,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
         let rn_val = self.reg_map.get(rn);
-        let (shifter_op, c_flag) =
-            self.shifter_operand(instr.operands.get(2).expect("Missing operand"))?;
+        let (shifter_op, c_flag) = self.shifter_operand(&instr.operands[2])?;
 
         let res_val = bd.build_xor(rn_val, shifter_op, "eor")?;
 
@@ -689,15 +648,13 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     fn mov(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+        let bd = self.builder;
         let rd = instr.get_reg_op(0);
-        let (shifter, c) =
-            self.shifter_operand(instr.operands.get(1).expect("missing 2nd operand"))?;
+        let (shifter, c) = self.shifter_operand(&instr.operands[1])?;
 
         if instr.updates_flags {
-            let bd = self.builder;
-            let zero = self.i32_t.const_int(0, false);
-            let n = bd.build_int_compare(IntPredicate::SLT, shifter, zero, "n")?;
-            let z = bd.build_int_compare(IntPredicate::EQ, shifter, zero, "z")?;
+            let n = bd.build_int_compare(IntPredicate::SLT, shifter, imm!(self, 0), "n")?;
+            let z = bd.build_int_compare(IntPredicate::EQ, shifter, imm!(self, 0), "z")?;
             let cpsr = self.set_flags(Some(n), Some(z), c, None)?;
             Ok(DataProcResult {
                 result: Some((rd, shifter)),
@@ -714,8 +671,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     fn mvn(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
         let bd = self.builder;
         let rd = instr.get_reg_op(0);
-        let (shifter, c_flag) =
-            self.shifter_operand(instr.operands.get(1).expect("Missing operand"))?;
+        let (shifter, c) = self.shifter_operand(&instr.operands[1])?;
 
         let res_val = bd.build_not(shifter, "mvn")?;
 
@@ -728,7 +684,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         let n = bd.build_int_compare(IntPredicate::SLT, res_val, imm!(self, 0), "n")?;
         let z = bd.build_int_compare(IntPredicate::EQ, res_val, imm!(self, 0), "z")?;
-        let cpsr = self.set_flags(Some(n), Some(z), c_flag, None)?;
+        let cpsr = self.set_flags(Some(n), Some(z), c, None)?;
 
         Ok(DataProcResult {
             result: Some((rd, res_val)),
@@ -741,8 +697,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
         let rn_val = self.reg_map.get(rn);
-        let (shifter_op, c_flag) =
-            self.shifter_operand(instr.operands.get(2).expect("Missing operand"))?;
+        let (shifter_op, c) = self.shifter_operand(&instr.operands[2])?;
 
         let res_val = bd.build_or(rn_val, shifter_op, "orr")?;
 
@@ -755,7 +710,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         let n = bd.build_int_compare(IntPredicate::SLT, res_val, imm!(self, 0), "n")?;
         let z = bd.build_int_compare(IntPredicate::EQ, res_val, imm!(self, 0), "z")?;
-        let cpsr = self.set_flags(Some(n), Some(z), c_flag, None)?;
+        let cpsr = self.set_flags(Some(n), Some(z), c, None)?;
 
         Ok(DataProcResult {
             result: Some((rd, res_val)),
@@ -768,18 +723,19 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
         let rn_val = self.reg_map.get(rn);
-        let (rm_val, _) = self.shifter_operand(instr.operands.get(2).expect("Missing operand"))?;
+        let (shifter_op, _) = self.shifter_operand(&instr.operands[2])?;
 
-        // RSB: Rd = shifter_op - Rn
         if !instr.updates_flags {
             return Ok(DataProcResult {
-                result: Some((rd, bd.build_int_sub(rm_val, rn_val, "rsb")?)),
+                result: Some((rd, bd.build_int_sub(shifter_op, rn_val, "rsb")?)),
                 cpsr: None,
             });
         }
 
-        let ures = call_intrinsic!(bd, self.usub_with_overflow, rm_val, rn_val).into_struct_value();
-        let sres = call_intrinsic!(bd, self.ssub_with_overflow, rm_val, rn_val).into_struct_value();
+        let ures =
+            call_intrinsic!(bd, self.usub_with_overflow, shifter_op, rn_val).into_struct_value();
+        let sres =
+            call_intrinsic!(bd, self.ssub_with_overflow, shifter_op, rn_val).into_struct_value();
 
         let res_val = bd.build_extract_value(sres, 0, "res_val")?.into_int_value();
         let v_flag = bd.build_extract_value(sres, 1, "v")?.into_int_value();
@@ -806,26 +762,25 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let (shifter_op, _) =
             self.shifter_operand(instr.operands.get(2).expect("Missing operand"))?;
 
-        // RSC: Rd = shifter_op - Rn - NOT(C)
         let c_in = bd.build_int_cast(self.get_flag(C)?, self.i32_t, "c32")?;
         let not_c = bd.build_not(c_in, "not_c")?;
 
-        let sadd_res_1 =
+        let ssub_res_1 =
             call_intrinsic!(bd, self.ssub_with_overflow, shifter_op, rn_val).into_struct_value();
         let s1 = bd
-            .build_extract_value(sadd_res_1, 0, "v1")?
+            .build_extract_value(ssub_res_1, 0, "sres1")?
             .into_int_value();
         let v1 = bd
-            .build_extract_value(sadd_res_1, 1, "v1")?
+            .build_extract_value(ssub_res_1, 1, "v1")?
             .into_int_value();
 
-        let sadd_res_2 =
+        let ssub_res_2 =
             call_intrinsic!(bd, self.ssub_with_overflow, s1, not_c).into_struct_value();
         let s2 = bd
-            .build_extract_value(sadd_res_2, 0, "v2")?
+            .build_extract_value(ssub_res_2, 0, "sres2")?
             .into_int_value();
         let v2 = bd
-            .build_extract_value(sadd_res_2, 1, "v2")?
+            .build_extract_value(ssub_res_2, 1, "v2")?
             .into_int_value();
 
         if !instr.updates_flags {
@@ -867,28 +822,27 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
         let rn_val = self.reg_map.get(rn);
-        let (rm_val, _) = self.shifter_operand(instr.operands.get(2).expect("Missing operand"))?;
+        let (shifter_op, _) = self.shifter_operand(&instr.operands[2])?;
 
-        // SBC: Rd = Rn - shifter_op - NOT(C)
         let c_in = bd.build_int_cast(self.get_flag(C)?, self.i32_t, "c32")?;
         let not_c = bd.build_not(c_in, "not_c")?;
 
-        let sadd_res_1 =
-            call_intrinsic!(bd, self.ssub_with_overflow, rn_val, rm_val).into_struct_value();
+        let ssub_res_1 =
+            call_intrinsic!(bd, self.ssub_with_overflow, rn_val, shifter_op).into_struct_value();
         let s1 = bd
-            .build_extract_value(sadd_res_1, 0, "v1")?
+            .build_extract_value(ssub_res_1, 0, "sres1")?
             .into_int_value();
         let v1 = bd
-            .build_extract_value(sadd_res_1, 1, "v1")?
+            .build_extract_value(ssub_res_1, 1, "v1")?
             .into_int_value();
 
-        let sadd_res_2 =
+        let ssub_res_2 =
             call_intrinsic!(bd, self.ssub_with_overflow, s1, not_c).into_struct_value();
         let s2 = bd
-            .build_extract_value(sadd_res_2, 0, "v2")?
+            .build_extract_value(ssub_res_2, 0, "sres2")?
             .into_int_value();
         let v2 = bd
-            .build_extract_value(sadd_res_2, 1, "v2")?
+            .build_extract_value(ssub_res_2, 1, "v2")?
             .into_int_value();
 
         if !instr.updates_flags {
@@ -899,7 +853,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         }
 
         let usub_res_1 =
-            call_intrinsic!(bd, self.usub_with_overflow, rn_val, rm_val).into_struct_value();
+            call_intrinsic!(bd, self.usub_with_overflow, rn_val, shifter_op).into_struct_value();
         let u1 = bd
             .build_extract_value(usub_res_1, 0, "u1")?
             .into_int_value();
@@ -930,17 +884,18 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
         let rn_val = self.reg_map.get(rn);
-        let (rm_val, _c_flag) =
-            self.shifter_operand(instr.operands.get(2).expect("Missing 2nd operand"))?;
+        let (shifter_op, _) = self.shifter_operand(&instr.operands[2])?;
 
         if !instr.updates_flags {
             return Ok(DataProcResult {
-                result: Some((rd, bd.build_int_sub(rn_val, rm_val, "sub")?)),
+                result: Some((rd, bd.build_int_sub(rn_val, shifter_op, "sub")?)),
                 cpsr: None,
             });
         }
-        let ures = call_intrinsic!(bd, self.usub_with_overflow, rn_val, rm_val).into_struct_value();
-        let sres = call_intrinsic!(bd, self.ssub_with_overflow, rn_val, rm_val).into_struct_value();
+        let ures =
+            call_intrinsic!(bd, self.usub_with_overflow, rn_val, shifter_op).into_struct_value();
+        let sres =
+            call_intrinsic!(bd, self.ssub_with_overflow, rn_val, shifter_op).into_struct_value();
 
         let sres_val = bd
             .build_extract_value(sres, 0, "sres_val")?
