@@ -1,13 +1,10 @@
 use std::fs;
 use std::process::{Command, Stdio};
 
-use anyhow::{Result, anyhow, bail};
-use capstone::Capstone;
-use capstone::arch::BuildsCapstone as _;
-use capstone::arch::arm::ArchMode;
+use anyhow::{Result, bail};
 use clap::Parser;
 use grimlet::arm::cpu::ArmMode;
-use grimlet::arm::disasm::ArmInstruction;
+use grimlet::arm::disasm::MemoryDisassembler;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about=None)]
@@ -52,39 +49,25 @@ fn main() -> Result<()> {
             bail!("assembly failed");
         }
         let bin = fs::read(format!("{}/a.gba", dir))?;
-        let cs = Capstone::new()
-            .arm()
-            .mode(if args.thumb_mode {
-                ArchMode::Thumb
-            } else {
-                ArchMode::Arm
-            })
-            .detail(true)
-            .build()?;
+        let mut ds = MemoryDisassembler::default();
 
         let bytes = if args.thumb_mode {
+            ds.set_mode(ArmMode::THUMB).unwrap();
+            println!(
+                "Binary: {:#04x}",
+                u16::from_le_bytes(bin[0..2].try_into().unwrap())
+            );
             &bin[0..2]
         } else {
+            println!(
+                "Binary: {:#08x}",
+                u32::from_le_bytes(bin[0..4].try_into().unwrap())
+            );
             &bin[0..4]
         };
-        let instrs = cs.disasm_count(bytes, 0, 1)?;
-        let instr = instrs
-            .as_ref()
-            .first()
-            .ok_or(anyhow!("disassembly failed"))?;
 
-        Ok(format!(
-            "{:#?}",
-            ArmInstruction::from_cs_insn(
-                &cs,
-                instr,
-                if args.thumb_mode {
-                    ArmMode::THUMB
-                } else {
-                    ArmMode::ARM
-                }
-            )
-        ))
+        let instr = ds.disasm_single(bytes, 0);
+        Ok(format!("{:#?}", instr))
     };
     let result = run();
     fs::remove_dir_all(dir).expect("clean up failed");

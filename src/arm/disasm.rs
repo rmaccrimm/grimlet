@@ -1,13 +1,36 @@
 pub mod cons;
-
 use std::collections::HashSet;
-use std::fmt::Display;
+use std::fmt::{Display, Write};
 
-use capstone::arch::arm::{ArmCC, ArmInsn, ArmOperand, ArmOperandType};
+use anyhow::{Result, bail};
+use capstone::arch::arm::{ArmCC, ArmInsn, ArmOpMem, ArmOperand, ArmOperandType, ArmShift};
 use capstone::arch::{ArchOperand, BuildsCapstone};
 use capstone::{Capstone, Insn};
 
 use crate::arm::cpu::{ArmMode, MainMemory, Reg};
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum MemOffset {
+    Reg {
+        index: Reg,
+        shift: ArmShift,
+        subtract: bool,
+    },
+    Imm(i32),
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum WritebackMode {
+    PostIndex,
+    PreIndex,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct MemOperand {
+    pub base: Reg,
+    pub offset: MemOffset,
+    pub writeback: Option<WritebackMode>,
+}
 
 // A single disassembled ARM instruction. Basically a clone of the Capstone instruction but
 // easier to access since we know we're only working with ARM instructions.
@@ -21,6 +44,7 @@ pub struct ArmInstruction {
     pub mode: ArmMode,
     pub updates_flags: bool,
     pub regs_accessed: Vec<Reg>,
+    pub writeback: bool,
 }
 
 impl Default for ArmInstruction {
@@ -34,6 +58,7 @@ impl Default for ArmInstruction {
             mode: ArmMode::ARM,
             updates_flags: true,
             regs_accessed: vec![],
+            writeback: false,
         }
     }
 }
@@ -79,6 +104,7 @@ impl ArmInstruction {
             mode,
             updates_flags: arm_detail.update_flags(),
             regs_accessed,
+            writeback: arm_detail.writeback(),
         }
     }
 
@@ -105,6 +131,67 @@ impl ArmInstruction {
             i
         } else {
             panic!("\"{}\" operand {} is not an immediate value", self, ind);
+        }
+    }
+
+    pub fn get_mem_op(&self) -> Result<MemOperand> {
+        let mut op_iter = self.operands.iter().skip(1);
+        let mem_op = op_iter
+            .next()
+            .unwrap_or_else(|| panic!("\"{}\" missing mem operand", self));
+        let post_index_op = op_iter.next();
+
+        let inner_mem_op = if let ArmOperandType::Mem(mem) = mem_op.op_type {
+            mem
+        } else {
+            bail!("operand is not a memory address: {:?}", mem_op);
+        };
+
+        let base = Reg::from(inner_mem_op.base());
+
+        match post_index_op {
+            Some(post_op) => {
+                debug_assert_eq!(inner_mem_op.index().0, 0);
+                debug_assert_eq!(inner_mem_op.disp(), 0);
+
+                let wb_mode = Some(WritebackMode::PostIndex);
+                let offset = match post_op.op_type {
+                    ArmOperandType::Reg(reg_id) => MemOffset::Reg {
+                        index: Reg::from(reg_id),
+                        shift: post_op.shift,
+                        subtract: post_op.subtracted,
+                    },
+                    ArmOperandType::Imm(i) => MemOffset::Imm(i),
+                    _ => bail!("unexpected post-index op_type: {:?}", post_op.op_type),
+                };
+                Ok(MemOperand {
+                    base,
+                    offset,
+                    writeback: wb_mode,
+                })
+            }
+            None => {
+                let writeback = self.writeback.then_some(WritebackMode::PreIndex);
+                let index = inner_mem_op.index();
+                let disp = inner_mem_op.disp();
+
+                let offset = match index.0 {
+                    0 => MemOffset::Imm(disp),
+                    _ => {
+                        debug_assert_eq!(inner_mem_op.disp(), 0);
+                        MemOffset::Reg {
+                            index: Reg::from(index),
+                            shift: mem_op.shift,
+                            subtract: mem_op.subtracted,
+                        }
+                    }
+                };
+                Ok(MemOperand {
+                    base,
+                    offset,
+                    writeback,
+                })
+            }
         }
     }
 }
@@ -177,6 +264,30 @@ pub struct MemoryDisassembler {
     current_mode: ArmMode,
 }
 
+impl MemoryDisassembler {
+    pub fn disasm_single(&self, chunk: &[u8], addr: usize) -> ArmInstruction {
+        let instructions = self
+            .cs
+            .disasm_count(chunk, addr as u64, 1)
+            .expect("Capstone disassembly failed");
+
+        let i = instructions
+            .as_ref()
+            .first()
+            .expect("Capstone returned no instructions");
+        ArmInstruction::from_cs_insn(&self.cs, i, self.current_mode)
+    }
+
+    pub fn set_mode(&mut self, mode: ArmMode) -> Result<()> {
+        self.current_mode = mode;
+        match mode {
+            ArmMode::ARM => self.cs.set_mode(capstone::Mode::Arm)?,
+            ArmMode::THUMB => self.cs.set_mode(capstone::Mode::Thumb)?,
+        }
+        Ok(())
+    }
+}
+
 impl Default for MemoryDisassembler {
     fn default() -> Self {
         let cs = Capstone::new()
@@ -195,16 +306,8 @@ impl Default for MemoryDisassembler {
 impl Disasm for MemoryDisassembler {
     fn next_code_block(&self, mem: &MainMemory, start_addr: usize) -> CodeBlock {
         let instr_iter = mem.iter_word(start_addr).enumerate().map(move |(i, ch)| {
-            let instructions = self
-                .cs
-                .disasm_count(ch, (start_addr as u64) + 4 * i as u64, 1)
-                .expect("Capstone disassembly failed");
-
-            let i = instructions
-                .as_ref()
-                .first()
-                .expect("Capstone returned no instructions");
-            ArmInstruction::from_cs_insn(&self.cs, i, self.current_mode)
+            let addr = start_addr + 4 * i;
+            self.disasm_single(ch, addr)
         });
         CodeBlock::from_instructions(instr_iter, start_addr)
     }
@@ -222,6 +325,25 @@ mod tests {
         println!(
             "{:#?}",
             ArmInstruction::from_cs_insn(&disasm.cs, res, ArmMode::ARM)
+        );
+    }
+
+    // Using assembled bytes to test as we cannot construct a capstone::ArmMemOp
+    fn get_mem_op_from_assembled(bin: u32) -> MemOperand {
+        let instr = MemoryDisassembler::default().disasm_single(&bin.to_le_bytes(), 0);
+        instr.get_mem_op().unwrap()
+    }
+
+    #[test]
+    fn test_get_mem_op() {
+        // str r9, [r0]
+        assert_eq!(
+            get_mem_op_from_assembled(0xe5809000),
+            MemOperand {
+                base: Reg::R0,
+                offset: MemOffset::Imm(0),
+                writeback: None
+            }
         );
     }
 }
