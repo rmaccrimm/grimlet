@@ -9,10 +9,10 @@ use crate::arm::disasm::ArmInstruction;
 use crate::jit::FunctionBuilder;
 use crate::jit::builder::flags::C;
 
-// A register to be updated
+// A register and the value to write to it
 pub(super) struct RegUpdate<'a> {
-    reg: Reg,
-    value: IntValue<'a>,
+    pub reg: Reg,
+    pub value: IntValue<'a>,
 }
 
 // Indicates what should be done with the result of a calculation
@@ -44,21 +44,9 @@ struct DataProcResult<'a> {
 macro_rules! exec_and_expect {
     ($self:ident, $arg:ident, Self::$method:ident) => {
         $self
-            .exec_alu_conditional($arg, Self::$method)
-            .with_context(|| format!("\"{}\"", stringify!($method)))
+            .exec_alu_conditional(&$arg, Self::$method)
+            .with_context(|| format!("{:?}", $arg))
             .expect("LLVM codegen failed")
-    };
-}
-
-macro_rules! imm {
-    ($self:ident, $i:expr) => {
-        $self.i32_t.const_int($i as u64, false)
-    };
-}
-
-macro_rules! imm64 {
-    ($self:ident, $i:expr) => {
-        $self.llvm_ctx.i64_type().const_int($i as u64, false)
     };
 }
 
@@ -176,9 +164,9 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     /// Wraps a function for emitting an instruction in a conditional block, evaluates flags and
     /// executes based on instruction condition Leaves the builder positioned in the else block and
     /// emits code to increment program counter.
-    fn exec_alu_conditional<F>(&mut self, instr: ArmInstruction, inner: F) -> Result<()>
+    fn exec_alu_conditional<F>(&mut self, instr: &ArmInstruction, inner: F) -> Result<()>
     where
-        F: Fn(&mut Self, ArmInstruction) -> Result<DataProcResult<'a>>,
+        F: Fn(&mut Self, &ArmInstruction) -> Result<DataProcResult<'a>>,
     {
         let mode = instr.mode;
 
@@ -559,7 +547,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     /// TODO - handle rd = pc case
-    fn adc(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn adc(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
         let rn_val = self.reg_map.get(rn);
@@ -621,7 +609,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     /// TODO rd = pc case
-    fn add(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn add(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
         let bd = self.builder;
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
@@ -659,7 +647,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         })
     }
 
-    fn and(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn and(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
         let bd = self.builder;
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
@@ -683,7 +671,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         })
     }
 
-    fn bic(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn bic(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
         let bd = self.builder;
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
@@ -710,33 +698,35 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         })
     }
 
-    fn cmn(&mut self, mut instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn cmn(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
+        let mut instr = instr.clone();
         let rd_op = instr.operands[0].clone();
         let rm_op = instr.operands[1].clone();
         // Insert a dummy operand for rd
         instr.operands = vec![rd_op.clone(), rd_op, rm_op];
         instr.updates_flags = true;
-        let DataProcResult { action: _, cpsr } = self.add(instr)?;
+        let DataProcResult { action: _, cpsr } = self.add(&instr)?;
         Ok(DataProcResult {
             action: DataProcAction::Ignored,
             cpsr,
         })
     }
 
-    fn cmp(&mut self, mut instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn cmp(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
+        let mut instr = instr.clone()
         let rd_op = instr.operands[0].clone();
         let rm_op = instr.operands[1].clone();
         // Insert a dummy operand for rd
         instr.operands = vec![rd_op.clone(), rd_op, rm_op];
         instr.updates_flags = true;
-        let DataProcResult { action: _, cpsr } = self.sub(instr)?;
+        let DataProcResult { action: _, cpsr } = self.sub(&instr)?;
         Ok(DataProcResult {
             action: DataProcAction::Ignored,
             cpsr,
         })
     }
 
-    fn eor(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn eor(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
         let bd = self.builder;
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
@@ -762,7 +752,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         })
     }
 
-    fn mov(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn mov(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
         let bd = self.builder;
         let rd = instr.get_reg_op(0);
         let (shifter, c) = self.shifter_operand(&instr.operands[1])?;
@@ -783,7 +773,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         }
     }
 
-    fn mvn(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn mvn(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
         let bd = self.builder;
         let rd = instr.get_reg_op(0);
         let (shifter, c) = self.shifter_operand(&instr.operands[1])?;
@@ -807,7 +797,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         })
     }
 
-    fn orr(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn orr(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
         let bd = self.builder;
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
@@ -833,7 +823,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         })
     }
 
-    fn rsb(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn rsb(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
         let bd = self.builder;
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
@@ -870,7 +860,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         })
     }
 
-    fn rsc(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn rsc(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
         let bd = self.builder;
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
@@ -932,7 +922,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         })
     }
 
-    fn sbc(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn sbc(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
         let bd = self.builder;
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
@@ -994,7 +984,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         })
     }
 
-    fn sub(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn sub(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
         let bd = self.builder;
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
@@ -1035,33 +1025,35 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         })
     }
 
-    fn teq(&mut self, mut instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn teq(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
+        let mut instr = instr.clone();
         let rd_op = instr.operands[0].clone();
         let rm_op = instr.operands[1].clone();
-        // Insert a dummy operand for rd because eor expects it.
+        // Insert a dummy operand for d because eor expects it.
         instr.operands = vec![rd_op.clone(), rd_op, rm_op];
         instr.updates_flags = true;
-        let DataProcResult { action: _, cpsr } = self.eor(instr)?;
+        let DataProcResult { action: _, cpsr } = self.eor(&instr)?;
         Ok(DataProcResult {
             action: DataProcAction::Ignored,
             cpsr,
         })
     }
 
-    fn tst(&mut self, mut instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn tst(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
+        let mut instr = instr.clone();
         let rd_op = instr.operands[0].clone();
         let rm_op = instr.operands[1].clone();
         // Insert a dummy operand for rd because and expects it.
         instr.operands = vec![rd_op.clone(), rd_op, rm_op];
         instr.updates_flags = true;
-        let DataProcResult { action: _, cpsr } = self.and(instr)?;
+        let DataProcResult { action: _, cpsr } = self.and(&instr)?;
         Ok(DataProcResult {
             action: DataProcAction::Ignored,
             cpsr,
         })
     }
 
-    fn mla(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn mla(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
         let bd = self.builder;
         let rd = instr.get_reg_op(0);
         let rm = instr.get_reg_op(1);
@@ -1090,7 +1082,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         })
     }
 
-    fn mul(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn mul(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
         let bd = self.builder;
         let rd = instr.get_reg_op(0);
         let rm = instr.get_reg_op(1);
@@ -1116,7 +1108,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         })
     }
 
-    fn smlal(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn smlal(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
         let bd = self.builder;
         let rdlo = instr.get_reg_op(0);
         let rdhi = instr.get_reg_op(1);
@@ -1160,7 +1152,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         })
     }
 
-    fn smull(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn smull(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
         let bd = self.builder;
         let rdlo = instr.get_reg_op(0);
         let rdhi = instr.get_reg_op(1);
@@ -1196,7 +1188,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         })
     }
 
-    fn umlal(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn umlal(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
         let bd = self.builder;
         let rdlo = instr.get_reg_op(0);
         let rdhi = instr.get_reg_op(1);
@@ -1240,7 +1232,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         })
     }
 
-    fn umull(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn umull(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
         let bd = self.builder;
         let rdlo = instr.get_reg_op(0);
         let rdhi = instr.get_reg_op(1);
@@ -1276,7 +1268,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         })
     }
 
-    fn mrs(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn mrs(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
         let rd = instr.get_reg_op(0);
         let cpsr = self.reg_map.get(Reg::CPSR);
         Ok(DataProcResult {
@@ -1285,7 +1277,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         })
     }
 
-    fn msr(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn msr(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
         if instr.operands[0].op_type != ArmOperandType::SysReg(RegId(9)) {
             // SysReg(RegId(9)) seems to correspond to cpsr_fc/spsr_fc, which may be the only way
             // you can call this since in ARMv4 without user mode? I still don't quite understand
