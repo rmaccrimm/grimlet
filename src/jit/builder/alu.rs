@@ -10,19 +10,19 @@ use crate::jit::FunctionBuilder;
 use crate::jit::builder::flags::C;
 
 // A register to be updated
-struct RegUpdate<'a> {
+pub(super) struct RegUpdate<'a> {
     reg: Reg,
     value: IntValue<'a>,
 }
 
 // Indicates what should be done with the result of a calculation
-enum RegOutput<'a> {
+enum DataProcAction<'a> {
     Ignored,
     SingleUpdate(RegUpdate<'a>),
     DoubleUpdate((RegUpdate<'a>, RegUpdate<'a>)),
 }
 
-impl<'a> RegOutput<'a> {
+impl<'a> DataProcAction<'a> {
     fn single(reg: Reg, value: IntValue<'a>) -> Self {
         Self::SingleUpdate(RegUpdate { reg, value })
     }
@@ -37,7 +37,7 @@ impl<'a> RegOutput<'a> {
 
 // Return type for all data processing operation builder methods
 struct DataProcResult<'a> {
-    output: RegOutput<'a>,
+    action: DataProcAction<'a>,
     cpsr: Option<IntValue<'a>>,
 }
 
@@ -184,12 +184,12 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         if instr.cond == ArmCC::ARM_CC_AL {
             let calc_result = inner(self, instr)?;
-            match calc_result.output {
-                RegOutput::Ignored => (),
-                RegOutput::SingleUpdate(RegUpdate { reg: r, value: v }) => {
+            match calc_result.action {
+                DataProcAction::Ignored => (),
+                DataProcAction::SingleUpdate(RegUpdate { reg: r, value: v }) => {
                     self.reg_map.update(r, v);
                 }
-                RegOutput::DoubleUpdate((
+                DataProcAction::DoubleUpdate((
                     RegUpdate { reg: r1, value: v1 },
                     RegUpdate { reg: r2, value: v2 },
                 )) => {
@@ -236,9 +236,9 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         bd.build_unconditional_branch(end_block)?;
         bd.position_at_end(end_block);
 
-        match calc_result.output {
-            RegOutput::Ignored => {}
-            RegOutput::SingleUpdate(RegUpdate { reg, value }) => {
+        match calc_result.action {
+            DataProcAction::Ignored => {}
+            DataProcAction::SingleUpdate(RegUpdate { reg, value }) => {
                 let phi = bd.build_phi(self.i32_t, "phi")?;
                 phi.add_incoming(&[
                     (
@@ -250,7 +250,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                 self.reg_map
                     .update(reg, phi.as_basic_value().into_int_value());
             }
-            RegOutput::DoubleUpdate((
+            DataProcAction::DoubleUpdate((
                 RegUpdate { reg: r0, value: v0 },
                 RegUpdate { reg: r1, value: v1 },
             )) => {
@@ -572,7 +572,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             let add_1 = bd.build_int_add(rn_val, shifter_op, "add_1")?;
             let add_2 = bd.build_int_add(add_1, c_in, "add_2")?;
             return Ok(DataProcResult {
-                output: RegOutput::single(rd, add_2),
+                action: DataProcAction::single(rd, add_2),
                 cpsr: None,
             });
         };
@@ -615,7 +615,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let cpsr = self.set_flags(Some(n), Some(z), Some(c), Some(v))?;
 
         Ok(DataProcResult {
-            output: RegOutput::single(rd, s2),
+            action: DataProcAction::single(rd, s2),
             cpsr: Some(cpsr),
         })
     }
@@ -630,7 +630,10 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         if !instr.updates_flags {
             return Ok(DataProcResult {
-                output: RegOutput::single(rd, bd.build_int_add(rn_val, shifter_op, "add_res")?),
+                action: DataProcAction::single(
+                    rd,
+                    bd.build_int_add(rn_val, shifter_op, "add_res")?,
+                ),
                 cpsr: None,
             });
         }
@@ -651,7 +654,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let cpsr = self.set_flags(Some(n), Some(z), Some(c), Some(v))?;
 
         Ok(DataProcResult {
-            output: RegOutput::single(rd, res_val),
+            action: DataProcAction::single(rd, res_val),
             cpsr: Some(cpsr),
         })
     }
@@ -666,7 +669,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let res_val = bd.build_and(rn_val, shifter_op, "and")?;
         if !instr.updates_flags {
             return Ok(DataProcResult {
-                output: RegOutput::single(rd, res_val),
+                action: DataProcAction::single(rd, res_val),
                 cpsr: None,
             });
         }
@@ -675,7 +678,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let cpsr = self.set_flags(Some(n), Some(z), c_flag, None)?;
 
         Ok(DataProcResult {
-            output: RegOutput::single(rd, res_val),
+            action: DataProcAction::single(rd, res_val),
             cpsr: Some(cpsr),
         })
     }
@@ -692,7 +695,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         if !instr.updates_flags {
             return Ok(DataProcResult {
-                output: RegOutput::single(rd, res_val),
+                action: DataProcAction::single(rd, res_val),
                 cpsr: None,
             });
         }
@@ -702,7 +705,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let cpsr = self.set_flags(Some(n), Some(z), c_flag, None)?;
 
         Ok(DataProcResult {
-            output: RegOutput::single(rd, res_val),
+            action: DataProcAction::single(rd, res_val),
             cpsr: Some(cpsr),
         })
     }
@@ -713,9 +716,9 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         // Insert a dummy operand for rd
         instr.operands = vec![rd_op.clone(), rd_op, rm_op];
         instr.updates_flags = true;
-        let DataProcResult { output: _, cpsr } = self.add(instr)?;
+        let DataProcResult { action: _, cpsr } = self.add(instr)?;
         Ok(DataProcResult {
-            output: RegOutput::Ignored,
+            action: DataProcAction::Ignored,
             cpsr,
         })
     }
@@ -726,9 +729,9 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         // Insert a dummy operand for rd
         instr.operands = vec![rd_op.clone(), rd_op, rm_op];
         instr.updates_flags = true;
-        let DataProcResult { output: _, cpsr } = self.sub(instr)?;
+        let DataProcResult { action: _, cpsr } = self.sub(instr)?;
         Ok(DataProcResult {
-            output: RegOutput::Ignored,
+            action: DataProcAction::Ignored,
             cpsr,
         })
     }
@@ -744,7 +747,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         if !instr.updates_flags {
             return Ok(DataProcResult {
-                output: RegOutput::single(rd, res_val),
+                action: DataProcAction::single(rd, res_val),
                 cpsr: None,
             });
         }
@@ -754,7 +757,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let cpsr = self.set_flags(Some(n), Some(z), c_flag, None)?;
 
         Ok(DataProcResult {
-            output: RegOutput::single(rd, res_val),
+            action: DataProcAction::single(rd, res_val),
             cpsr: Some(cpsr),
         })
     }
@@ -769,12 +772,12 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             let z = bd.build_int_compare(IntPredicate::EQ, shifter, imm!(self, 0), "z")?;
             let cpsr = self.set_flags(Some(n), Some(z), c, None)?;
             Ok(DataProcResult {
-                output: RegOutput::single(rd, shifter),
+                action: DataProcAction::single(rd, shifter),
                 cpsr: Some(cpsr),
             })
         } else {
             Ok(DataProcResult {
-                output: RegOutput::single(rd, shifter),
+                action: DataProcAction::single(rd, shifter),
                 cpsr: None,
             })
         }
@@ -789,7 +792,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         if !instr.updates_flags {
             return Ok(DataProcResult {
-                output: RegOutput::single(rd, res_val),
+                action: DataProcAction::single(rd, res_val),
                 cpsr: None,
             });
         }
@@ -799,7 +802,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let cpsr = self.set_flags(Some(n), Some(z), c, None)?;
 
         Ok(DataProcResult {
-            output: RegOutput::single(rd, res_val),
+            action: DataProcAction::single(rd, res_val),
             cpsr: Some(cpsr),
         })
     }
@@ -815,7 +818,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         if !instr.updates_flags {
             return Ok(DataProcResult {
-                output: RegOutput::single(rd, res_val),
+                action: DataProcAction::single(rd, res_val),
                 cpsr: None,
             });
         }
@@ -825,7 +828,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let cpsr = self.set_flags(Some(n), Some(z), c, None)?;
 
         Ok(DataProcResult {
-            output: RegOutput::single(rd, res_val),
+            action: DataProcAction::single(rd, res_val),
             cpsr: Some(cpsr),
         })
     }
@@ -840,7 +843,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         if !instr.updates_flags {
             let res_val = bd.build_int_sub(shifter_op, rn_val, "rsb")?;
             return Ok(DataProcResult {
-                output: RegOutput::single(rd, res_val),
+                action: DataProcAction::single(rd, res_val),
                 cpsr: None,
             });
         }
@@ -862,7 +865,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let cpsr = self.set_flags(Some(n), Some(z), Some(c_flag), Some(v_flag))?;
 
         Ok(DataProcResult {
-            output: RegOutput::single(rd, res_val),
+            action: DataProcAction::single(rd, res_val),
             cpsr: Some(cpsr),
         })
     }
@@ -897,7 +900,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         if !instr.updates_flags {
             return Ok(DataProcResult {
-                output: RegOutput::single(rd, s2),
+                action: DataProcAction::single(rd, s2),
                 cpsr: None,
             });
         }
@@ -924,7 +927,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let cpsr = self.set_flags(Some(n), Some(z), Some(c), Some(v))?;
 
         Ok(DataProcResult {
-            output: RegOutput::single(rd, s2),
+            action: DataProcAction::single(rd, s2),
             cpsr: Some(cpsr),
         })
     }
@@ -959,7 +962,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         if !instr.updates_flags {
             return Ok(DataProcResult {
-                output: RegOutput::single(rd, s2),
+                action: DataProcAction::single(rd, s2),
                 cpsr: None,
             });
         }
@@ -986,7 +989,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let cpsr = self.set_flags(Some(n), Some(z), Some(c), Some(v))?;
 
         Ok(DataProcResult {
-            output: RegOutput::single(rd, s2),
+            action: DataProcAction::single(rd, s2),
             cpsr: Some(cpsr),
         })
     }
@@ -1001,7 +1004,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         if !instr.updates_flags {
             let sub_res = bd.build_int_sub(rn_val, shifter_op, "sub")?;
             return Ok(DataProcResult {
-                output: RegOutput::single(rd, sub_res),
+                action: DataProcAction::single(rd, sub_res),
                 cpsr: None,
             });
         }
@@ -1027,7 +1030,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let cpsr = self.set_flags(Some(n_flag), Some(z_flag), Some(c_flag), Some(v_flag))?;
 
         Ok(DataProcResult {
-            output: RegOutput::single(rd, sres_val),
+            action: DataProcAction::single(rd, sres_val),
             cpsr: Some(cpsr),
         })
     }
@@ -1038,9 +1041,9 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         // Insert a dummy operand for rd because eor expects it.
         instr.operands = vec![rd_op.clone(), rd_op, rm_op];
         instr.updates_flags = true;
-        let DataProcResult { output: _, cpsr } = self.eor(instr)?;
+        let DataProcResult { action: _, cpsr } = self.eor(instr)?;
         Ok(DataProcResult {
-            output: RegOutput::Ignored,
+            action: DataProcAction::Ignored,
             cpsr,
         })
     }
@@ -1051,9 +1054,9 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         // Insert a dummy operand for rd because and expects it.
         instr.operands = vec![rd_op.clone(), rd_op, rm_op];
         instr.updates_flags = true;
-        let DataProcResult { output: _, cpsr } = self.and(instr)?;
+        let DataProcResult { action: _, cpsr } = self.and(instr)?;
         Ok(DataProcResult {
-            output: RegOutput::Ignored,
+            action: DataProcAction::Ignored,
             cpsr,
         })
     }
@@ -1072,7 +1075,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         if !instr.updates_flags {
             return Ok(DataProcResult {
-                output: RegOutput::single(rd, mla),
+                action: DataProcAction::single(rd, mla),
                 cpsr: None,
             });
         }
@@ -1082,7 +1085,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let cpsr = self.set_flags(Some(n), Some(z), None, None)?;
 
         Ok(DataProcResult {
-            output: RegOutput::single(rd, mla),
+            action: DataProcAction::single(rd, mla),
             cpsr: Some(cpsr),
         })
     }
@@ -1098,7 +1101,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         if !instr.updates_flags {
             return Ok(DataProcResult {
-                output: RegOutput::single(rd, mul),
+                action: DataProcAction::single(rd, mul),
                 cpsr: None,
             });
         }
@@ -1108,7 +1111,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let cpsr = self.set_flags(Some(n), Some(z), None, None)?;
 
         Ok(DataProcResult {
-            output: RegOutput::single(rd, mul),
+            action: DataProcAction::single(rd, mul),
             cpsr: Some(cpsr),
         })
     }
@@ -1142,7 +1145,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         if !instr.updates_flags {
             return Ok(DataProcResult {
-                output: RegOutput::double(rdhi, hi_i32, rdlo, lo_i32),
+                action: DataProcAction::double(rdhi, hi_i32, rdlo, lo_i32),
                 cpsr: None,
             });
         }
@@ -1152,7 +1155,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let cpsr = self.set_flags(Some(n), Some(z), None, None)?;
 
         Ok(DataProcResult {
-            output: RegOutput::double(rdhi, hi_i32, rdlo, lo_i32),
+            action: DataProcAction::double(rdhi, hi_i32, rdlo, lo_i32),
             cpsr: Some(cpsr),
         })
     }
@@ -1178,7 +1181,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         if !instr.updates_flags {
             return Ok(DataProcResult {
-                output: RegOutput::double(rdlo, lo_i32, rdhi, hi_i32),
+                action: DataProcAction::double(rdlo, lo_i32, rdhi, hi_i32),
                 cpsr: None,
             });
         }
@@ -1188,7 +1191,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let cpsr = self.set_flags(Some(n), Some(z), None, None)?;
 
         Ok(DataProcResult {
-            output: RegOutput::double(rdlo, lo_i32, rdhi, hi_i32),
+            action: DataProcAction::double(rdlo, lo_i32, rdhi, hi_i32),
             cpsr: Some(cpsr),
         })
     }
@@ -1222,7 +1225,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         if !instr.updates_flags {
             return Ok(DataProcResult {
-                output: RegOutput::double(rdhi, hi_i32, rdlo, lo_i32),
+                action: DataProcAction::double(rdhi, hi_i32, rdlo, lo_i32),
                 cpsr: None,
             });
         }
@@ -1232,7 +1235,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let cpsr = self.set_flags(Some(n), Some(z), None, None)?;
 
         Ok(DataProcResult {
-            output: RegOutput::double(rdhi, hi_i32, rdlo, lo_i32),
+            action: DataProcAction::double(rdhi, hi_i32, rdlo, lo_i32),
             cpsr: Some(cpsr),
         })
     }
@@ -1258,7 +1261,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         if !instr.updates_flags {
             return Ok(DataProcResult {
-                output: RegOutput::double(rdlo, lo_i32, rdhi, hi_i32),
+                action: DataProcAction::double(rdlo, lo_i32, rdhi, hi_i32),
                 cpsr: None,
             });
         }
@@ -1268,7 +1271,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let cpsr = self.set_flags(Some(n), Some(z), None, None)?;
 
         Ok(DataProcResult {
-            output: RegOutput::double(rdlo, lo_i32, rdhi, hi_i32),
+            action: DataProcAction::double(rdlo, lo_i32, rdhi, hi_i32),
             cpsr: Some(cpsr),
         })
     }
@@ -1277,7 +1280,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let rd = instr.get_reg_op(0);
         let cpsr = self.reg_map.get(Reg::CPSR);
         Ok(DataProcResult {
-            output: RegOutput::single(rd, cpsr),
+            action: DataProcAction::single(rd, cpsr),
             cpsr: None,
         })
     }
@@ -1300,7 +1303,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let masked = bd.build_and(update_val, imm!(self, 0xf00000ff), "msk")?;
         let keep = bd.build_and(cpsr, imm!(self, 0x0fffff00), "keep")?;
         Ok(DataProcResult {
-            output: RegOutput::single(Reg::CPSR, bd.build_or(masked, keep, "or")?),
+            action: DataProcAction::single(Reg::CPSR, bd.build_or(masked, keep, "or")?),
             cpsr: None,
         })
     }
