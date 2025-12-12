@@ -25,7 +25,7 @@ impl Emulator {
         })
     }
 
-    pub fn run<F>(&mut self, exit_condition: Option<F>)
+    pub fn run<F>(&mut self, exit_condition: F)
     where
         F: Fn(&ArmState) -> bool,
     {
@@ -33,9 +33,7 @@ impl Emulator {
         let mut func_cache = FunctionCache::new();
 
         loop {
-            if let Some(exit) = exit_condition.as_ref()
-                && exit(&self.state)
-            {
+            if exit_condition(&self.state) {
                 break;
             }
             let instr_addr = self.state.curr_instr_addr();
@@ -43,7 +41,7 @@ impl Emulator {
                 Some(func) => func,
                 None => {
                     let code_block = self.disasm.next_code_block(&self.state.mem, instr_addr);
-                    println!("{}", code_block);
+                    println!("{:#?}", code_block);
                     match compiler
                         .new_function(instr_addr, Some(&func_cache))
                         .build_body(code_block)
@@ -108,12 +106,10 @@ mod tests {
         emulator.state.regs[Reg::R1] = confirm_val;
         // Prev instruction on initialization is just a NOP, so it won't override these flags
         emulator.state.regs[Reg::CPSR as usize] = flags << 28;
-        emulator.run(Some(|st: &ArmState| -> bool {
-            st.curr_instr_addr() == 100
-        }));
+        emulator.run(|st: &ArmState| -> bool { st.curr_instr_addr() == 100 });
 
         // True if it ran, false if skipped
-        emulator.state.r0() == confirm_val
+        emulator.state.regs[Reg::R0] == confirm_val
     }
 
     #[rustfmt::skip]
@@ -188,7 +184,7 @@ mod tests {
 
         let mut em = Emulator::new(disasm, None).unwrap();
 
-        let exit = Some(|st: &ArmState| -> bool { st.curr_instr_addr() == 100 });
+        let exit = |st: &ArmState| -> bool { st.curr_instr_addr() == 100 };
         let r0 = Reg::R0;
         let cpsr = Reg::CPSR as usize;
 

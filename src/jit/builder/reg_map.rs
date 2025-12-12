@@ -49,7 +49,7 @@ impl<'a> RegMap<'a> {
 
     pub fn r11(&self) -> IntValue<'a> { self.get(Reg::R11) }
 
-    pub fn r12(&self) -> IntValue<'a> { self.get(Reg::R12) }
+    pub fn ip(&self) -> IntValue<'a> { self.get(Reg::IP) }
 
     pub fn sp(&self) -> IntValue<'a> { self.get(Reg::SP) }
 

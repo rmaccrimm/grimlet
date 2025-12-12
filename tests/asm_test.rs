@@ -10,8 +10,8 @@ fn test_factorial() {
     let mut run = |n| -> u32 {
         emulator.state.jump_to(0);
         emulator.state.regs[Reg::R0] = n;
-        emulator.run(Some(|st: &ArmState| -> bool { st.curr_instr_addr() >= 40 }));
-        emulator.state.r1()
+        emulator.run(|st: &ArmState| -> bool { st.curr_instr_addr() >= 40 });
+        emulator.state.regs[Reg::R1]
     };
     assert_eq!(run(0), 1);
     assert_eq!(run(1), 1);

@@ -1,16 +1,15 @@
 use std::env;
 
 use anyhow::Result;
-use grimlet::arm::cpu::ArmState;
+use grimlet::arm::cpu::{ArmState, Reg};
 use grimlet::arm::disasm::{Disasm, MemoryDisassembler};
+use grimlet::emulator::Emulator;
 
 fn main() -> Result<()> {
     let bios_path = env::args().nth(1).unwrap();
-    let state = ArmState::with_bios(bios_path)?;
-
     let disasm = MemoryDisassembler::default();
-    for instr in disasm.next_code_block(&state.mem, 0).instrs {
-        println!("{:#?}", instr);
-    }
+    let mut emulator = Emulator::new(disasm, Some(&bios_path))?;
+    let exit = |_: &ArmState| -> bool { false };
+    emulator.run(exit);
     Ok(())
 }
