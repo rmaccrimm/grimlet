@@ -1,24 +1,39 @@
+use std::fs;
 use std::process::{Command, Stdio};
-use std::{env, fs};
 
 use anyhow::{Result, anyhow, bail};
 use capstone::Capstone;
 use capstone::arch::BuildsCapstone as _;
 use capstone::arch::arm::ArchMode;
+use clap::Parser;
 use grimlet::arm::cpu::ArmMode;
 use grimlet::arm::disasm::ArmInstruction;
+
+#[derive(Parser, Debug)]
+#[command(version, about, long_about=None)]
+struct Args {
+    /// Instruction to disassemble
+    instruction: String,
+
+    /// Disassemble in THUMB mode
+    #[arg(short, long, default_value_t = false)]
+    thumb_mode: bool,
+}
 
 /// Command line utiltiy for inspecting the disassembler output for an instruction
 /// Relies on `gvasm` for assembling programs: https://github.com/velipso/gvasm
 fn main() -> Result<()> {
-    let cmd = env::args().nth(1).unwrap();
+    let args = Args::parse();
+
     let asm = format!(
         ".begin main\n\
-        .arm\n\
+        .{}\n\
         {}\n\
         .end",
-        cmd
+        if args.thumb_mode { "thumb" } else { "arm" },
+        args.instruction
     );
+    println!("{}", asm);
     let dir = "asm_tmp";
     let asm_path = format!("{}/a.gvasm", dir);
     if fs::exists(dir).expect("check for existing failed") {
@@ -39,11 +54,20 @@ fn main() -> Result<()> {
         let bin = fs::read(format!("{}/a.gba", dir))?;
         let cs = Capstone::new()
             .arm()
-            .mode(ArchMode::Arm)
+            .mode(if args.thumb_mode {
+                ArchMode::Thumb
+            } else {
+                ArchMode::Arm
+            })
             .detail(true)
             .build()?;
 
-        let instrs = cs.disasm_count(&bin[0..4], 0, 1)?;
+        let bytes = if args.thumb_mode {
+            &bin[0..2]
+        } else {
+            &bin[0..4]
+        };
+        let instrs = cs.disasm_count(bytes, 0, 1)?;
         let instr = instrs
             .as_ref()
             .first()
@@ -51,7 +75,15 @@ fn main() -> Result<()> {
 
         Ok(format!(
             "{:#?}",
-            ArmInstruction::from_cs_insn(&cs, instr, ArmMode::ARM)
+            ArmInstruction::from_cs_insn(
+                &cs,
+                instr,
+                if args.thumb_mode {
+                    ArmMode::THUMB
+                } else {
+                    ArmMode::ARM
+                }
+            )
         ))
     };
     let result = run();
