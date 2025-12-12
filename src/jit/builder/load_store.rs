@@ -6,7 +6,7 @@ use inkwell::IntPredicate;
 use inkwell::values::IntValue;
 
 use crate::arm::cpu::Reg;
-use crate::arm::disasm::{ArmInstruction, MemOperand};
+use crate::arm::disasm::{ArmInstruction, MemOffset, MemOperand};
 use crate::jit::builder::FunctionBuilder;
 use crate::jit::builder::alu::RegUpdate;
 
@@ -89,67 +89,12 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         todo!()
     }
 
-    fn addressing_mode(&mut self, instr: &ArmInstruction) -> Result<AddrMode<'a>> {
-        let bd = self.builder;
-        let mem_op = &instr.operands[1];
-        let mem_inner = instr.get_mem_op(1);
-        let r_base = Reg::from(mem_inner.base());
-
-        match instr.operands.get(2) {
-            // post-indexed operands: [Reg, ArmOpMem (index = 0), Reg|Imm]
-            Some(post_op) => {
-                debug_assert!(mem_inner.index().0 == 0);
-
-                let offset = match post_op.op_type {
-                    ArmOperandType::Imm(imm) => imm!(self, imm),
-                    ArmOperandType::Reg(reg_id) => {
-                        let r_off = Reg::from(reg_id);
-                        let r_off_val = self.reg_map.get(r_off);
-                        let off = self.imm_shift(r_off_val, post_op.shift)?;
-                        if mem_op.subtracted {
-                            bd.build_int_neg(off, "sub_off")?
-                        } else {
-                            off
-                        }
-                    }
-                    _ => bail!("unexpected post-index op_type: {:?}", post_op.op_type),
-                };
-
-                let addr = self.reg_map.get(r_base);
-                let writeback_val = bd.build_int_add(addr, offset, "wb")?;
-
-                Ok(AddrMode {
-                    writeback: Some(RegUpdate {
-                        reg: r_base,
-                        value: writeback_val,
-                    }),
-                    addr,
-                })
-            }
-            // pre-index operands: [Reg, ArmOpMem(index=0 or disp=0)]
-            None => {
-                let offset = if mem_inner.index().0 == 0 {
-                    imm!(self, mem_inner.disp())
-                } else {
-                    // register
-                    let r_off = Reg::from(mem_inner.index());
-                    let r_off_val = self.reg_map.get(r_off);
-                    let off = self.imm_shift(r_off_val, mem_op.shift)?;
-                    if mem_op.subtracted {
-                        bd.build_int_neg(off, "sub_off")?
-                    } else {
-                        off
-                    }
-                };
-
-                let addr = bd.build_int_add(self.reg_map.get(r_base), offset, "addr")?;
-                let writeback = instr.writeback.then_some(RegUpdate {
-                    reg: r_base,
-                    value: addr,
-                });
-                Ok(AddrMode { writeback, addr })
-            }
-        }
+    fn addressing_mode(
+        &mut self,
+        mem_op: MemOperand,
+        post_index: Option<ArmOperand>,
+    ) -> Result<AddrMode<'a>> {
+        todo!();
     }
 
     fn imm_shift(&self, value: IntValue<'a>, shift: ArmShift) -> Result<IntValue<'a>> {
@@ -188,4 +133,83 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         }?;
         Ok(shifted)
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use inkwell::context::Context;
+
+    use super::*;
+    use crate::arm::cpu::ArmState;
+    use crate::jit::{CompiledFunction, Compiler};
+
+    struct AddrModeTestCase<'ctx> {
+        f: CompiledFunction<'ctx>,
+        state: ArmState,
+    }
+
+    impl<'ctx> AddrModeTestCase<'ctx> {
+        /// r7: base register
+        /// r8: index
+        /// r9: stores calculated address
+        fn new(context: &'ctx Context, instr: ArmInstruction) -> Self {
+            let mut compiler = Compiler::new(context);
+            let mut f = compiler.new_function(0, None);
+
+            f.load_initial_reg_values(&vec![Reg::R7, Reg::R8, Reg::R9].into_iter().collect())
+                .unwrap();
+
+            // let addr_mode = f.addressing_mode(&instr).unwrap();
+            // if let Some(wb) = addr_mode.writeback {
+            //     f.reg_map.update(wb.reg, wb.value);
+            // }
+            // f.reg_map.update(Reg::R9, addr_mode.addr);
+
+            f.write_state_out().unwrap();
+            f.builder.build_return(None).unwrap();
+            let f = f.compile().unwrap();
+            Self {
+                f,
+                state: ArmState::default(),
+            }
+        }
+
+        /// Set base and index (may be ignored). Return base and calculated address
+        fn run(&mut self, base: u32, index: u32) -> (u32, u32) {
+            self.state.regs[Reg::R7] = base;
+            self.state.regs[Reg::R8] = index;
+            self.state.regs[Reg::R9] = 0;
+            unsafe {
+                self.f.call(&mut self.state);
+            }
+            (self.state.regs[Reg::R8], self.state.regs[Reg::R9])
+        }
+    }
+
+    #[test]
+    fn test_addressing_mode_imm() {}
+
+    #[test]
+    fn test_addressing_mode_reg() {}
+
+    #[test]
+    fn test_addressing_mode_shift_reg() {}
+
+    #[test]
+    fn test_addressing_mode_pre_imm() {}
+
+    #[test]
+    fn test_addressing_mode_pre_reg() {}
+
+    #[test]
+    fn test_addressing_mode_pre_shift_reg() {}
+
+    #[test]
+    fn test_addressing_mode_post_imm() {}
+
+    #[test]
+    fn test_addressing_mode_post_reg() {}
+
+    #[test]
+    fn test_addressing_mode_post_shift_reg() {}
 }
