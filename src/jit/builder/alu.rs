@@ -50,20 +50,6 @@ macro_rules! exec_and_expect {
     };
 }
 
-macro_rules! call_intrinsic {
-    ($builder:ident, $self:ident . $intrinsic:ident, $($args:expr),+) => {
-        $builder
-            .build_call(
-                $self.$intrinsic,
-                &[$($args.into()),+],
-                &format!("{}_res", stringify!(intrinsic))
-            )?
-            .try_as_basic_value()
-            .left()
-            .ok_or_else(|| anyhow!("failed to get {} return val", stringify!(intrinsic)))?
-    };
-}
-
 impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     pub(super) fn arm_adc(&mut self, instr: ArmInstruction) {
         exec_and_expect!(self, instr, Self::adc)
@@ -485,7 +471,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                         Ok((shift, Some(c)))
                     }
                     ArmShift::Ror(imm) => {
-                        debug_assert!(imm > 0 && imm <= 32);
+                        debug_assert!(imm > 0 && imm < 32);
                         let rot = call_intrinsic!(bd, self.fshr, base, base, imm!(self, imm))
                             .into_int_value();
 
@@ -529,7 +515,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
                         Ok((rot, Some(c)))
                     }
-                    ArmShift::Rrx(_) => {
+                    ArmShift::Rrx(imm) => {
+                        debug_assert_eq!(imm, 1);
                         let curr_c = self.get_flag(C)?;
                         let c32 = bd.build_int_cast_sign_flag(curr_c, self.i32_t, false, "c_in")?;
                         let rot = call_intrinsic!(bd, self.fshr, c32, base, one).into_int_value();
@@ -713,7 +700,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     fn cmp(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
-        let mut instr = instr.clone()
+        let mut instr = instr.clone();
         let rd_op = instr.operands[0].clone();
         let rm_op = instr.operands[1].clone();
         // Insert a dummy operand for rd
@@ -1621,7 +1608,7 @@ mod tests {
     #[test]
     fn test_shifter_op_rrx() {
         let ctx = Context::create();
-        let mut tst = ShifterOperandTestCase::new(&ctx, ArmShift::Rrx(13)); // imm value is ignored
+        let mut tst = ShifterOperandTestCase::new(&ctx, ArmShift::Rrx(1));
 
         tst.state.regs[Reg::CPSR] |= C.0;
         let res = tst.run(0b11110001100111001110000001001101, None);

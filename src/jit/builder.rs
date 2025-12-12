@@ -1,6 +1,33 @@
+macro_rules! imm {
+    ($self:ident, $i:expr) => {
+        $self.i32_t.const_int($i as u64, false)
+    };
+}
+
+macro_rules! imm64 {
+    ($self:ident, $i:expr) => {
+        $self.llvm_ctx.i64_type().const_int($i as u64, false)
+    };
+}
+
+macro_rules! call_intrinsic {
+    ($builder:ident, $self:ident . $intrinsic:ident, $($args:expr),+) => {
+        $builder
+            .build_call(
+                $self.$intrinsic,
+                &[$($args.into()),+],
+                &format!("{}_res", stringify!(intrinsic))
+            )?
+            .try_as_basic_value()
+            .left()
+            .ok_or_else(|| anyhow!("failed to get {} return val", stringify!(intrinsic)))?
+    };
+}
+
 mod alu;
 mod branch;
 mod flags;
+mod load_store;
 mod reg_map;
 
 use std::collections::{HashMap, HashSet};
@@ -285,65 +312,70 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             ArmInsn::ARM_INS_ASR => unimpl_instr!(instr, "ASR"),
             ArmInsn::ARM_INS_B => self.arm_b(instr),
             ArmInsn::ARM_INS_BIC => self.arm_bic(instr),
-            ArmInsn::ARM_INS_BL => unimpl_instr!(&instr, "BL"),
-            ArmInsn::ARM_INS_BX => unimpl_instr!(&instr, "BX"),
-            ArmInsn::ARM_INS_CDP => unimpl_instr!(&instr, "CDP"),
+            ArmInsn::ARM_INS_BL => unimpl_instr!(instr, "BL"),
+            ArmInsn::ARM_INS_BX => unimpl_instr!(instr, "BX"),
+            ArmInsn::ARM_INS_CDP => unimpl_instr!(instr, "CDP"),
             ArmInsn::ARM_INS_CMN => self.arm_cmn(instr),
             ArmInsn::ARM_INS_CMP => self.arm_cmp(instr),
             ArmInsn::ARM_INS_EOR => self.arm_eor(instr),
-            ArmInsn::ARM_INS_LDC => unimpl_instr!(&instr, "LDC"),
-            // Includes LDMIA
-            ArmInsn::ARM_INS_LDM => unimpl_instr!(&instr, "LDM"),
-            ArmInsn::ARM_INS_LDMDA => unimpl_instr!(&instr, "LDMDA"),
-            ArmInsn::ARM_INS_LDMDB => unimpl_instr!(&instr, "LDMDB"),
-            ArmInsn::ARM_INS_LDMIB => unimpl_instr!(&instr, "LDMIB"),
-            ArmInsn::ARM_INS_LDR => unimpl_instr!(&instr, "LDR"),
-            ArmInsn::ARM_INS_LDRB => unimpl_instr!(&instr, "LDRB"),
-            ArmInsn::ARM_INS_LDRBT => unimpl_instr!(&instr, "LDRBT"),
-            ArmInsn::ARM_INS_LDRH => unimpl_instr!(&instr, "LDRH"),
-            ArmInsn::ARM_INS_LDRHT => unimpl_instr!(&instr, "LDRHT"),
-            ArmInsn::ARM_INS_LDRSB => unimpl_instr!(&instr, "LDRSB"),
-            ArmInsn::ARM_INS_LDRSBT => unimpl_instr!(&instr, "LDRSBT"),
-            ArmInsn::ARM_INS_LDRSH => unimpl_instr!(&instr, "LDRSH"),
-            ArmInsn::ARM_INS_LDRSHT => unimpl_instr!(&instr, "LDRSHT"),
-            ArmInsn::ARM_INS_LDRT => unimpl_instr!(&instr, "LDRT"),
-            ArmInsn::ARM_INS_LSL => unimpl_instr!(&instr, "LSL"),
-            ArmInsn::ARM_INS_LSR => unimpl_instr!(&instr, "LSR"),
-            ArmInsn::ARM_INS_MCR => unimpl_instr!(&instr, "MCR"),
+            ArmInsn::ARM_INS_LDC => unimpl_instr!(instr, "LDC"),
+            ArmInsn::ARM_INS_LDM => self.arm_ldmia(instr),
+            ArmInsn::ARM_INS_LDMDA => unimpl_instr!(instr, "LDMDA"),
+            ArmInsn::ARM_INS_LDMDB => unimpl_instr!(instr, "LDMDB"),
+            ArmInsn::ARM_INS_LDMIB => unimpl_instr!(instr, "LDMIB"),
+            ArmInsn::ARM_INS_LDR => unimpl_instr!(instr, "LDR"),
+            ArmInsn::ARM_INS_LDRB => unimpl_instr!(instr, "LDRB"),
+            ArmInsn::ARM_INS_LDRBT => unimpl_instr!(instr, "LDRBT"),
+            ArmInsn::ARM_INS_LDRH => unimpl_instr!(instr, "LDRH"),
+            ArmInsn::ARM_INS_LDRHT => unimpl_instr!(instr, "LDRHT"),
+            ArmInsn::ARM_INS_LDRSB => unimpl_instr!(instr, "LDRSB"),
+            ArmInsn::ARM_INS_LDRSBT => unimpl_instr!(instr, "LDRSBT"),
+            ArmInsn::ARM_INS_LDRSH => unimpl_instr!(instr, "LDRSH"),
+            ArmInsn::ARM_INS_LDRSHT => unimpl_instr!(instr, "LDRSHT"),
+            ArmInsn::ARM_INS_LDRT => unimpl_instr!(instr, "LDRT"),
+            ArmInsn::ARM_INS_LSL => unimpl_instr!(instr, "LSL"),
+            ArmInsn::ARM_INS_LSR => unimpl_instr!(instr, "LSR"),
+            ArmInsn::ARM_INS_MCR => unimpl_instr!(instr, "MCR"),
             ArmInsn::ARM_INS_MLA => self.arm_mla(instr),
             ArmInsn::ARM_INS_MOV => self.arm_mov(instr),
-            ArmInsn::ARM_INS_MRC => unimpl_instr!(&instr, "MRC"),
+            ArmInsn::ARM_INS_MRC => unimpl_instr!(instr, "MRC"),
             ArmInsn::ARM_INS_MRS => self.arm_msr(instr),
             ArmInsn::ARM_INS_MSR => self.arm_mrs(instr),
             ArmInsn::ARM_INS_MUL => self.arm_mul(instr),
             ArmInsn::ARM_INS_MVN => self.arm_mvn(instr),
             ArmInsn::ARM_INS_ORR => self.arm_orr(instr),
-            ArmInsn::ARM_INS_POP => unimpl_instr!(&instr, "POP"),
-            ArmInsn::ARM_INS_PUSH => unimpl_instr!(&instr, "PUSH"),
-            ArmInsn::ARM_INS_ROR => unimpl_instr!(&instr, "ROR"),
-            ArmInsn::ARM_INS_RRX => unimpl_instr!(&instr, "RRX"),
+            // In ARM mode, ldmia rd! sometimes gets ddecoded with POP mnemonic
+            ArmInsn::ARM_INS_POP => self.arm_ldmia(instr),
+            // In ARM mode, stmdb rd! sometimes gets decoded with PUSH mnemonic
+            ArmInsn::ARM_INS_PUSH => self.arm_stmdb(instr),
+            ArmInsn::ARM_INS_ROR => unimpl_instr!(instr, "ROR"),
+            ArmInsn::ARM_INS_RRX => unimpl_instr!(instr, "RRX"),
             ArmInsn::ARM_INS_RSB => self.arm_rsb(instr),
             ArmInsn::ARM_INS_RSC => self.arm_rsc(instr),
             ArmInsn::ARM_INS_SBC => self.arm_sbc(instr),
             ArmInsn::ARM_INS_SMLAL => self.arm_smlal(instr),
             ArmInsn::ARM_INS_SMULL => self.arm_smull(instr),
-            ArmInsn::ARM_INS_STC => unimpl_instr!(&instr, "STC"),
-            // Includes STMIA
-            ArmInsn::ARM_INS_STM => unimpl_instr!(&instr, "STM"),
-            ArmInsn::ARM_INS_STR => unimpl_instr!(&instr, "STR"),
-            ArmInsn::ARM_INS_STRB => unimpl_instr!(&instr, "STRB"),
-            ArmInsn::ARM_INS_STRBT => unimpl_instr!(&instr, "STRBT"),
-            ArmInsn::ARM_INS_STRH => unimpl_instr!(&instr, "STRH"),
-            ArmInsn::ARM_INS_STRT => unimpl_instr!(&instr, "STRT"),
+            ArmInsn::ARM_INS_STC => unimpl_instr!(instr, "STC"),
+            ArmInsn::ARM_INS_STM => self.arm_stmia(instr),
+            ArmInsn::ARM_INS_STMIB => unimpl_instr!(instr, "STMIB"),
+            ArmInsn::ARM_INS_STMDA => unimpl_instr!(instr, "STMDA"),
+            // Possibly decoded as a PUSH? When writeback enabled
+            ArmInsn::ARM_INS_STMDB => unimpl_instr!(instr, "STMDB"),
+
+            ArmInsn::ARM_INS_STR => unimpl_instr!(instr, "STR"),
+            ArmInsn::ARM_INS_STRB => unimpl_instr!(instr, "STRB"),
+            ArmInsn::ARM_INS_STRBT => unimpl_instr!(instr, "STRBT"),
+            ArmInsn::ARM_INS_STRH => unimpl_instr!(instr, "STRH"),
+            ArmInsn::ARM_INS_STRT => unimpl_instr!(instr, "STRT"),
             ArmInsn::ARM_INS_SUB => self.arm_sub(instr),
             // SWI?
-            ArmInsn::ARM_INS_SWP => unimpl_instr!(&instr, "SWP"),
-            ArmInsn::ARM_INS_SWPB => unimpl_instr!(&instr, "SWPB"),
+            ArmInsn::ARM_INS_SWP => unimpl_instr!(instr, "SWP"),
+            ArmInsn::ARM_INS_SWPB => unimpl_instr!(instr, "SWPB"),
             ArmInsn::ARM_INS_TEQ => self.arm_teq(instr),
             ArmInsn::ARM_INS_TST => self.arm_tst(instr),
             ArmInsn::ARM_INS_UMLAL => self.arm_umlal(instr),
             ArmInsn::ARM_INS_UMULL => self.arm_umull(instr),
-            _ => panic!("unsupported instruction {:?}", &instr.opcode),
+            _ => panic!("unsupported instruction {:?}", instr.opcode),
         }
     }
 }
