@@ -1,12 +1,10 @@
 #![allow(dead_code)]
 use anyhow::{Result, anyhow, bail};
-use capstone::RegId;
-use capstone::arch::arm::{ArmOpMem, ArmOperand, ArmOperandType, ArmShift};
-use inkwell::IntPredicate;
+use capstone::arch::arm::{ArmOperand, ArmShift};
 use inkwell::values::IntValue;
 
 use crate::arm::cpu::Reg;
-use crate::arm::disasm::{ArmInstruction, MemOffset, MemOperand};
+use crate::arm::disasm::{ArmInstruction, MemOperand};
 use crate::jit::builder::FunctionBuilder;
 use crate::jit::builder::alu::RegUpdate;
 
@@ -59,21 +57,25 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
     pub(super) fn arm_stmia(&mut self, _instr: ArmInstruction) { todo!() }
 
-    fn exec_load_conditional<F>(&mut self, instr: &ArmInstruction, inner: F) -> Result<()>
+    fn exec_load_conditional<F>(&mut self, _instr: &ArmInstruction, _inner: F) -> Result<()>
     where
         F: Fn(&mut Self, ArmInstruction) -> Result<LoadSingle<'a>>,
     {
         todo!()
     }
 
-    fn exec_load_multiple_conditional<F>(&mut self, instr: &ArmInstruction, inner: F) -> Result<()>
+    fn exec_load_multiple_conditional<F>(
+        &mut self,
+        _instr: &ArmInstruction,
+        _inner: F,
+    ) -> Result<()>
     where
         F: Fn(&mut Self, ArmInstruction) -> Result<LoadMultiple<'a>>,
     {
         todo!()
     }
 
-    fn exec_store_conditional<F>(&mut self, instr: &ArmInstruction, inner: F) -> Result<()>
+    fn exec_store_conditional<F>(&mut self, _instr: &ArmInstruction, _inner: F) -> Result<()>
     where
         F: Fn(&mut Self, ArmInstruction) -> Result<StoreSingle<'a>>,
     {
@@ -81,7 +83,11 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         todo!()
     }
 
-    fn exec_store_multiple_conditional<F>(&mut self, instr: &ArmInstruction, inner: F) -> Result<()>
+    fn exec_store_multiple_conditional<F>(
+        &mut self,
+        _instr: &ArmInstruction,
+        _inner: F,
+    ) -> Result<()>
     where
         F: Fn(&mut Self, ArmInstruction) -> Result<StoreMultiple<'a>>,
     {
@@ -91,8 +97,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
     fn addressing_mode(
         &mut self,
-        mem_op: MemOperand,
-        post_index: Option<ArmOperand>,
+        _mem_op: MemOperand,
+        _post_index: Option<ArmOperand>,
     ) -> Result<AddrMode<'a>> {
         todo!();
     }
@@ -152,7 +158,7 @@ mod tests {
         /// r7: base register
         /// r8: index
         /// r9: stores calculated address
-        fn new(context: &'ctx Context, instr: ArmInstruction) -> Self {
+        fn new(context: &'ctx Context, _instr: ArmInstruction) -> Self {
             let mut compiler = Compiler::new(context);
             let mut f = compiler.new_function(0, None);
 

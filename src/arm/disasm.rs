@@ -1,9 +1,9 @@
 pub mod cons;
 use std::collections::HashSet;
-use std::fmt::{Display, Write};
+use std::fmt::Display;
 
 use anyhow::{Result, bail};
-use capstone::arch::arm::{ArmCC, ArmInsn, ArmOpMem, ArmOperand, ArmOperandType, ArmShift};
+use capstone::arch::arm::{ArmCC, ArmInsn, ArmOperand, ArmOperandType, ArmShift};
 use capstone::arch::{ArchOperand, BuildsCapstone};
 use capstone::{Capstone, Insn};
 

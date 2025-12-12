@@ -1,8 +1,8 @@
 use std::env;
 
 use anyhow::Result;
-use grimlet::arm::cpu::{ArmState, Reg};
-use grimlet::arm::disasm::{Disasm, MemoryDisassembler};
+use grimlet::arm::cpu::ArmState;
+use grimlet::arm::disasm::MemoryDisassembler;
 use grimlet::emulator::Emulator;
 
 fn main() -> Result<()> {
