@@ -62,11 +62,12 @@ pub enum Reg {
     R9 = 9,
     R10 = 10,
     R11 = 11,
-    R12 = 12,
+    IP = 12,
     SP = 13,
     LR = 14,
     PC = 15,
     CPSR = 16,
+    SPSR = 17,
 }
 
 impl From<capstone::RegId> for Reg {
@@ -84,12 +85,12 @@ impl From<capstone::RegId> for Reg {
             ArmReg::ARM_REG_R9 => Reg::R9,
             ArmReg::ARM_REG_R10 => Reg::R10,
             ArmReg::ARM_REG_R11 => Reg::R11,
-            ArmReg::ARM_REG_R12 => Reg::R12,
+            ArmReg::ARM_REG_R12 => Reg::IP,
             ArmReg::ARM_REG_SP => Reg::SP,
             ArmReg::ARM_REG_LR => Reg::LR,
             ArmReg::ARM_REG_PC => Reg::PC,
             // Not 100% sure about this one
-            ArmReg::ARM_REG_CPSR | ArmReg::ARM_REG_APSR => Reg::CPSR,
+            ArmReg::ARM_REG_CPSR | ArmReg::ARM_REG_APSR | ArmReg::ARM_REG_SPSR => Reg::CPSR,
             _ => panic!("unhandled register id: {}", value.0),
         }
     }
@@ -105,7 +106,7 @@ impl IndexMut<Reg> for [u32] {
     fn index_mut(&mut self, index: Reg) -> &mut Self::Output { &mut self[index as usize] }
 }
 
-pub const NUM_REGS: usize = 17;
+pub const NUM_REGS: usize = 18;
 
 pub const REG_ITEMS: [Reg; NUM_REGS] = [
     Reg::R0,
@@ -120,18 +121,19 @@ pub const REG_ITEMS: [Reg; NUM_REGS] = [
     Reg::R9,
     Reg::R10,
     Reg::R11,
-    Reg::R12,
+    Reg::IP,
     Reg::SP,
     Reg::LR,
     Reg::PC,
     Reg::CPSR,
+    Reg::SPSR,
 ];
 
 /// Emulated CPU state and interpreter
 #[repr(C)]
 pub struct ArmState {
     pub mode: ArmMode,
-    pub regs: [u32; 17],
+    pub regs: [u32; NUM_REGS],
     pub mem: MainMemory,
 }
 
@@ -166,28 +168,21 @@ impl ArmState {
     }
 
     pub fn with_bios(bios_path: impl AsRef<str>) -> Result<Self> {
+        let mut state = Self::default();
+
         let path = bios_path.as_ref();
         if !fs::exists(path)? {
             return Err(anyhow!("BIOS file not found"));
         }
-        let bios = fs::read(path)?;
-
-        Ok(Self {
-            mode: ArmMode::ARM,
-            regs: [0; 17],
-            mem: MainMemory { bios },
-        })
+        state.mem = MainMemory {
+            bios: fs::read(path)?,
+        };
+        Ok(state)
     }
 
     pub fn curr_instr_addr(&self) -> usize {
         (self.regs[Reg::PC] - self.mode.pc_byte_offset()) as usize
     }
-
-    pub fn r0(&self) -> u32 { self.regs[Reg::R0] }
-
-    pub fn r1(&self) -> u32 { self.regs[Reg::R1] }
-
-    pub fn cpsr(&self) -> u32 { self.regs[Reg::CPSR as usize] }
 
     pub fn jump_to(&mut self, addr: u32) {
         println!("JUMPING TO: {}", addr);
