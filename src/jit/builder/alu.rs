@@ -1,4 +1,5 @@
 use anyhow::{Context as _, Result, anyhow};
+use capstone::RegId;
 use capstone::arch::arm::{ArmCC, ArmOperand, ArmOperandType, ArmShift};
 use inkwell::IntPredicate;
 use inkwell::values::IntValue;
@@ -75,7 +76,6 @@ macro_rules! call_intrinsic {
     };
 }
 
-#[allow(dead_code)]
 impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     pub(super) fn arm_adc(&mut self, instr: ArmInstruction) {
         exec_and_expect!(self, instr, Self::adc)
@@ -91,6 +91,10 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
     pub(super) fn arm_bic(&mut self, instr: ArmInstruction) {
         exec_and_expect!(self, instr, Self::bic)
+    }
+
+    pub(super) fn arm_cmn(&mut self, instr: ArmInstruction) {
+        exec_and_expect!(self, instr, Self::cmn)
     }
 
     pub(super) fn arm_cmp(&mut self, instr: ArmInstruction) {
@@ -159,6 +163,14 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
     pub(super) fn arm_mul(&mut self, instr: ArmInstruction) {
         exec_and_expect!(self, instr, Self::mul)
+    }
+
+    pub(super) fn arm_mrs(&mut self, instr: ArmInstruction) {
+        exec_and_expect!(self, instr, Self::mrs)
+    }
+
+    pub(super) fn arm_msr(&mut self, instr: ArmInstruction) {
+        exec_and_expect!(self, instr, Self::msr)
     }
 
     /// Wraps a function for emitting an instruction in a conditional block, evaluates flags and
@@ -675,7 +687,6 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let rn_val = self.reg_map.get(rn);
         let (shifter_op, c_flag) = self.shifter_operand(&instr.operands[2])?;
 
-        // BIC: Rd = Rn AND NOT(shifter_op)
         let not_shifter = bd.build_not(shifter_op, "not_shift")?;
         let res_val = bd.build_and(rn_val, not_shifter, "bic")?;
 
@@ -861,8 +872,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
         let rn_val = self.reg_map.get(rn);
-        let (shifter_op, _) =
-            self.shifter_operand(instr.operands.get(2).expect("Missing operand"))?;
+        let (shifter_op, _) = self.shifter_operand(&instr.operands[2])?;
 
         let c_in = bd.build_int_cast(self.get_flag(C)?, self.i32_t, "c32")?;
         let not_c = bd.build_not(c_in, "not_c")?;
@@ -1262,6 +1272,38 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             cpsr: Some(cpsr),
         })
     }
+
+    fn mrs(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+        let rd = instr.get_reg_op(0);
+        let cpsr = self.reg_map.get(Reg::CPSR);
+        Ok(DataProcResult {
+            output: RegOutput::single(rd, cpsr),
+            cpsr: None,
+        })
+    }
+
+    fn msr(&mut self, instr: ArmInstruction) -> Result<DataProcResult<'a>> {
+        if instr.operands[0].op_type != ArmOperandType::SysReg(RegId(9)) {
+            // SysReg(RegId(9)) seems to correspond to cpsr_fc/spsr_fc, which may be the only way
+            // you can call this since in ARMv4 without user mode? I still don't quite understand
+            // how cpsr instructions get decoded by capstone.
+            println!("{:#?}", instr);
+            panic!("Unexpected operand");
+        }
+        let bd = self.builder;
+        let update_val = match instr.operands[1].op_type {
+            ArmOperandType::Reg(reg_id) => self.reg_map.get(Reg::from(reg_id)),
+            ArmOperandType::Imm(imm) => imm!(self, imm),
+            _ => panic!("unhandled operand type"),
+        };
+        let cpsr = self.reg_map.get(Reg::CPSR);
+        let masked = bd.build_and(update_val, imm!(self, 0xf00000ff), "msk")?;
+        let keep = bd.build_and(cpsr, imm!(self, 0x0fffff00), "keep")?;
+        Ok(DataProcResult {
+            output: RegOutput::single(Reg::CPSR, bd.build_or(masked, keep, "or")?),
+            cpsr: None,
+        })
+    }
 }
 
 #[cfg(test)]
@@ -1596,10 +1638,4 @@ mod tests {
         let expect_res = (0b01111000110011100111000000100110, true);
         assert_eq!(res, expect_res);
     }
-
-    #[test]
-    fn test_adc() { todo!() }
-
-    #[test]
-    fn test_add() { todo!() }
 }
