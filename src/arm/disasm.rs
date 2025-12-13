@@ -161,7 +161,11 @@ impl ArmInstruction {
                         shift: post_op.shift,
                         subtract: post_op.subtracted,
                     },
-                    ArmOperandType::Imm(i) => MemOffset::Imm(i),
+                    ArmOperandType::Imm(i) => {
+                        debug_assert!(!(i < 0 && post_op.subtracted));
+                        let imm = if post_op.subtracted { -i } else { i };
+                        MemOffset::Imm(imm)
+                    }
                     _ => bail!("unexpected post-index op_type: {:?}", post_op.op_type),
                 };
                 Ok(MemOperand {
@@ -343,6 +347,190 @@ mod tests {
                 base: Reg::R0,
                 offset: MemOffset::Imm(0),
                 writeback: None
+            }
+        );
+        // strlt r0, [r1, #12]
+        assert_eq!(
+            get_mem_op_from_assembled(0xb581000c),
+            MemOperand {
+                base: Reg::R1,
+                offset: MemOffset::Imm(12),
+                writeback: None
+            }
+        );
+        // ldrne r1, [r1, #-12]
+        assert_eq!(
+            get_mem_op_from_assembled(0x1511100c),
+            MemOperand {
+                base: Reg::R1,
+                offset: MemOffset::Imm(-12),
+                writeback: None
+            }
+        );
+        // ldr r2, [pc, r0]
+        assert_eq!(
+            get_mem_op_from_assembled(0xe79f2000),
+            MemOperand {
+                base: Reg::PC,
+                offset: MemOffset::Reg {
+                    index: Reg::R0,
+                    shift: ArmShift::Invalid,
+                    subtract: false
+                },
+                writeback: None
+            }
+        );
+        // ldrne r1, [sp, -r14]
+        assert_eq!(
+            get_mem_op_from_assembled(0x171d100e),
+            MemOperand {
+                base: Reg::SP,
+                offset: MemOffset::Reg {
+                    index: Reg::LR,
+                    shift: ArmShift::Invalid,
+                    subtract: true
+                },
+                writeback: None
+            }
+        );
+        // ldr r1, [sp, -r14, asr #1]
+        assert_eq!(
+            get_mem_op_from_assembled(0xe71d10ce),
+            MemOperand {
+                base: Reg::SP,
+                offset: MemOffset::Reg {
+                    index: Reg::LR,
+                    shift: ArmShift::Asr(1),
+                    subtract: true
+                },
+                writeback: None
+            }
+        );
+        // ldr r2, [r13, r14, lsr #3]
+        assert_eq!(
+            get_mem_op_from_assembled(0xe79d21ae),
+            MemOperand {
+                base: Reg::SP,
+                offset: MemOffset::Reg {
+                    index: Reg::LR,
+                    shift: ArmShift::Lsr(3),
+                    subtract: false
+                },
+                writeback: None
+            }
+        );
+        // str r10, [ip, #0]!
+        assert_eq!(
+            get_mem_op_from_assembled(0xe5aca000),
+            MemOperand {
+                base: Reg::IP,
+                offset: MemOffset::Imm(0),
+                writeback: Some(WritebackMode::PreIndex)
+            }
+        );
+        // strge r5, [pc, #-12]!
+        assert_eq!(
+            get_mem_op_from_assembled(0xa52f500c),
+            MemOperand {
+                base: Reg::PC,
+                offset: MemOffset::Imm(-12),
+                writeback: Some(WritebackMode::PreIndex)
+            }
+        );
+        // ldr r8, [r9, r10]!
+        assert_eq!(
+            get_mem_op_from_assembled(0xe7b9800a),
+            MemOperand {
+                base: Reg::R9,
+                offset: MemOffset::Reg {
+                    index: Reg::R10,
+                    shift: ArmShift::Invalid,
+                    subtract: false
+                },
+                writeback: Some(WritebackMode::PreIndex)
+            }
+        );
+        // ldr r0, [r1, r2, lsl #31]!
+        assert_eq!(
+            get_mem_op_from_assembled(0xe7b10f82),
+            MemOperand {
+                base: Reg::R1,
+                offset: MemOffset::Reg {
+                    index: Reg::R2,
+                    shift: ArmShift::Lsl(31),
+                    subtract: false
+                },
+                writeback: Some(WritebackMode::PreIndex)
+            }
+        );
+        // ldr r7, [r0], -r0
+        assert_eq!(
+            get_mem_op_from_assembled(0xe6107000),
+            MemOperand {
+                base: Reg::R0,
+                offset: MemOffset::Reg {
+                    index: Reg::R0,
+                    shift: ArmShift::Invalid,
+                    subtract: true
+                },
+                writeback: Some(WritebackMode::PostIndex)
+            }
+        );
+        // ldreq lr, [sp], pc
+        assert_eq!(
+            get_mem_op_from_assembled(0x69de00f),
+            MemOperand {
+                base: Reg::SP,
+                offset: MemOffset::Reg {
+                    index: Reg::PC,
+                    shift: ArmShift::Invalid,
+                    subtract: false
+                },
+                writeback: Some(WritebackMode::PostIndex)
+            }
+        );
+        // ldreq r3, [r0], #4095
+        assert_eq!(
+            get_mem_op_from_assembled(0x4903fff),
+            MemOperand {
+                base: Reg::R0,
+                offset: MemOffset::Imm(4095),
+                writeback: Some(WritebackMode::PostIndex)
+            }
+        );
+        // strne r2, [r7], #-290
+        assert_eq!(
+            get_mem_op_from_assembled(0x14072122),
+            MemOperand {
+                base: Reg::R7,
+                offset: MemOffset::Imm(-290),
+                writeback: Some(WritebackMode::PostIndex),
+            }
+        );
+        // ldr pc, [pc], pc, ror #20
+        assert_eq!(
+            get_mem_op_from_assembled(0xe69ffa6f),
+            MemOperand {
+                base: Reg::PC,
+                offset: MemOffset::Reg {
+                    index: Reg::PC,
+                    shift: ArmShift::Ror(20),
+                    subtract: false
+                },
+                writeback: Some(WritebackMode::PostIndex)
+            }
+        );
+        // ldr r0, [r1], -r2, rrx
+        assert_eq!(
+            get_mem_op_from_assembled(0xe6110062),
+            MemOperand {
+                base: Reg::R1,
+                offset: MemOffset::Reg {
+                    index: Reg::R2,
+                    shift: ArmShift::Rrx(0),
+                    subtract: true
+                },
+                writeback: Some(WritebackMode::PostIndex)
             }
         );
     }
