@@ -7,6 +7,7 @@ use crate::arm::cpu::Reg;
 use crate::arm::disasm::instruction::{ArmInstruction, MemOffset, MemOperand, WritebackMode};
 use crate::jit::builder::FunctionBuilder;
 use crate::jit::builder::alu::RegUpdate;
+use crate::jit::builder::flags::C;
 
 /// Result of addressing mode calculation for single loads/stores
 struct AddrMode<'a> {
@@ -161,9 +162,9 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             ArmShift::Lsr(imm) => {
                 debug_assert!(imm > 0 && imm <= 32);
                 if imm == 32 {
-                    Ok(value)
+                    Ok(imm!(self, 0))
                 } else {
-                    bd.build_right_shift(value, imm!(self, imm), true, "asr")
+                    bd.build_right_shift(value, imm!(self, imm), false, "lsr")
                 }
             }
             ArmShift::Ror(imm) => {
@@ -171,7 +172,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                 Ok(call_intrinsic!(bd, self.fshr, value, value, imm!(self, imm)).into_int_value())
             }
             ArmShift::Rrx(_) => {
-                Ok(call_intrinsic!(bd, self.fshr, value, value, imm!(self, 1)).into_int_value())
+                let c = bd.build_int_cast_sign_flag(self.get_flag(C)?, self.i32_t, false, "c")?;
+                Ok(call_intrinsic!(bd, self.fshr, c, value, imm!(self, 1)).into_int_value())
             }
             _ => bail!("unsupported shift type for memory access: {:?}", shift),
         }?;
@@ -187,6 +189,162 @@ mod tests {
     use crate::arm::cpu::ArmState;
     use crate::jit::{CompiledFunction, Compiler};
 
+    struct ImmShiftTestCase<'ctx> {
+        f: CompiledFunction<'ctx>,
+        state: ArmState,
+    }
+
+    /// Apply the given shift to R0
+    fn shift_test_case(context: &Context, init: u32, shift: ArmShift, c_flag: Option<bool>) -> u32 {
+        let mut compiler = Compiler::new(context);
+        let mut f = compiler.new_function(0, None);
+
+        let init_regs = &vec![Reg::R0, Reg::CPSR].into_iter().collect();
+
+        f.load_initial_reg_values(init_regs).unwrap();
+
+        let shifted = f.imm_shift(f.reg_map.get(Reg::R0), shift).unwrap();
+        f.reg_map.update(Reg::R0, shifted);
+        f.write_state_out().unwrap();
+        f.builder.build_return(None).unwrap();
+        let f = f.compile().unwrap();
+        compiler.dump().unwrap();
+        let mut state = ArmState::default();
+        state.regs[Reg::R0] = init;
+        if let Some(c) = c_flag {
+            state.regs[Reg::CPSR] = if c { C.0 } else { 0 }
+        }
+        unsafe {
+            f.call(&mut state);
+        }
+        state.regs[Reg::R0]
+    }
+
+    #[test]
+    fn test_imm_shift_asr() {
+        let ctx = Context::create();
+        let cases = vec![
+            ((0xf0f00000, 2), 0xfc3c0000),
+            ((0x00f00000, 2), 0x003c0000),
+            ((0xf0f00000, 31), 0xffffffff),
+            ((0xf0f00000, 32), 0xffffffff),
+            ((0xf0f00000, 31), 0xffffffff),
+            ((0x70f00000, 32), 0),
+        ];
+        for ((r0, sh), expected) in cases {
+            assert_eq!(shift_test_case(&ctx, r0, ArmShift::Asr(sh), None), expected);
+        }
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_imm_shift_asr_0_panics() {
+        let ctx = Context::create();
+        shift_test_case(&ctx, 0xf0f0, ArmShift::Asr(0), None);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_imm_shift_asr_33_panics() {
+        let ctx = Context::create();
+        shift_test_case(&ctx, 0xf0f0, ArmShift::Asr(33), None);
+    }
+
+    #[test]
+    fn test_imm_shift_lsr() {
+        let ctx = Context::create();
+        let cases = vec![
+            ((0xf0f000e7, 1), 0x78780073),
+            ((0xf0f00000, 31), 0x00000001),
+            ((0xf0f00000, 32), 0),
+        ];
+        for ((r0, sh), expected) in cases {
+            assert_eq!(shift_test_case(&ctx, r0, ArmShift::Lsr(sh), None), expected);
+        }
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_imm_shift_lsr_0_panics() {
+        let ctx = Context::create();
+        shift_test_case(&ctx, 0xf0f0, ArmShift::Lsr(0), None);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_imm_shift_lsr_33_panics() {
+        let ctx = Context::create();
+        shift_test_case(&ctx, 0xf0f0, ArmShift::Lsr(33), None);
+    }
+
+    #[test]
+    fn test_imm_shift_lsl() {
+        let ctx = Context::create();
+        let cases = vec![
+            ((0xf0f000e7, 0), 0xf0f000e7),
+            ((0xf0f000e7, 1), 0xe1e001ce),
+            ((0xf0f00001, 31), 0x80000000),
+            ((0xf0f00000, 31), 0),
+        ];
+        for ((r0, sh), expected) in cases {
+            assert_eq!(shift_test_case(&ctx, r0, ArmShift::Lsl(sh), None), expected);
+        }
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_imm_shift_lsl_32_panics() {
+        let ctx = Context::create();
+        shift_test_case(&ctx, 0, ArmShift::Lsl(32), None);
+    }
+
+    #[test]
+    fn test_imm_shift_ror() {
+        let ctx = Context::create();
+        let cases = vec![
+            ((0xf0f000e7, 1), 0xf8780073),
+            ((0xf0f000e7, 31), 0xe1e001cf),
+        ];
+        for ((r0, sh), expected) in cases {
+            assert_eq!(shift_test_case(&ctx, r0, ArmShift::Ror(sh), None), expected);
+        }
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_imm_shift_ror_0_panics() {
+        let ctx = Context::create();
+        shift_test_case(&ctx, 0, ArmShift::Ror(0), None);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_imm_shift_ror_32_panics() {
+        let ctx = Context::create();
+        shift_test_case(&ctx, 0, ArmShift::Ror(32), None);
+    }
+
+    #[test]
+    fn test_imm_shift_rrx() {
+        let ctx = Context::create();
+        assert_eq!(
+            shift_test_case(&ctx, 0x80b30011, ArmShift::Rrx(0), Some(true)),
+            0xc0598008
+        );
+        assert_eq!(
+            shift_test_case(&ctx, 0x80b30011, ArmShift::Rrx(1), Some(true)),
+            0xc0598008
+        );
+        assert_eq!(
+            shift_test_case(&ctx, 0x80b30011, ArmShift::Rrx(0), Some(false)),
+            0x40598008
+        );
+        assert_eq!(
+            shift_test_case(&ctx, 0x80b30011, ArmShift::Rrx(99), Some(false)),
+            0x40598008
+        );
+    }
+
     struct AddrModeTestCase<'ctx> {
         f: CompiledFunction<'ctx>,
         state: ArmState,
@@ -200,8 +358,12 @@ mod tests {
             let mut compiler = Compiler::new(context);
             let mut f = compiler.new_function(0, None);
 
-            f.load_initial_reg_values(&vec![Reg::R7, Reg::R8, Reg::R9].into_iter().collect())
-                .unwrap();
+            f.load_initial_reg_values(
+                &vec![Reg::R7, Reg::R8, Reg::R9, Reg::CPSR]
+                    .into_iter()
+                    .collect(),
+            )
+            .unwrap();
 
             let addr_mode = f.addressing_mode(mem_op).unwrap();
             if let Some(wb) = addr_mode.writeback {
@@ -336,7 +498,10 @@ mod tests {
 
         mem_op.offset = reg_offset(false, Some(ArmShift::Rrx(0)));
         let mut tst = AddrModeTestCase::new(&ctx, &mem_op);
+        tst.state.regs[Reg::CPSR] = C.0;
         assert_eq!(tst.run(200, 0xf), (0x800000cf, 0x800000cf));
+        tst.state.regs[Reg::CPSR] = 0;
+        assert_eq!(tst.run(200, 0xf), (207, 207));
 
         mem_op.offset = reg_offset(true, Some(ArmShift::Lsr(2)));
         let mut tst = AddrModeTestCase::new(&ctx, &mem_op);
