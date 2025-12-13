@@ -210,6 +210,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         bd.build_unconditional_branch(end_block)?;
         bd.position_at_end(end_block);
 
+        // Update the output register(s) with phi values depending on branch taken
         match calc_result.action {
             DataProcAction::Ignored => {}
             DataProcAction::SingleUpdate(RegUpdate { reg, value }) => {
@@ -251,6 +252,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             }
         }
 
+        // Update CPSR if instruction sets flags
         if let Some(cpsr) = calc_result.cpsr {
             let phi = bd.build_phi(self.i32_t, "phi_cpsr")?;
             phi.add_incoming(&[(&cpsr_init, self.current_block), (&cpsr, if_block)]);

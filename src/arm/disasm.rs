@@ -9,7 +9,7 @@ use capstone::{Capstone, Insn};
 
 use crate::arm::cpu::{ArmMode, MainMemory, Reg};
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MemOffset {
     Reg {
         index: Reg,
@@ -19,13 +19,13 @@ pub enum MemOffset {
     Imm(i32),
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum WritebackMode {
     PostIndex,
     PreIndex,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MemOperand {
     pub base: Reg,
     pub offset: MemOffset,

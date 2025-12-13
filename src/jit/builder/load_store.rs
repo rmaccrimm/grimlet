@@ -4,7 +4,7 @@ use capstone::arch::arm::{ArmOperand, ArmShift};
 use inkwell::values::IntValue;
 
 use crate::arm::cpu::Reg;
-use crate::arm::disasm::{ArmInstruction, MemOperand};
+use crate::arm::disasm::{ArmInstruction, MemOffset, MemOperand, WritebackMode};
 use crate::jit::builder::FunctionBuilder;
 use crate::jit::builder::alu::RegUpdate;
 
@@ -95,12 +95,52 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         todo!()
     }
 
-    fn addressing_mode(
-        &mut self,
-        _mem_op: MemOperand,
-        _post_index: Option<ArmOperand>,
-    ) -> Result<AddrMode<'a>> {
-        todo!();
+    fn addressing_mode(&mut self, mem_op: &MemOperand) -> Result<AddrMode<'a>> {
+        let bd = self.builder;
+        let base_val = self.reg_map.get(mem_op.base);
+
+        let offset = match mem_op.offset {
+            MemOffset::Reg {
+                index,
+                shift,
+                subtract,
+            } => {
+                let index_val = self.reg_map.get(index);
+                let shifted = self.imm_shift(index_val, shift)?;
+                if subtract {
+                    bd.build_int_add(base_val, shifted, "off")?
+                } else {
+                    bd.build_int_sub(base_val, shifted, "off")?
+                }
+            }
+            MemOffset::Imm(i) => imm!(self, i),
+        };
+        let calc_addr = bd.build_int_add(base_val, offset, "addr")?;
+
+        let addr_mode = match mem_op.writeback {
+            None => AddrMode {
+                writeback: None,
+                addr: calc_addr,
+            },
+            Some(WritebackMode::PreIndex) => AddrMode {
+                writeback: Some(RegUpdate {
+                    reg: mem_op.base,
+                    value: calc_addr,
+                }),
+                addr: calc_addr,
+            },
+            Some(WritebackMode::PostIndex) => {
+                // Write back calc address, but use base as load/store
+                AddrMode {
+                    writeback: Some(RegUpdate {
+                        reg: mem_op.base,
+                        value: calc_addr,
+                    }),
+                    addr: base_val,
+                }
+            }
+        };
+        Ok(addr_mode)
     }
 
     fn imm_shift(&self, value: IntValue<'a>, shift: ArmShift) -> Result<IntValue<'a>> {
@@ -158,18 +198,18 @@ mod tests {
         /// r7: base register
         /// r8: index
         /// r9: stores calculated address
-        fn new(context: &'ctx Context, _instr: ArmInstruction) -> Self {
+        fn new(context: &'ctx Context, instr: ArmInstruction) -> Self {
             let mut compiler = Compiler::new(context);
             let mut f = compiler.new_function(0, None);
 
             f.load_initial_reg_values(&vec![Reg::R7, Reg::R8, Reg::R9].into_iter().collect())
                 .unwrap();
 
-            // let addr_mode = f.addressing_mode(&instr).unwrap();
-            // if let Some(wb) = addr_mode.writeback {
-            //     f.reg_map.update(wb.reg, wb.value);
-            // }
-            // f.reg_map.update(Reg::R9, addr_mode.addr);
+            let addr_mode = f.addressing_mode(&instr.get_mem_op().unwrap()).unwrap();
+            if let Some(wb) = addr_mode.writeback {
+                f.reg_map.update(wb.reg, wb.value);
+            }
+            f.reg_map.update(Reg::R9, addr_mode.addr);
 
             f.write_state_out().unwrap();
             f.builder.build_return(None).unwrap();
