@@ -2,7 +2,7 @@ use anyhow::Result;
 use capstone::arch::arm::ArmCC;
 
 use crate::arm::cpu::ArmState;
-use crate::arm::disasm::ArmInstruction;
+use crate::arm::disasm::instruction::ArmInstruction;
 use crate::jit::FunctionBuilder;
 
 impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {

@@ -46,7 +46,8 @@ use inkwell::values::{BasicValueEnum, FunctionValue, PointerValue};
 
 use super::{CompiledFunction, FunctionCache};
 use crate::arm::cpu::{ArmMode, ArmState, NUM_REGS, Reg};
-use crate::arm::disasm::{ArmInstruction, CodeBlock};
+use crate::arm::disasm::code_block::CodeBlock;
+use crate::arm::disasm::instruction::ArmInstruction;
 use crate::jit::builder::reg_map::RegMap;
 
 macro_rules! unimpl_instr {

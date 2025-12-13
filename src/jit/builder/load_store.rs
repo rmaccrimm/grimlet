@@ -1,10 +1,10 @@
 #![allow(dead_code)]
 use anyhow::{Result, anyhow, bail};
-use capstone::arch::arm::{ArmOperand, ArmShift};
+use capstone::arch::arm::ArmShift;
 use inkwell::values::IntValue;
 
 use crate::arm::cpu::Reg;
-use crate::arm::disasm::{ArmInstruction, MemOffset, MemOperand, WritebackMode};
+use crate::arm::disasm::instruction::{ArmInstruction, MemOffset, MemOperand, WritebackMode};
 use crate::jit::builder::FunctionBuilder;
 use crate::jit::builder::alu::RegUpdate;
 

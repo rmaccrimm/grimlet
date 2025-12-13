@@ -4,7 +4,7 @@ use std::process::{Command, Stdio};
 use anyhow::{Result, bail};
 use clap::Parser;
 use grimlet::arm::cpu::ArmMode;
-use grimlet::arm::disasm::MemoryDisassembler;
+use grimlet::arm::disasm::Disassembler;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about=None)]
@@ -49,7 +49,7 @@ fn main() -> Result<()> {
             bail!("assembly failed");
         }
         let bin = fs::read(format!("{}/a.gba", dir))?;
-        let mut ds = MemoryDisassembler::default();
+        let mut ds = Disassembler::default();
 
         let bytes = if args.thumb_mode {
             ds.set_mode(ArmMode::THUMB).unwrap();

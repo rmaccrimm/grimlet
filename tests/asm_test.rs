@@ -1,10 +1,10 @@
 use grimlet::arm::cpu::{ArmState, Reg};
-use grimlet::arm::disasm::MemoryDisassembler;
+use grimlet::arm::disasm::Disassembler;
 use grimlet::emulator::Emulator;
 
 #[test]
 fn test_factorial() {
-    let disasm = MemoryDisassembler::default();
+    let disasm = Disassembler::default();
     let mut emulator = Emulator::new(disasm, Some("tests/programs/factorial.gba")).unwrap();
 
     let mut run = |n| -> u32 {

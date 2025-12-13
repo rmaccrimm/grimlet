@@ -71,8 +71,9 @@ mod tests {
 
     use super::*;
     use crate::arm::cpu::{MainMemory, Reg};
+    use crate::arm::disasm::code_block::CodeBlock;
     use crate::arm::disasm::cons::*;
-    use crate::arm::disasm::{ArmInstruction, CodeBlock, Disasm};
+    use crate::arm::disasm::instruction::ArmInstruction;
     pub struct VecDisassembler {
         pub program: Vec<ArmInstruction>,
     }
