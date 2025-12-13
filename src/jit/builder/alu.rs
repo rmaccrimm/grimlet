@@ -5,7 +5,7 @@ use inkwell::IntPredicate;
 use inkwell::values::IntValue;
 
 use crate::arm::cpu::Reg;
-use crate::arm::disasm::ArmInstruction;
+use crate::arm::disasm::instruction::ArmInstruction;
 use crate::jit::FunctionBuilder;
 use crate::jit::builder::flags::C;
 

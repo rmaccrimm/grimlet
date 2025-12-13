@@ -99,7 +99,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let bd = self.builder;
         let base_val = self.reg_map.get(mem_op.base);
 
-        let offset = match mem_op.offset {
+        let calc_addr = match mem_op.offset {
             MemOffset::Reg {
                 index,
                 shift,
@@ -108,14 +108,13 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                 let index_val = self.reg_map.get(index);
                 let shifted = self.imm_shift(index_val, shift)?;
                 if subtract {
-                    bd.build_int_add(base_val, shifted, "off")?
+                    bd.build_int_sub(base_val, shifted, "addr")?
                 } else {
-                    bd.build_int_sub(base_val, shifted, "off")?
+                    bd.build_int_add(base_val, shifted, "addr")?
                 }
             }
-            MemOffset::Imm(i) => imm!(self, i),
+            MemOffset::Imm(i) => bd.build_int_add(base_val, imm!(self, i), "addr")?,
         };
-        let calc_addr = bd.build_int_add(base_val, offset, "addr")?;
 
         let addr_mode = match mem_op.writeback {
             None => AddrMode {
@@ -171,8 +170,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                 debug_assert!(imm > 0 && imm < 32);
                 Ok(call_intrinsic!(bd, self.fshr, value, value, imm!(self, imm)).into_int_value())
             }
-            ArmShift::Rrx(imm) => {
-                debug_assert_eq!(imm, 1);
+            ArmShift::Rrx(_) => {
                 Ok(call_intrinsic!(bd, self.fshr, value, value, imm!(self, 1)).into_int_value())
             }
             _ => bail!("unsupported shift type for memory access: {:?}", shift),
@@ -198,14 +196,14 @@ mod tests {
         /// r7: base register
         /// r8: index
         /// r9: stores calculated address
-        fn new(context: &'ctx Context, instr: ArmInstruction) -> Self {
+        fn new(context: &'ctx Context, mem_op: &MemOperand) -> Self {
             let mut compiler = Compiler::new(context);
             let mut f = compiler.new_function(0, None);
 
             f.load_initial_reg_values(&vec![Reg::R7, Reg::R8, Reg::R9].into_iter().collect())
                 .unwrap();
 
-            let addr_mode = f.addressing_mode(&instr.get_mem_op().unwrap()).unwrap();
+            let addr_mode = f.addressing_mode(mem_op).unwrap();
             if let Some(wb) = addr_mode.writeback {
                 f.reg_map.update(wb.reg, wb.value);
             }
@@ -220,7 +218,7 @@ mod tests {
             }
         }
 
-        /// Set base and index (may be ignored). Return base and calculated address
+        /// Set base and index (may be ignored). Return base, and calculated address
         fn run(&mut self, base: u32, index: u32) -> (u32, u32) {
             self.state.regs[Reg::R7] = base;
             self.state.regs[Reg::R8] = index;
@@ -228,34 +226,154 @@ mod tests {
             unsafe {
                 self.f.call(&mut self.state);
             }
-            (self.state.regs[Reg::R8], self.state.regs[Reg::R9])
+            // should never change
+            assert_eq!(self.state.regs[Reg::R8], index);
+            (self.state.regs[Reg::R7], self.state.regs[Reg::R9])
+        }
+    }
+
+    fn reg_offset(subtract: bool, shift: Option<ArmShift>) -> MemOffset {
+        MemOffset::Reg {
+            index: Reg::R8,
+            shift: match shift {
+                Some(s) => s,
+                None => ArmShift::Invalid,
+            },
+            subtract,
         }
     }
 
     #[test]
-    fn test_addressing_mode_imm() {}
+    fn test_addressing_mode_imm_no_writeback() {
+        let mut mem_op = MemOperand {
+            base: Reg::R7,
+            offset: MemOffset::Imm(100),
+            writeback: None,
+        };
+        let ctx = Context::create();
+
+        let mut tst = AddrModeTestCase::new(&ctx, &mem_op);
+        assert_eq!(tst.run(200, 99), (200, 300));
+
+        mem_op.offset = MemOffset::Imm(0);
+        let mut tst = AddrModeTestCase::new(&ctx, &mem_op);
+        assert_eq!(tst.run(200, 99), (200, 200));
+
+        mem_op.offset = MemOffset::Imm(-20);
+        let mut tst = AddrModeTestCase::new(&ctx, &mem_op);
+        assert_eq!(tst.run(200, 99), (200, 180));
+    }
 
     #[test]
-    fn test_addressing_mode_reg() {}
+    fn test_addressing_mode_reg_no_writeback() {
+        let ctx = Context::create();
+        let mut mem_op = MemOperand {
+            base: Reg::R7,
+            offset: reg_offset(false, None),
+            writeback: None,
+        };
+        let mut tst = AddrModeTestCase::new(&ctx, &mem_op);
+        assert_eq!(tst.run(200, 99), (200, 299));
+        assert_eq!(tst.run(200, 0), (200, 200));
+        assert_eq!(tst.run(200, 4095), (200, 4295));
+
+        mem_op.offset = reg_offset(true, None);
+        let mut tst = AddrModeTestCase::new(&ctx, &mem_op);
+        assert_eq!(tst.run(200, 99), (200, 101));
+        assert_eq!(tst.run(200, 0), (200, 200));
+        // undeflows to -1
+        assert_eq!(tst.run(200, 201), (200, 0xffffffff));
+    }
 
     #[test]
-    fn test_addressing_mode_shift_reg() {}
+    fn test_addressing_mode_shift_reg_no_writeback() {
+        let ctx = Context::create();
+        let mut mem_op = MemOperand {
+            base: Reg::R7,
+            offset: reg_offset(false, Some(ArmShift::Lsr(3))),
+            writeback: None,
+        };
+        let mut tst = AddrModeTestCase::new(&ctx, &mem_op);
+        assert_eq!(tst.run(200, 240), (200, 230)); //  240/8 = 30
+        assert_eq!(tst.run(200, 0b111), (200, 200));
+
+        mem_op.offset = reg_offset(true, Some(ArmShift::Lsl(4)));
+        let mut tst = AddrModeTestCase::new(&ctx, &mem_op);
+        assert_eq!(tst.run(200, 2), (200, 168));
+
+        mem_op.offset = reg_offset(false, Some(ArmShift::Asr(2)));
+        let mut tst = AddrModeTestCase::new(&ctx, &mem_op);
+        assert_eq!(tst.run(200, 0x80000000), (200, 0xe00000c8));
+    }
 
     #[test]
-    fn test_addressing_mode_pre_imm() {}
+    fn test_addressing_mode_writeback_preindex() {
+        let mut mem_op = MemOperand {
+            base: Reg::R7,
+            offset: MemOffset::Imm(100),
+            writeback: Some(WritebackMode::PreIndex),
+        };
+        let ctx = Context::create();
+
+        let mut tst = AddrModeTestCase::new(&ctx, &mem_op);
+        assert_eq!(tst.run(200, 99), (300, 300));
+
+        mem_op.offset = MemOffset::Imm(0);
+        let mut tst = AddrModeTestCase::new(&ctx, &mem_op);
+        assert_eq!(tst.run(200, 99), (200, 200));
+
+        mem_op.offset = MemOffset::Imm(-20);
+        let mut tst = AddrModeTestCase::new(&ctx, &mem_op);
+        assert_eq!(tst.run(200, 99), (180, 180));
+
+        mem_op.offset = reg_offset(false, None);
+        let mut tst = AddrModeTestCase::new(&ctx, &mem_op);
+        assert_eq!(tst.run(200, 99), (299, 299));
+
+        mem_op.offset = reg_offset(true, None);
+        let mut tst = AddrModeTestCase::new(&ctx, &mem_op);
+        assert_eq!(tst.run(200, 199), (1, 1));
+
+        mem_op.offset = reg_offset(false, Some(ArmShift::Rrx(0)));
+        let mut tst = AddrModeTestCase::new(&ctx, &mem_op);
+        assert_eq!(tst.run(200, 0xf), (0x800000cf, 0x800000cf));
+
+        mem_op.offset = reg_offset(true, Some(ArmShift::Lsr(2)));
+        let mut tst = AddrModeTestCase::new(&ctx, &mem_op);
+        assert_eq!(tst.run(200, 0x324), (0xffffffff, 0xffffffff));
+    }
 
     #[test]
-    fn test_addressing_mode_pre_reg() {}
+    fn test_addressing_mode_writeback_postindex() {
+        let mut mem_op = MemOperand {
+            base: Reg::R7,
+            offset: MemOffset::Imm(55),
+            writeback: Some(WritebackMode::PostIndex),
+        };
+        let ctx = Context::create();
 
-    #[test]
-    fn test_addressing_mode_pre_shift_reg() {}
+        let mut tst = AddrModeTestCase::new(&ctx, &mem_op);
+        assert_eq!(tst.run(200, 99), (255, 200));
 
-    #[test]
-    fn test_addressing_mode_post_imm() {}
+        mem_op.offset = MemOffset::Imm(-100);
+        let mut tst = AddrModeTestCase::new(&ctx, &mem_op);
+        assert_eq!(tst.run(200, 99), (100, 200));
 
-    #[test]
-    fn test_addressing_mode_post_reg() {}
+        mem_op.offset = MemOffset::Imm(0);
+        let mut tst = AddrModeTestCase::new(&ctx, &mem_op);
+        assert_eq!(tst.run(200, 99), (200, 200));
 
-    #[test]
-    fn test_addressing_mode_post_shift_reg() {}
+        mem_op.offset = reg_offset(false, None);
+        let mut tst = AddrModeTestCase::new(&ctx, &mem_op);
+        assert_eq!(tst.run(0, 210), (210, 0));
+        assert_eq!(tst.run(100, 150), (250, 100));
+
+        mem_op.offset = reg_offset(true, None);
+        let mut tst = AddrModeTestCase::new(&ctx, &mem_op);
+        assert_eq!(tst.run(200, 199), (1, 200));
+
+        mem_op.offset = reg_offset(false, Some(ArmShift::Ror(2)));
+        let mut tst = AddrModeTestCase::new(&ctx, &mem_op);
+        assert_eq!(tst.run(0, 0x3), (0xc0000000, 0));
+    }
 }
