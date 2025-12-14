@@ -86,15 +86,13 @@ where
 
     // Pointers to emulated state
     arm_state_ptr: PointerValue<'a>,
-    // mem_ptr: PointerValue<'a>,
+    mem_ptr: PointerValue<'a>,
 
     // Frequently used LLVM types
     arm_state_t: StructType<'a>,
-    fn_t: FunctionType<'a>,
     i32_t: IntType<'a>,
     ptr_t: PointerType<'a>,
     void_t: VoidType<'a>,
-    bool_t: IntType<'a>,
 
     // LLVM intrinsics
     sadd_with_overflow: FunctionValue<'a>,
@@ -133,12 +131,13 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         func_cache: Option<&'a FunctionCache<'ctx>>,
     ) -> Self {
         let build = || -> Result<Self> {
+            let bd = builder;
+
             let name = func_name(addr);
             let ctx = llvm_ctx;
             let i32_t = ctx.i32_type();
             let ptr_t = ctx.ptr_type(AddressSpace::default());
             let void_t = ctx.void_type();
-            let bool_t = ctx.bool_type();
 
             let arm_state_t = llvm_ctx.struct_type(
                 &[
@@ -150,17 +149,21 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             );
             let fn_t = void_t.fn_type(&[ptr_t.into()], false);
 
-            let bd = builder;
             let func = module.add_function(&name, fn_t, None);
             let mut blocks = HashMap::new();
-
             let basic_block = ctx.append_basic_block(func, "start");
             bd.position_at_end(basic_block);
             blocks.insert(addr, basic_block);
 
             let arm_state_ptr = get_ptr_param(&func, 0)?;
-            // let mem_ptr = get_ptr_param(&func, 0)?;
-
+            let mem_ptr = unsafe {
+                bd.build_gep(
+                    arm_state_t,
+                    arm_state_ptr,
+                    &[i32_t.const_zero(), i32_t.const_int(2, false)],
+                    "mem_ptr",
+                )?
+            };
             // Declare intrinsics
             let sadd_with_overflow = get_intrinsic("llvm.sadd.with.overflow", module)?;
             let ssub_with_overflow = get_intrinsic("llvm.ssub.with.overflow", module)?;
@@ -174,17 +177,15 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                 func,
                 reg_map: RegMap::new(),
                 arm_state_ptr,
-                // mem_ptr,
+                mem_ptr,
                 builder,
                 execution_engine,
                 current_block: basic_block,
                 func_cache,
                 arm_state_t,
-                fn_t,
                 i32_t,
                 ptr_t,
                 void_t,
-                bool_t,
                 sadd_with_overflow,
                 ssub_with_overflow,
                 uadd_with_overflow,
@@ -508,9 +509,10 @@ mod tests {
         let func_ptr_param = f2.get_compiled_func_pointer(0).unwrap().unwrap();
 
         // Perform indirect call through pointer
+        let fn_t = f2.void_t.fn_type(&[f2.ptr_t.into()], false);
         let call = f2
             .builder
-            .build_indirect_call(f2.fn_t, func_ptr_param, &[f2.arm_state_ptr.into()], "call")
+            .build_indirect_call(fn_t, func_ptr_param, &[f2.arm_state_ptr.into()], "call")
             .unwrap();
         call.set_tail_call(true);
         f2.builder.build_return(None).unwrap();

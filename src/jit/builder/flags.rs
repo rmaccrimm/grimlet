@@ -145,8 +145,9 @@ mod tests {
         let all_regs: HashSet<Reg> = REG_ITEMS.into_iter().collect();
         func.load_initial_reg_values(&all_regs).unwrap();
 
-        let f = func.bool_t.const_zero();
-        let t = func.bool_t.const_int(1, false);
+        let bool_t = context.bool_type();
+        let f = bool_t.const_zero();
+        let t = bool_t.const_int(1, false);
         func.reg_map
             .update(Reg::R0, func.set_flag(V, func.reg_map.r0(), t)?);
         func.reg_map

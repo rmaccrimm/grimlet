@@ -229,7 +229,7 @@ mod tests {
             state.regs[Reg::CPSR] = if c { C.0 } else { 0 }
         }
         unsafe {
-            f.call(&mut state, &mut state.mem);
+            f.call(&mut state);
         }
         state.regs[Reg::R0]
     }
@@ -400,7 +400,7 @@ mod tests {
             self.state.regs[Reg::R8] = index;
             self.state.regs[Reg::R9] = 0;
             unsafe {
-                self.f.call(&mut self.state, &mut self.state.mem);
+                self.f.call(&mut self.state);
             }
             // should never change
             assert_eq!(self.state.regs[Reg::R8], index);
@@ -569,21 +569,12 @@ mod tests {
         let write_ptr = f
             .get_external_func_pointer(MainMemory::write as fn(&mut MainMemory, u32, u32) as usize)
             .unwrap();
-        let mem_ptr = unsafe {
-            bd.build_gep(
-                f.arm_state_t,
-                f.arm_state_ptr,
-                &[f.i32_t.const_zero(), f.i32_t.const_int(2, false)],
-                "mem_ptr",
-            )
-            .unwrap()
-        };
         bd.build_indirect_call(
             f.void_t
                 .fn_type(&[f.ptr_t.into(), f.i32_t.into(), f.i32_t.into()], false),
             write_ptr,
             &[
-                mem_ptr.into(),
+                f.mem_ptr.into(),
                 f.reg_map.get(Reg::R1).into(),
                 f.reg_map.get(Reg::R0).into(),
             ],
@@ -602,20 +593,11 @@ mod tests {
             .get_external_func_pointer(MainMemory::read as fn(&MainMemory, u32) -> u32 as usize)
             .unwrap();
         let bd = f.builder;
-        let mem_ptr = unsafe {
-            bd.build_gep(
-                f.arm_state_t,
-                f.arm_state_ptr,
-                &[f.i32_t.const_zero(), f.i32_t.const_int(2, false)],
-                "mem_ptr",
-            )
-            .unwrap()
-        };
         let call = bd
             .build_indirect_call(
                 f.i32_t.fn_type(&[f.ptr_t.into(), f.i32_t.into()], false),
                 read_ptr,
-                &[mem_ptr.into(), f.reg_map.get(Reg::R1).into()],
+                &[f.mem_ptr.into(), f.reg_map.get(Reg::R1).into()],
                 "call",
             )
             .unwrap();
@@ -631,8 +613,8 @@ mod tests {
         state.regs[Reg::R2] = 0;
 
         unsafe {
-            write_func.call(&mut state, &mut state.mem);
-            read_func.call(&mut state, &mut state.mem);
+            write_func.call(&mut state);
+            read_func.call(&mut state);
         }
         assert_eq!(state.regs[Reg::R2], 0xfe781209u32);
 
