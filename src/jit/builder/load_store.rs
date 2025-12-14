@@ -557,40 +557,84 @@ mod tests {
     }
 
     #[test]
-    fn test_read_through_llvm_pointer() {
+    fn test_poc_read_write_through_llvm_pointers() {
         let ctx = Context::create();
         let mut compiler = Compiler::new(&ctx);
-        let mut f = compiler.new_function(0, None);
 
-        let init_regs = &vec![Reg::R0].into_iter().collect();
+        // Write value in r0 to address in r1
+        let mut f = compiler.new_function(0, None);
+        let bd = f.builder;
+        let init_regs = &vec![Reg::R0, Reg::R1].into_iter().collect();
+        f.load_initial_reg_values(init_regs).unwrap();
+        let write_ptr = f
+            .get_external_func_pointer(MainMemory::write as fn(&mut MainMemory, u32, u32) as usize)
+            .unwrap();
+        let mem_ptr = unsafe {
+            bd.build_gep(
+                f.arm_state_t,
+                f.arm_state_ptr,
+                &[f.i32_t.const_zero(), f.i32_t.const_int(2, false)],
+                "mem_ptr",
+            )
+            .unwrap()
+        };
+        bd.build_indirect_call(
+            f.void_t
+                .fn_type(&[f.ptr_t.into(), f.i32_t.into(), f.i32_t.into()], false),
+            write_ptr,
+            &[
+                mem_ptr.into(),
+                f.reg_map.get(Reg::R1).into(),
+                f.reg_map.get(Reg::R0).into(),
+            ],
+            "call",
+        )
+        .unwrap();
+        f.write_state_out().unwrap();
+        bd.build_return(None).unwrap();
+        let write_func = f.compile().unwrap();
+
+        // Read value at address in r1 to r2
+        let mut f = compiler.new_function(0, None);
+        let init_regs = &vec![Reg::R1, Reg::R2].into_iter().collect();
         f.load_initial_reg_values(init_regs).unwrap();
         let read_ptr = f
-            .get_external_func_pointer(MainMemory::read::<u32> as usize)
+            .get_external_func_pointer(MainMemory::read as fn(&MainMemory, u32) -> u32 as usize)
             .unwrap();
-
-        // let dummy_mem_t = ctx.i64_type().array_type(3);
         let bd = f.builder;
+        let mem_ptr = unsafe {
+            bd.build_gep(
+                f.arm_state_t,
+                f.arm_state_ptr,
+                &[f.i32_t.const_zero(), f.i32_t.const_int(2, false)],
+                "mem_ptr",
+            )
+            .unwrap()
+        };
         let call = bd
             .build_indirect_call(
                 f.i32_t.fn_type(&[f.ptr_t.into(), f.i32_t.into()], false),
                 read_ptr,
-                &[f.mem_ptr.into(), f.i32_t.const_zero().into()],
+                &[mem_ptr.into(), f.reg_map.get(Reg::R1).into()],
                 "call",
             )
             .unwrap();
         let v = call.try_as_basic_value().left().unwrap().into_int_value();
-        f.reg_map.update(Reg::R0, v);
+        f.reg_map.update(Reg::R2, v);
         f.write_state_out().unwrap();
         bd.build_return(None).unwrap();
-        let func = f.compile().unwrap();
+        let read_func = f.compile().unwrap();
 
         let mut state = ArmState::default();
-        state.mem.write(0, 0xfe781209u32);
+        state.regs[Reg::R0] = 0xfe781209u32;
+        state.regs[Reg::R1] = 0x100;
+        state.regs[Reg::R2] = 0;
 
         unsafe {
-            func.call(&mut state, &mut state.mem);
+            write_func.call(&mut state, &mut state.mem);
+            read_func.call(&mut state, &mut state.mem);
         }
-        assert_eq!(state.regs[Reg::R0], 0xfe781209u32);
+        assert_eq!(state.regs[Reg::R2], 0xfe781209u32);
 
         println!("mem: {}", size_of::<MainMemory>());
         println!("vec: {}", size_of::<Vec<u8>>());
