@@ -1,6 +1,8 @@
+pub mod memory;
+
 use std::fs;
 use std::ops::{Index, IndexMut};
-use std::slice::Chunks;
+
 
 use anyhow::{Result, anyhow};
 use capstone::arch::arm::ArmReg;
@@ -8,44 +10,20 @@ use inkwell::AddressSpace;
 use inkwell::context::Context;
 use inkwell::types::StructType;
 
+use crate::arm::cpu::memory::MainMemory;
+
+/// Emulated CPU state and interpreter
 #[repr(C)]
-pub struct MainMemory {
-    pub bios: Vec<u8>,
-}
-
-impl Default for MainMemory {
-    fn default() -> Self {
-        // 16 kB
-        let bios = vec![0; 0x4000];
-        Self { bios }
-    }
-}
-
-impl MainMemory {
-    pub fn iter_word(&self, start_addr: usize) -> Chunks<'_, u8> {
-        if !start_addr.is_multiple_of(4) {
-            panic!("Mis-alligned word address: {:x}", start_addr);
-        }
-        match start_addr {
-            0..0x3ffc => self.bios[start_addr..].chunks(4),
-            _ => panic!("Address out of range: {:x}", start_addr),
-        }
-    }
+pub struct ArmState {
+    pub mode: ArmMode,
+    pub regs: [u32; NUM_REGS],
+    pub mem: MainMemory,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ArmMode {
     ARM,
     THUMB,
-}
-
-impl ArmMode {
-    pub fn pc_byte_offset(&self) -> u32 {
-        match self {
-            ArmMode::ARM => 8,
-            ArmMode::THUMB => 4,
-        }
-    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -68,6 +46,15 @@ pub enum Reg {
     PC = 15,
     CPSR = 16,
     SPSR = 17,
+}
+
+impl ArmMode {
+    pub fn pc_byte_offset(&self) -> u32 {
+        match self {
+            ArmMode::ARM => 8,
+            ArmMode::THUMB => 4,
+        }
+    }
 }
 
 impl From<capstone::RegId> for Reg {
@@ -128,14 +115,6 @@ pub const REG_ITEMS: [Reg; NUM_REGS] = [
     Reg::CPSR,
     Reg::SPSR,
 ];
-
-/// Emulated CPU state and interpreter
-#[repr(C)]
-pub struct ArmState {
-    pub mode: ArmMode,
-    pub regs: [u32; NUM_REGS],
-    pub mem: MainMemory,
-}
 
 impl Default for ArmState {
     fn default() -> Self {

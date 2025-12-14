@@ -421,7 +421,7 @@ mod tests {
         let interp_fn_type = f.void_t.fn_type(&[f.ptr_t.into(), f.i32_t.into()], false);
 
         let interp_fn_ptr = f
-            .get_external_func_pointer(ArmState::jump_to as *const (&mut ArmState, u32) as usize)
+            .get_external_func_pointer(ArmState::jump_to as *const fn(&mut ArmState, u32) as usize)
             .unwrap();
 
         let call = f
@@ -472,7 +472,7 @@ mod tests {
         f1.write_state_out().unwrap();
 
         let func_ptr_param = f1
-            .get_external_func_pointer(ArmState::jump_to as *const (&mut ArmState, u32) as usize)
+            .get_external_func_pointer(ArmState::jump_to as fn(&mut ArmState, u32) as usize)
             .unwrap();
 
         let interp_fn_t = f1

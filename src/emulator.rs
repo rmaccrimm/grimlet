@@ -70,7 +70,8 @@ mod tests {
     use capstone::arch::arm::{ArmCC, ArmInsn};
 
     use super::*;
-    use crate::arm::cpu::{MainMemory, Reg};
+    use crate::arm::cpu::Reg;
+    use crate::arm::cpu::memory::MainMemory;
     use crate::arm::disasm::code_block::CodeBlock;
     use crate::arm::disasm::cons::*;
     use crate::arm::disasm::instruction::ArmInstruction;

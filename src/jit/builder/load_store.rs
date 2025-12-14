@@ -58,11 +58,13 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
     pub(super) fn arm_stmia(&mut self, _instr: ArmInstruction) { todo!() }
 
-    fn exec_load_conditional<F>(&mut self, _instr: &ArmInstruction, _inner: F) -> Result<()>
+    fn exec_load_conditional<F>(&mut self, _instr: &ArmInstruction, inner: F) -> Result<()>
     where
         F: Fn(&mut Self, ArmInstruction) -> Result<LoadSingle<'a>>,
     {
-        todo!()
+        let bd = self.builder;
+
+        Ok(())
     }
 
     fn exec_load_multiple_conditional<F>(
@@ -208,7 +210,6 @@ mod tests {
         f.write_state_out().unwrap();
         f.builder.build_return(None).unwrap();
         let f = f.compile().unwrap();
-        compiler.dump().unwrap();
         let mut state = ArmState::default();
         state.regs[Reg::R0] = init;
         if let Some(c) = c_flag {

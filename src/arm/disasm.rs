@@ -6,7 +6,8 @@ use anyhow::Result;
 use capstone::Capstone;
 use capstone::arch::BuildsCapstone;
 
-use crate::arm::cpu::{ArmMode, MainMemory};
+use crate::arm::cpu::ArmMode;
+use crate::arm::cpu::memory::MainMemory;
 use crate::arm::disasm::code_block::CodeBlock;
 use crate::arm::disasm::instruction::ArmInstruction;
 
