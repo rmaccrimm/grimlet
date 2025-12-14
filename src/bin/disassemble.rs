@@ -3,7 +3,7 @@ use std::process::{Command, Stdio};
 
 use anyhow::{Result, bail};
 use clap::Parser;
-use grimlet::arm::cpu::ArmMode;
+use grimlet::arm::state::ArmMode;
 use grimlet::arm::disasm::Disassembler;
 
 #[derive(Parser, Debug)]

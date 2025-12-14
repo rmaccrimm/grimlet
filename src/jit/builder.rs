@@ -31,6 +31,7 @@ mod load_store;
 mod reg_map;
 
 use std::collections::{HashMap, HashSet};
+use std::ops::Add;
 
 use anyhow::{Result, anyhow};
 use capstone::arch::arm::ArmInsn;
@@ -45,9 +46,9 @@ use inkwell::types::{ArrayType, FunctionType, IntType, PointerType, StructType, 
 use inkwell::values::{BasicValueEnum, FunctionValue, PointerValue};
 
 use super::{CompiledFunction, FunctionCache};
-use crate::arm::cpu::{ArmMode, ArmState, NUM_REGS, Reg};
 use crate::arm::disasm::code_block::CodeBlock;
 use crate::arm::disasm::instruction::ArmInstruction;
+use crate::arm::state::{ArmMode, ArmState, NUM_REGS, Reg};
 use crate::jit::builder::reg_map::RegMap;
 
 macro_rules! unimpl_instr {
@@ -63,7 +64,6 @@ macro_rules! unimpl_instr {
     };
 }
 
-#[allow(dead_code)]
 /// Builder for creating & compiling LLVM functions
 pub struct FunctionBuilder<'ctx, 'a>
 where
@@ -84,20 +84,19 @@ where
     // Read only ref to already-compiled functions
     func_cache: Option<&'a FunctionCache<'ctx>>,
 
-    // Function arguments
+    // Pointers to emulated state
     arm_state_ptr: PointerValue<'a>,
-    // reg_array_ptr: PointerValue<'a>,
+    // mem_ptr: PointerValue<'a>,
 
     // Frequently used LLVM types
     arm_state_t: StructType<'a>,
-    reg_array_t: ArrayType<'a>,
     fn_t: FunctionType<'a>,
     i32_t: IntType<'a>,
     ptr_t: PointerType<'a>,
     void_t: VoidType<'a>,
     bool_t: IntType<'a>,
 
-    // Overflow arithmetic intrinsics
+    // LLVM intrinsics
     sadd_with_overflow: FunctionValue<'a>,
     ssub_with_overflow: FunctionValue<'a>,
     uadd_with_overflow: FunctionValue<'a>,
@@ -140,8 +139,15 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             let ptr_t = ctx.ptr_type(AddressSpace::default());
             let void_t = ctx.void_type();
             let bool_t = ctx.bool_type();
-            let regs_t = i32_t.array_type(NUM_REGS as u32);
-            let arm_state_t = ArmState::get_llvm_type(ctx);
+
+            let arm_state_t = llvm_ctx.struct_type(
+                &[
+                    ctx.i8_type().into(),                         // mode
+                    i32_t.array_type(NUM_REGS as u32).into(),     // regs
+                    ctx.ptr_type(AddressSpace::default()).into(), // mem
+                ],
+                false,
+            );
             let fn_t = void_t.fn_type(&[ptr_t.into()], false);
 
             let bd = builder;
@@ -153,6 +159,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             blocks.insert(addr, basic_block);
 
             let arm_state_ptr = get_ptr_param(&func, 0)?;
+            // let mem_ptr = get_ptr_param(&func, 0)?;
 
             // Declare intrinsics
             let sadd_with_overflow = get_intrinsic("llvm.sadd.with.overflow", module)?;
@@ -162,12 +169,12 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             let fshr = get_intrinsic("llvm.fshr", module)?;
 
             Ok(FunctionBuilder {
-                name,
-                reg_map: RegMap::new(),
-                func,
-                arm_state_ptr,
-                // reg_array_ptr,
                 llvm_ctx: ctx,
+                name,
+                func,
+                reg_map: RegMap::new(),
+                arm_state_ptr,
+                // mem_ptr,
                 builder,
                 execution_engine,
                 current_block: basic_block,
@@ -176,7 +183,6 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                 fn_t,
                 i32_t,
                 ptr_t,
-                reg_array_t: regs_t,
                 void_t,
                 bool_t,
                 sadd_with_overflow,
@@ -386,7 +392,7 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
-    use crate::arm::cpu::{REG_ITEMS, Reg};
+    use crate::arm::state::{REG_ITEMS, Reg};
     use crate::jit::Compiler;
 
     macro_rules! compile_and_run {

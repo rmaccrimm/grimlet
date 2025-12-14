@@ -1,7 +1,7 @@
 use std::env;
 
 use anyhow::Result;
-use grimlet::arm::cpu::ArmState;
+use grimlet::arm::state::ArmState;
 use grimlet::arm::disasm::Disassembler;
 use grimlet::emulator::Emulator;
 

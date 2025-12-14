@@ -123,7 +123,7 @@ impl_to_le_bytes!(u32);
 
 #[cfg(test)]
 mod tests {
-    use crate::arm::cpu::memory::MainMemory;
+    use crate::arm::state::memory::MainMemory;
 
     #[test]
     fn test_read() {

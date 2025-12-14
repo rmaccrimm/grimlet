@@ -4,8 +4,8 @@ use capstone::arch::arm::{ArmCC, ArmOperand, ArmOperandType, ArmShift};
 use inkwell::IntPredicate;
 use inkwell::values::IntValue;
 
-use crate::arm::cpu::Reg;
 use crate::arm::disasm::instruction::ArmInstruction;
+use crate::arm::state::Reg;
 use crate::jit::FunctionBuilder;
 use crate::jit::builder::flags::C;
 
@@ -1298,7 +1298,7 @@ mod tests {
     use inkwell::context::Context;
 
     use super::*;
-    use crate::arm::cpu::ArmState;
+    use crate::arm::state::ArmState;
     use crate::jit::{CompiledFunction, Compiler};
 
     /// Shift r0 by the amount in r1 according to the shift type provided and update C flag

@@ -11,7 +11,7 @@ use inkwell::context::Context;
 use inkwell::execution_engine::{ExecutionEngine, JitFunction};
 use inkwell::module::Module;
 
-use crate::arm::cpu::ArmState;
+use crate::arm::state::ArmState;
 
 type JumpTarget = unsafe extern "C" fn(*mut ArmState);
 

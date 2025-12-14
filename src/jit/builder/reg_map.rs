@@ -1,6 +1,6 @@
 use inkwell::values::IntValue;
 
-use crate::arm::cpu::{NUM_REGS, Reg};
+use crate::arm::state::{NUM_REGS, Reg};
 
 pub struct RegMap<'a> {
     pub llvm_values: Vec<Option<IntValue<'a>>>,

@@ -117,7 +117,7 @@ mod tests {
     use inkwell::context::Context;
 
     use super::*;
-    use crate::arm::cpu::{ArmState, REG_ITEMS, Reg};
+    use crate::arm::state::{ArmState, REG_ITEMS, Reg};
     use crate::jit::Compiler;
 
     macro_rules! compile_and_run {

@@ -1,7 +1,7 @@
 use anyhow::Result;
 use inkwell::context::Context;
 
-use crate::arm::cpu::ArmState;
+use crate::arm::state::ArmState;
 use crate::arm::disasm::Disasm;
 use crate::jit::{Compiler, FunctionCache};
 
@@ -70,8 +70,8 @@ mod tests {
     use capstone::arch::arm::{ArmCC, ArmInsn};
 
     use super::*;
-    use crate::arm::cpu::Reg;
-    use crate::arm::cpu::memory::MainMemory;
+    use crate::arm::state::Reg;
+    use crate::arm::state::memory::MainMemory;
     use crate::arm::disasm::code_block::CodeBlock;
     use crate::arm::disasm::cons::*;
     use crate::arm::disasm::instruction::ArmInstruction;

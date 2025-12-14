@@ -6,10 +6,10 @@ use capstone::{
 };
 
 use super::ArmInstruction;
-use crate::arm::cpu::REG_ITEMS;
+use crate::arm::state::REG_ITEMS;
 
 fn reg(r: usize) -> ArmOperand {
-    // Janky, inverse of the conversion done in cpu::Reg. Would like to eliminate this
+    // Janky, inverse of the conversion done in register::Reg. Would like to eliminate this
     let reg_id = match r {
         0 => ArmReg::ARM_REG_R0,
         1 => ArmReg::ARM_REG_R1,

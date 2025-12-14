@@ -3,7 +3,7 @@ use std::fmt::Display;
 
 use capstone::arch::arm::ArmInsn;
 
-use crate::arm::cpu::Reg;
+use crate::arm::state::Reg;
 use crate::arm::disasm::instruction::ArmInstruction;
 
 /// A single batch of instrutions to be compiled into an LLVM function

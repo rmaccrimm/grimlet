@@ -5,7 +5,7 @@ use capstone::arch::ArchOperand;
 use capstone::arch::arm::{ArmCC, ArmInsn, ArmOperand, ArmOperandType, ArmShift};
 use capstone::{Capstone, Insn};
 
-use crate::arm::cpu::{ArmMode, Reg};
+use crate::arm::state::{ArmMode, Reg};
 
 // A single disassembled ARM instruction. Basically a clone of the Capstone instruction but
 // easier to access since we know we're only working with ARM instructions.

@@ -1,4 +1,4 @@
-use grimlet::arm::cpu::{ArmState, Reg};
+use grimlet::arm::state::{ArmState, Reg};
 use grimlet::arm::disasm::Disassembler;
 use grimlet::emulator::Emulator;
 

@@ -3,19 +3,15 @@ pub mod memory;
 use std::fs;
 use std::ops::{Index, IndexMut};
 
-
 use anyhow::{Result, anyhow};
 use capstone::arch::arm::ArmReg;
-use inkwell::AddressSpace;
-use inkwell::context::Context;
-use inkwell::types::StructType;
 
-use crate::arm::cpu::memory::MainMemory;
+use crate::arm::state::memory::MainMemory;
 
-/// Emulated CPU state and interpreter
+/// Emulated CPU state (and interpreter?)
 #[repr(C)]
 pub struct ArmState {
-    pub mode: ArmMode,
+    pub current_mode: ArmMode,
     pub regs: [u32; NUM_REGS],
     pub mem: MainMemory,
 }
@@ -25,6 +21,7 @@ pub enum ArmMode {
     ARM,
     THUMB,
 }
+pub const NUM_REGS: usize = 18;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Reg {
@@ -48,14 +45,26 @@ pub enum Reg {
     SPSR = 17,
 }
 
-impl ArmMode {
-    pub fn pc_byte_offset(&self) -> u32 {
-        match self {
-            ArmMode::ARM => 8,
-            ArmMode::THUMB => 4,
-        }
-    }
-}
+pub const REG_ITEMS: [Reg; NUM_REGS] = [
+    Reg::R0,
+    Reg::R1,
+    Reg::R2,
+    Reg::R3,
+    Reg::R4,
+    Reg::R5,
+    Reg::R6,
+    Reg::R7,
+    Reg::R8,
+    Reg::R9,
+    Reg::R10,
+    Reg::R11,
+    Reg::IP,
+    Reg::SP,
+    Reg::LR,
+    Reg::PC,
+    Reg::CPSR,
+    Reg::SPSR,
+];
 
 impl From<capstone::RegId> for Reg {
     fn from(value: capstone::RegId) -> Self {
@@ -93,35 +102,21 @@ impl IndexMut<Reg> for [u32] {
     fn index_mut(&mut self, index: Reg) -> &mut Self::Output { &mut self[index as usize] }
 }
 
-pub const NUM_REGS: usize = 18;
-
-pub const REG_ITEMS: [Reg; NUM_REGS] = [
-    Reg::R0,
-    Reg::R1,
-    Reg::R2,
-    Reg::R3,
-    Reg::R4,
-    Reg::R5,
-    Reg::R6,
-    Reg::R7,
-    Reg::R8,
-    Reg::R9,
-    Reg::R10,
-    Reg::R11,
-    Reg::IP,
-    Reg::SP,
-    Reg::LR,
-    Reg::PC,
-    Reg::CPSR,
-    Reg::SPSR,
-];
+impl ArmMode {
+    pub fn pc_byte_offset(&self) -> u32 {
+        match self {
+            ArmMode::ARM => 8,
+            ArmMode::THUMB => 4,
+        }
+    }
+}
 
 impl Default for ArmState {
     fn default() -> Self {
         let mut regs = [0; NUM_REGS];
         regs[Reg::PC] = 8; // points 2 instructions ahead
         Self {
-            mode: ArmMode::ARM,
+            current_mode: ArmMode::ARM,
             regs,
             mem: MainMemory::default(),
         }
@@ -129,23 +124,6 @@ impl Default for ArmState {
 }
 
 impl ArmState {
-    // The compiler code that performs lookups into this object needs to be kept in sync with
-    // the actual definition so define its corresponding LLVM type here.
-    pub fn get_llvm_type<'ctx>(llvm_ctx: &'ctx Context) -> StructType<'ctx> {
-        assert_eq!(size_of::<ArmMode>(), 1);
-        llvm_ctx.struct_type(
-            &[
-                // mode
-                llvm_ctx.i8_type().into(),
-                // regs
-                llvm_ctx.i32_type().array_type(NUM_REGS as u32).into(),
-                // mem
-                llvm_ctx.ptr_type(AddressSpace::default()).into(),
-            ],
-            false,
-        )
-    }
-
     pub fn with_bios(bios_path: impl AsRef<str>) -> Result<Self> {
         let mut state = Self::default();
 
@@ -160,11 +138,11 @@ impl ArmState {
     }
 
     pub fn curr_instr_addr(&self) -> usize {
-        (self.regs[Reg::PC] - self.mode.pc_byte_offset()) as usize
+        (self.regs[Reg::PC] - self.current_mode.pc_byte_offset()) as usize
     }
 
     pub fn jump_to(&mut self, addr: u32) {
         println!("JUMPING TO: {}", addr);
-        self.regs[Reg::PC] = addr + self.mode.pc_byte_offset();
+        self.regs[Reg::PC] = addr + self.current_mode.pc_byte_offset();
     }
 }
