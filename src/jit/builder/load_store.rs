@@ -3,8 +3,8 @@ use anyhow::{Result, anyhow, bail};
 use capstone::arch::arm::ArmShift;
 use inkwell::values::IntValue;
 
-use crate::arm::cpu::Reg;
 use crate::arm::disasm::instruction::{ArmInstruction, MemOffset, MemOperand, WritebackMode};
+use crate::arm::state::Reg;
 use crate::jit::builder::FunctionBuilder;
 use crate::jit::builder::alu::RegUpdate;
 use crate::jit::builder::flags::C;
@@ -58,12 +58,24 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
     pub(super) fn arm_stmia(&mut self, _instr: ArmInstruction) { todo!() }
 
-    fn exec_load_conditional<F>(&mut self, _instr: &ArmInstruction, inner: F) -> Result<()>
+    fn exec_load_conditional<F>(&mut self, instr: &ArmInstruction, inner: F) -> Result<()>
     where
-        F: Fn(&mut Self, ArmInstruction) -> Result<LoadSingle<'a>>,
+        F: Fn(&mut Self, &ArmInstruction) -> Result<LoadSingle<'a>>,
     {
+        let ctx = self.llvm_ctx;
         let bd = self.builder;
+        let if_block = ctx.append_basic_block(self.func, "if");
+        let end_block = ctx.append_basic_block(self.func, "end");
 
+        let cpsr_init = self.reg_map.cpsr();
+        let cond = self.eval_cond(instr.cond)?;
+        bd.build_conditional_branch(cond, if_block, end_block)?;
+        bd.position_at_end(if_block);
+
+        let load_single = inner(self, instr)?;
+
+        bd.build_unconditional_branch(end_block)?;
+        bd.position_at_end(end_block);
         Ok(())
     }
 
@@ -188,7 +200,8 @@ mod tests {
     use inkwell::context::Context;
 
     use super::*;
-    use crate::arm::cpu::ArmState;
+    use crate::arm::state::ArmState;
+    use crate::arm::state::memory::MainMemory;
     use crate::jit::{CompiledFunction, Compiler};
 
     struct ImmShiftTestCase<'ctx> {
@@ -216,7 +229,7 @@ mod tests {
             state.regs[Reg::CPSR] = if c { C.0 } else { 0 }
         }
         unsafe {
-            f.call(&mut state);
+            f.call(&mut state, &mut state.mem);
         }
         state.regs[Reg::R0]
     }
@@ -387,7 +400,7 @@ mod tests {
             self.state.regs[Reg::R8] = index;
             self.state.regs[Reg::R9] = 0;
             unsafe {
-                self.f.call(&mut self.state);
+                self.f.call(&mut self.state, &mut self.state.mem);
             }
             // should never change
             assert_eq!(self.state.regs[Reg::R8], index);
@@ -541,5 +554,45 @@ mod tests {
         mem_op.offset = reg_offset(false, Some(ArmShift::Ror(2)));
         let mut tst = AddrModeTestCase::new(&ctx, &mem_op);
         assert_eq!(tst.run(0, 0x3), (0xc0000000, 0));
+    }
+
+    #[test]
+    fn test_read_through_llvm_pointer() {
+        let ctx = Context::create();
+        let mut compiler = Compiler::new(&ctx);
+        let mut f = compiler.new_function(0, None);
+
+        let init_regs = &vec![Reg::R0].into_iter().collect();
+        f.load_initial_reg_values(init_regs).unwrap();
+        let read_ptr = f
+            .get_external_func_pointer(MainMemory::read::<u32> as usize)
+            .unwrap();
+
+        // let dummy_mem_t = ctx.i64_type().array_type(3);
+        let bd = f.builder;
+        let call = bd
+            .build_indirect_call(
+                f.i32_t.fn_type(&[f.ptr_t.into(), f.i32_t.into()], false),
+                read_ptr,
+                &[f.mem_ptr.into(), f.i32_t.const_zero().into()],
+                "call",
+            )
+            .unwrap();
+        let v = call.try_as_basic_value().left().unwrap().into_int_value();
+        f.reg_map.update(Reg::R0, v);
+        f.write_state_out().unwrap();
+        bd.build_return(None).unwrap();
+        let func = f.compile().unwrap();
+
+        let mut state = ArmState::default();
+        state.mem.write(0, 0xfe781209u32);
+
+        unsafe {
+            func.call(&mut state, &mut state.mem);
+        }
+        assert_eq!(state.regs[Reg::R0], 0xfe781209u32);
+
+        println!("mem: {}", size_of::<MainMemory>());
+        println!("vec: {}", size_of::<Vec<u8>>());
     }
 }
