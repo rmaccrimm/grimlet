@@ -4,7 +4,7 @@ use capstone::arch::arm::ArmShift;
 use inkwell::values::IntValue;
 
 use crate::arm::disasm::instruction::{ArmInstruction, MemOffset, MemOperand, WritebackMode};
-use crate::arm::state::Reg;
+use crate::arm::state::memory::MainMemory;
 use crate::jit::builder::FunctionBuilder;
 use crate::jit::builder::alu::RegUpdate;
 use crate::jit::builder::flags::C;
@@ -15,42 +15,6 @@ struct AddrMode<'a> {
     addr: IntValue<'a>,
 }
 
-/// A register and the address to load its value from
-struct RegLoad<'a> {
-    reg: Reg,
-    addr: IntValue<'a>,
-}
-
-/// An address and the value to store in it
-struct MemStore<'a> {
-    addr: IntValue<'a>,
-    value: IntValue<'a>,
-}
-
-/// Describes a load instruction to be conditionally executed
-struct LoadSingle<'a> {
-    load: RegLoad<'a>,
-    writeback: Option<RegUpdate<'a>>,
-}
-
-/// Describes a load multiple instruction to be conditionally executed
-struct LoadMultiple<'a> {
-    loads: Vec<RegLoad<'a>>,
-    writeback: Option<RegUpdate<'a>>,
-}
-
-/// Describes a store instruction to be conditionally executed
-struct StoreSingle<'a> {
-    stores: MemStore<'a>,
-    writeback: Option<RegUpdate<'a>>,
-}
-
-/// Describes a store multiple instruction to be conditionally executed
-struct StoreMultiple<'a> {
-    stores: Vec<MemStore<'a>>,
-    writeback: Option<RegUpdate<'a>>,
-}
-
 impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     pub(super) fn arm_ldmia(&mut self, _instr: ArmInstruction) { todo!() }
 
@@ -58,59 +22,37 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
     pub(super) fn arm_stmia(&mut self, _instr: ArmInstruction) { todo!() }
 
-    fn exec_load_conditional<F>(&mut self, instr: &ArmInstruction, inner: F) -> Result<()>
+    fn exec_load_store_conditional<F>(&mut self, instr: &ArmInstruction, inner: F) -> Result<()>
     where
-        F: Fn(&mut Self, &ArmInstruction) -> Result<LoadSingle<'a>>,
+        F: Fn(&Self, &ArmInstruction) -> Result<Vec<RegUpdate<'a>>>,
     {
         let ctx = self.llvm_ctx;
         let bd = self.builder;
         let if_block = ctx.append_basic_block(self.func, "if");
         let end_block = ctx.append_basic_block(self.func, "end");
 
-        let cpsr_init = self.reg_map.cpsr();
         let cond = self.eval_cond(instr.cond)?;
         bd.build_conditional_branch(cond, if_block, end_block)?;
         bd.position_at_end(if_block);
 
-        let load_single = inner(self, instr)?;
-
+        let updates = inner(self, instr)?;
         bd.build_unconditional_branch(end_block)?;
         bd.position_at_end(end_block);
+
+        // Inner doesn't touch reg_map so the values in it can be used to get the first option
+        // for the phi values
+        for update in updates {
+            let r_init = self.reg_map.get(update.reg);
+            let r_new = update.value;
+            let phi = bd.build_phi(self.i32_t, "phi")?;
+            phi.add_incoming(&[(&r_init, self.current_block), (&r_new, if_block)]);
+            self.reg_map
+                .update(update.reg, phi.as_basic_value().into_int_value());
+        }
         Ok(())
     }
 
-    fn exec_load_multiple_conditional<F>(
-        &mut self,
-        _instr: &ArmInstruction,
-        _inner: F,
-    ) -> Result<()>
-    where
-        F: Fn(&mut Self, ArmInstruction) -> Result<LoadMultiple<'a>>,
-    {
-        todo!()
-    }
-
-    fn exec_store_conditional<F>(&mut self, _instr: &ArmInstruction, _inner: F) -> Result<()>
-    where
-        F: Fn(&mut Self, ArmInstruction) -> Result<StoreSingle<'a>>,
-    {
-        // Stores are somewhat simple since we only have 1 register to potentially update
-        todo!()
-    }
-
-    fn exec_store_multiple_conditional<F>(
-        &mut self,
-        _instr: &ArmInstruction,
-        _inner: F,
-    ) -> Result<()>
-    where
-        F: Fn(&mut Self, ArmInstruction) -> Result<StoreMultiple<'a>>,
-    {
-        // Stores are somewhat simple since we only have 1 register to potentially update
-        todo!()
-    }
-
-    fn addressing_mode(&mut self, mem_op: &MemOperand) -> Result<AddrMode<'a>> {
+    fn addressing_mode(&self, mem_op: &MemOperand) -> Result<AddrMode<'a>> {
         let bd = self.builder;
         let base_val = self.reg_map.get(mem_op.base);
 
@@ -193,6 +135,64 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         }?;
         Ok(shifted)
     }
+
+    fn ldr(&self, instr: &ArmInstruction) -> Result<Vec<RegUpdate<'a>>> {
+        let bd = self.builder;
+        let rd = instr.get_reg_op(0);
+        let addr_mode: AddrMode = self.addressing_mode(&instr.get_mem_op()?)?;
+
+        let read_fn_t = self
+            .i32_t
+            .fn_type(&[self.ptr_t.into(), self.i32_t.into()], false);
+        let read_fn_ptr = self
+            .get_external_func_pointer(MainMemory::read as fn(&MainMemory, u32) -> u32 as usize)?;
+        let call = bd.build_indirect_call(
+            read_fn_t,
+            read_fn_ptr,
+            &[self.mem_ptr.into(), addr_mode.addr.into()],
+            "call",
+        )?;
+        let load_val = call
+            .try_as_basic_value()
+            .left()
+            .ok_or(anyhow!("failed to get return val"))?
+            .into_int_value();
+
+        let mut updates = vec![RegUpdate {
+            reg: rd,
+            value: load_val,
+        }];
+
+        if let Some(wb) = addr_mode.writeback {
+            updates.push(wb);
+        }
+        Ok(updates)
+    }
+
+    fn str(&mut self, instr: &ArmInstruction) -> Result<Vec<RegUpdate<'a>>> {
+        let bd = self.builder;
+        let rd = instr.get_reg_op(0);
+        let rd_val = self.reg_map.get(rd);
+        let addr_mode: AddrMode = self.addressing_mode(&instr.get_mem_op()?)?;
+
+        let write_fn_t = self.void_t.fn_type(
+            &[self.ptr_t.into(), self.i32_t.into(), self.i32_t.into()],
+            false,
+        );
+        let read_fn_ptr = self.get_external_func_pointer(
+            MainMemory::write as fn(&mut MainMemory, u32, u32) as usize,
+        )?;
+        bd.build_indirect_call(
+            write_fn_t,
+            read_fn_ptr,
+            &[self.mem_ptr.into(), addr_mode.addr.into(), rd_val.into()],
+            "call",
+        )?;
+        Ok(match addr_mode.writeback {
+            Some(wb) => vec![wb],
+            None => vec![],
+        })
+    }
 }
 
 #[cfg(test)]
@@ -200,8 +200,8 @@ mod tests {
     use inkwell::context::Context;
 
     use super::*;
-    use crate::arm::state::ArmState;
     use crate::arm::state::memory::MainMemory;
+    use crate::arm::state::{ArmState, Reg};
     use crate::jit::{CompiledFunction, Compiler};
 
     struct ImmShiftTestCase<'ctx> {
