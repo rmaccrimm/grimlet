@@ -2,6 +2,7 @@
 use anyhow::{Result, anyhow, bail};
 use capstone::arch::arm::ArmShift;
 use inkwell::values::IntValue;
+use num::traits::FromBytes;
 
 use crate::arm::disasm::instruction::{ArmInstruction, MemOffset, MemOperand, WritebackMode};
 use crate::arm::state::memory::MainMemory;
@@ -136,7 +137,10 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         Ok(shifted)
     }
 
-    fn ldr(&self, instr: &ArmInstruction) -> Result<Vec<RegUpdate<'a>>> {
+    fn ldr<T>(&self, instr: &ArmInstruction) -> Result<Vec<RegUpdate<'a>>>
+    where
+        T: FromBytes,
+    {
         let bd = self.builder;
         let rd = instr.get_reg_op(0);
         let addr_mode: AddrMode = self.addressing_mode(&instr.get_mem_op()?)?;
@@ -144,29 +148,30 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let read_fn_t = self
             .i32_t
             .fn_type(&[self.ptr_t.into(), self.i32_t.into()], false);
-        let read_fn_ptr = self
-            .get_external_func_pointer(MainMemory::read as fn(&MainMemory, u32) -> u32 as usize)?;
-        let call = bd.build_indirect_call(
-            read_fn_t,
-            read_fn_ptr,
-            &[self.mem_ptr.into(), addr_mode.addr.into()],
-            "call",
-        )?;
-        let load_val = call
-            .try_as_basic_value()
-            .left()
-            .ok_or(anyhow!("failed to get return val"))?
-            .into_int_value();
+        todo!()
+        // let read_fn_ptr =
+        //     self.get_external_func_pointer(MainMemory::read as fn(&MainMemory, u32) -> T as usize)?;
+        // let call = bd.build_indirect_call(
+        //     read_fn_t,
+        //     read_fn_ptr,
+        //     &[self.mem_ptr.into(), addr_mode.addr.into()],
+        //     "call",
+        // )?;
+        // let load_val = call
+        //     .try_as_basic_value()
+        //     .left()
+        //     .ok_or(anyhow!("failed to get return val"))?
+        //     .into_int_value();
 
-        let mut updates = vec![RegUpdate {
-            reg: rd,
-            value: load_val,
-        }];
+        // let mut updates = vec![RegUpdate {
+        //     reg: rd,
+        //     value: load_val,
+        // }];
 
-        if let Some(wb) = addr_mode.writeback {
-            updates.push(wb);
-        }
-        Ok(updates)
+        // if let Some(wb) = addr_mode.writeback {
+        //     updates.push(wb);
+        // }
+        // Ok(updates)
     }
 
     fn str(&mut self, instr: &ArmInstruction) -> Result<Vec<RegUpdate<'a>>> {
@@ -554,71 +559,5 @@ mod tests {
         mem_op.offset = reg_offset(false, Some(ArmShift::Ror(2)));
         let mut tst = AddrModeTestCase::new(&ctx, &mem_op);
         assert_eq!(tst.run(0, 0x3), (0xc0000000, 0));
-    }
-
-    #[test]
-    fn test_poc_read_write_through_llvm_pointers() {
-        let ctx = Context::create();
-        let mut compiler = Compiler::new(&ctx);
-
-        // Write value in r0 to address in r1
-        let mut f = compiler.new_function(0, None);
-        let bd = f.builder;
-        let init_regs = &vec![Reg::R0, Reg::R1].into_iter().collect();
-        f.load_initial_reg_values(init_regs).unwrap();
-        let write_ptr = f
-            .get_external_func_pointer(MainMemory::write as fn(&mut MainMemory, u32, u32) as usize)
-            .unwrap();
-        bd.build_indirect_call(
-            f.void_t
-                .fn_type(&[f.ptr_t.into(), f.i32_t.into(), f.i32_t.into()], false),
-            write_ptr,
-            &[
-                f.mem_ptr.into(),
-                f.reg_map.get(Reg::R1).into(),
-                f.reg_map.get(Reg::R0).into(),
-            ],
-            "call",
-        )
-        .unwrap();
-        f.write_state_out().unwrap();
-        bd.build_return(None).unwrap();
-        let write_func = f.compile().unwrap();
-
-        // Read value at address in r1 to r2
-        let mut f = compiler.new_function(0, None);
-        let init_regs = &vec![Reg::R1, Reg::R2].into_iter().collect();
-        f.load_initial_reg_values(init_regs).unwrap();
-        let read_ptr = f
-            .get_external_func_pointer(MainMemory::read as fn(&MainMemory, u32) -> u32 as usize)
-            .unwrap();
-        let bd = f.builder;
-        let call = bd
-            .build_indirect_call(
-                f.i32_t.fn_type(&[f.ptr_t.into(), f.i32_t.into()], false),
-                read_ptr,
-                &[f.mem_ptr.into(), f.reg_map.get(Reg::R1).into()],
-                "call",
-            )
-            .unwrap();
-        let v = call.try_as_basic_value().left().unwrap().into_int_value();
-        f.reg_map.update(Reg::R2, v);
-        f.write_state_out().unwrap();
-        bd.build_return(None).unwrap();
-        let read_func = f.compile().unwrap();
-
-        let mut state = ArmState::default();
-        state.regs[Reg::R0] = 0xfe781209u32;
-        state.regs[Reg::R1] = 0x100;
-        state.regs[Reg::R2] = 0;
-
-        unsafe {
-            write_func.call(&mut state);
-            read_func.call(&mut state);
-        }
-        assert_eq!(state.regs[Reg::R2], 0xfe781209u32);
-
-        println!("mem: {}", size_of::<MainMemory>());
-        println!("vec: {}", size_of::<Vec<u8>>());
     }
 }

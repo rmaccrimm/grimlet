@@ -1,20 +1,11 @@
+use std::array::TryFromSliceError;
 use std::slice::Chunks;
+
+use num::traits::{AsPrimitive, FromBytes, ToBytes};
 
 #[repr(C)]
 pub struct MainMemory {
     pub bios: Vec<u8>,
-}
-
-pub trait TryFromLeSlice {
-    fn try_from_le_slice(bytes: &[u8]) -> Result<Self, String>
-    where
-        Self: Sized;
-}
-
-pub trait ToLeBytes {
-    type Bytes: IntoIterator<Item = u8>;
-
-    fn to_le_bytes(self) -> Self::Bytes;
 }
 
 impl Default for MainMemory {
@@ -36,24 +27,27 @@ impl MainMemory {
         }
     }
 
-    pub fn read<T>(&self, addr: u32) -> T
+    /// Sign or zero-extends the result to 32 bits depending type parameter
+    pub fn read<'a, T>(&'a self, addr: u32) -> u32
     where
-        T: TryFromLeSlice,
+        T: AsPrimitive<u32> + FromBytes<Bytes: TryFrom<&'a [u8], Error = TryFromSliceError>>,
     {
-        let mem_slice = self.mem_map_lookup(addr);
-        TryFromLeSlice::try_from_le_slice(mem_slice).expect("failed to read bytes")
+        let mem_slice = self
+            .mem_map_lookup(addr)
+            .get(0..size_of::<T>())
+            .expect("reached end of bytes while reading");
+        let bytes: T::Bytes = mem_slice.try_into().expect("conversion from bytes failed");
+        let as_int = T::from_le_bytes(&bytes);
+        as_int.as_()
     }
 
-    pub fn read_u32(&self, addr: u32) -> u32 {
-        let mem_slice = self.mem_map_lookup(addr);
-        u32::try_from_le_slice(mem_slice).expect("read failed")
-    }
-
-    pub fn write(&mut self, addr: u32, value: impl ToLeBytes) {
+    pub fn write<T>(&mut self, addr: u32, value: T)
+    where
+        T: ToBytes<Bytes: IntoIterator<Item = u8>>,
+    {
         let mut mem_iter = self.mem_map_lookup_mut(addr).iter_mut();
-
         for byte in value.to_le_bytes() {
-            let mem_val = mem_iter.next().expect("hit end of mem segment");
+            let mem_val = mem_iter.next().expect("reached end of bytes while writing");
             *mem_val = byte;
         }
     }
@@ -86,58 +80,37 @@ impl MainMemory {
     }
 }
 
-macro_rules! impl_try_from_le_slice {
-    ($T:ty) => {
-        impl TryFromLeSlice for $T {
-            fn try_from_le_slice(bytes: &[u8]) -> Result<Self, String> {
-                let arr = bytes
-                    .get(..{ size_of::<$T>() })
-                    .ok_or(format!(
-                        "reached end of bytes while reading {}",
-                        stringify!($T)
-                    ))?
-                    .try_into()
-                    .map_err(|e| format!("{}", e))?;
-                Ok(Self::from_le_bytes(arr))
-            }
-        }
-    };
-}
-
-macro_rules! impl_to_le_bytes {
-    ($T:ty) => {
-        impl ToLeBytes for $T {
-            type Bytes = [u8; { size_of::<$T>() }];
-
-            fn to_le_bytes(self) -> Self::Bytes { <$T>::to_le_bytes(self) }
-        }
-    };
-}
-
-impl_try_from_le_slice!(u8);
-impl_try_from_le_slice!(u16);
-impl_try_from_le_slice!(u32);
-impl_to_le_bytes!(u8);
-impl_to_le_bytes!(u16);
-impl_to_le_bytes!(u32);
-
 #[cfg(test)]
 mod tests {
     use crate::arm::state::memory::MainMemory;
 
     #[test]
-    fn test_read() {
+    fn test_read_unsigned() {
         let mem = MainMemory {
-            bios: vec![0x34, 0xff, 0xbe, 0x70],
+            bios: vec![0x34, 0xff, 0xbe, 0x70, 0xf1],
         };
-        assert_eq!(mem.read::<u8>(0), 0x34);
-        assert_eq!(mem.read::<u16>(0), 0xff34);
+        // // TODO enforce alignment?
+        assert_eq!(mem.read::<u8>(0), 0x00000034);
+        assert_eq!(mem.read::<u8>(1), 0x000000ff);
+        assert_eq!(mem.read::<u8>(2), 0x000000be);
+        assert_eq!(mem.read::<u16>(0), 0x0000ff34);
+        assert_eq!(mem.read::<u16>(1), 0x0000beff);
+        assert_eq!(mem.read::<u16>(2), 0x000070be);
         assert_eq!(mem.read::<u32>(0), 0x70beff34);
-        // TODO enforce alignment?
-        assert_eq!(mem.read::<u8>(1), 0xff);
-        assert_eq!(mem.read::<u16>(1), 0xbeff);
-        assert_eq!(mem.read::<u8>(2), 0xbe);
-        assert_eq!(mem.read::<u16>(2), 0x70be);
+        assert_eq!(mem.read::<u32>(1), 0xf170beff);
+    }
+
+    #[test]
+    fn test_read_signed() {
+        let mem = MainMemory {
+            bios: vec![0x84, 0xff, 0x3e, 0x70, 0x80],
+        };
+        assert_eq!(mem.read::<i8>(0), 0xffffff84);
+        assert_eq!(mem.read::<i8>(2), 0x0000003e);
+        assert_eq!(mem.read::<i16>(0), 0xffffff84);
+        assert_eq!(mem.read::<i16>(1), 0x00003eff);
+        assert_eq!(mem.read::<i32>(0), 0x703eff84);
+        assert_eq!(mem.read::<i32>(1), 0x80703eff);
     }
 
     #[test]
@@ -154,5 +127,17 @@ mod tests {
         let mut mem = MainMemory { bios: vec![0; 4] };
         mem.write(0, 0x12345678u32);
         assert_eq!(mem.bios, vec![0x78, 0x56, 0x34, 0x12]);
+        mem.write(0, 0u8);
+        assert_eq!(mem.bios, vec![0x00, 0x56, 0x34, 0x12]);
+        mem.write(1, 0u16);
+        assert_eq!(mem.bios, vec![0x00, 0x00, 0x00, 0x12]);
+        mem.write(0, 0x3102u16);
+        assert_eq!(mem.bios, vec![0x02, 0x31, 0x00, 0x12]);
+        mem.write(0, -12i8);
+        assert_eq!(mem.bios, vec![0xf4, 0x31, 0x00, 0x12]);
+        mem.write(2, 0xabu8);
+        assert_eq!(mem.bios, vec![0xf4, 0x31, 0xab, 0x12]);
+        mem.write(0, -10500i16);
+        assert_eq!(mem.bios, vec![0xfc, 0xd6, 0xab, 0x12]);
     }
 }
