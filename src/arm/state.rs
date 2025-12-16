@@ -23,7 +23,7 @@ pub enum ArmMode {
 }
 pub const NUM_REGS: usize = 18;
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Reg {
     R0 = 0,
     R1 = 1,

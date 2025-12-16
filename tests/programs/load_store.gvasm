@@ -1,10 +1,12 @@
 .begin main
     .arm
+    // setup stack
+    mov sp, #16383
     mov r1, #816
     ldr r0, [r1]
     b end
     // reduce by 1 for each new instruction
-    .u32fill 200
+    .u32fill 199
 end: // 812
     nop
 random_data: // 816

@@ -1,8 +1,9 @@
 use anyhow::{Context as _, Result, anyhow, bail};
-use capstone::arch::arm::ArmShift;
+use capstone::arch::arm::{ArmOperand, ArmShift};
 use inkwell::values::IntValue;
 
 use crate::arm::disasm::instruction::{ArmInstruction, MemOffset, MemOperand, WritebackMode};
+use crate::arm::state::Reg;
 use crate::arm::state::memory::{MainMemory, MemReadable, MemWriteable};
 use crate::jit::builder::FunctionBuilder;
 use crate::jit::builder::alu::RegUpdate;
@@ -92,6 +93,14 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
     pub(super) fn arm_stmdb(&mut self, instr: ArmInstruction) {
         exec_and_expect!(self, instr, Self::stmdb)
+    }
+
+    pub(super) fn arm_push(&mut self, instr: ArmInstruction) {
+        exec_and_expect!(self, instr, Self::push)
+    }
+
+    pub(super) fn arm_pop(&mut self, instr: ArmInstruction) {
+        exec_and_expect!(self, instr, Self::pop)
     }
 
     fn exec_load_store_conditional<F>(&mut self, instr: &ArmInstruction, inner: F) -> Result<()>
@@ -238,9 +247,9 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
     fn ldmia(&self, instr: &ArmInstruction) -> Result<Vec<RegUpdate<'a>>> {
         let bd = self.builder;
-        let rn = instr.get_reg_op(1);
+        let rn = instr.get_reg_op(0);
         let base_addr = self.reg_map.get(rn);
-        let reg_list = instr.get_reg_list()?;
+        let reg_list = instr.get_reg_list(1)?;
 
         let read_fn_t = self
             .i32_t
@@ -267,9 +276,9 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
     fn ldmib(&self, instr: &ArmInstruction) -> Result<Vec<RegUpdate<'a>>> {
         let bd = self.builder;
-        let rn = instr.get_reg_op(1);
+        let rn = instr.get_reg_op(0);
         let base_addr = self.reg_map.get(rn);
-        let reg_list = instr.get_reg_list()?;
+        let reg_list = instr.get_reg_list(1)?;
 
         let read_fn_t = self
             .i32_t
@@ -296,9 +305,9 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
     fn ldmda(&self, instr: &ArmInstruction) -> Result<Vec<RegUpdate<'a>>> {
         let bd = self.builder;
-        let rn = instr.get_reg_op(1);
+        let rn = instr.get_reg_op(0);
         let base_addr = self.reg_map.get(rn);
-        let reg_list = instr.get_reg_list()?;
+        let reg_list = instr.get_reg_list(1)?;
 
         let read_fn_t = self
             .i32_t
@@ -326,9 +335,9 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
     fn ldmdb(&self, instr: &ArmInstruction) -> Result<Vec<RegUpdate<'a>>> {
         let bd = self.builder;
-        let rn = instr.get_reg_op(1);
+        let rn = instr.get_reg_op(0);
         let base_addr = self.reg_map.get(rn);
-        let reg_list = instr.get_reg_list()?;
+        let reg_list = instr.get_reg_list(1)?;
 
         let read_fn_t = self
             .i32_t
@@ -385,9 +394,9 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
     fn stmia(&self, instr: &ArmInstruction) -> Result<Vec<RegUpdate<'a>>> {
         let bd = self.builder;
-        let rn = instr.get_reg_op(1);
+        let rn = instr.get_reg_op(0);
         let base_addr = self.reg_map.get(rn);
-        let reg_list = instr.get_reg_list()?;
+        let reg_list = instr.get_reg_list(1)?;
 
         let write_fn_t = self.void_t.fn_type(
             &[self.ptr_t.into(), self.i32_t.into(), self.i32_t.into()],
@@ -415,9 +424,9 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
     fn stmib(&self, instr: &ArmInstruction) -> Result<Vec<RegUpdate<'a>>> {
         let bd = self.builder;
-        let rn = instr.get_reg_op(1);
+        let rn = instr.get_reg_op(0);
         let base_addr = self.reg_map.get(rn);
-        let reg_list = instr.get_reg_list()?;
+        let reg_list = instr.get_reg_list(1)?;
 
         let write_fn_t = self.void_t.fn_type(
             &[self.ptr_t.into(), self.i32_t.into(), self.i32_t.into()],
@@ -445,9 +454,9 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
     fn stmda(&self, instr: &ArmInstruction) -> Result<Vec<RegUpdate<'a>>> {
         let bd = self.builder;
-        let rn = instr.get_reg_op(1);
+        let rn = instr.get_reg_op(0);
         let base_addr = self.reg_map.get(rn);
-        let reg_list = instr.get_reg_list()?;
+        let reg_list = instr.get_reg_list(1)?;
 
         let write_fn_t = self.void_t.fn_type(
             &[self.ptr_t.into(), self.i32_t.into(), self.i32_t.into()],
@@ -476,9 +485,9 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
     fn stmdb(&self, instr: &ArmInstruction) -> Result<Vec<RegUpdate<'a>>> {
         let bd = self.builder;
-        let rn = instr.get_reg_op(1);
+        let rn = instr.get_reg_op(0);
         let base_addr = self.reg_map.get(rn);
-        let reg_list = instr.get_reg_list()?;
+        let reg_list = instr.get_reg_list(1)?;
 
         let write_fn_t = self.void_t.fn_type(
             &[self.ptr_t.into(), self.i32_t.into(), self.i32_t.into()],
@@ -501,6 +510,61 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                 value: bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "wb")?,
             })
         }
+        Ok(updates)
+    }
+
+    // Identical to stmdb but first SP operand and writeback flag are excluded by disassembler
+    fn push(&self, instr: &ArmInstruction) -> Result<Vec<RegUpdate<'a>>> {
+        let bd = self.builder;
+        let base_addr = self.reg_map.get(Reg::SP);
+        let reg_list = instr.get_reg_list(0)?;
+
+        let write_fn_t = self.void_t.fn_type(
+            &[self.ptr_t.into(), self.i32_t.into(), self.i32_t.into()],
+            false,
+        );
+        let write_fn_ptr = self.get_external_func_pointer(
+            MainMemory::write as fn(&mut MainMemory, u32, u32) as usize,
+        )?;
+
+        let mut updates = vec![];
+        let mut addr = bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "start")?;
+        for &reg in reg_list.iter() {
+            let value = self.reg_map.get(reg);
+            call_indirect!(bd, write_fn_t, write_fn_ptr, self.mem_ptr, addr, value);
+            addr = bd.build_int_add(addr, imm!(self, 4), "da")?;
+        }
+        updates.push(RegUpdate {
+            reg: Reg::SP,
+            value: bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "wb")?,
+        });
+        Ok(updates)
+    }
+
+    // Identical to ldmia but first SP operand and writeback flag are excluded by disassembler
+    fn pop(&self, instr: &ArmInstruction) -> Result<Vec<RegUpdate<'a>>> {
+        let bd = self.builder;
+        let base_addr = self.reg_map.get(Reg::SP);
+        let reg_list = instr.get_reg_list(0)?;
+
+        let read_fn_t = self
+            .i32_t
+            .fn_type(&[self.ptr_t.into(), self.i32_t.into()], false);
+        let read_fn_ptr = self.get_external_func_pointer(
+            MainMemory::read::<u32> as fn(&MainMemory, u32) -> u32 as usize,
+        )?;
+
+        let mut updates = vec![];
+        let mut addr = base_addr;
+        for &reg in reg_list.iter() {
+            let value = call_indirect_with_return!(bd, read_fn_t, read_fn_ptr, self.mem_ptr, addr);
+            updates.push(RegUpdate { reg, value });
+            addr = bd.build_int_add(addr, imm!(self, 4), "addr")?;
+        }
+        updates.push(RegUpdate {
+            reg: Reg::SP,
+            value: addr,
+        });
         Ok(updates)
     }
 }

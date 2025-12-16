@@ -1,5 +1,3 @@
-use std::f128::consts::E;
-
 use grimlet::arm::disasm::Disassembler;
 use grimlet::arm::state::{ArmState, Reg};
 use grimlet::emulator::{DebugOutput, Emulator};

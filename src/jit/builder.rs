@@ -53,7 +53,6 @@ mod load_store;
 mod reg_map;
 
 use std::collections::{HashMap, HashSet};
-use std::ops::Add;
 
 use anyhow::{Result, anyhow};
 use capstone::arch::arm::ArmInsn;
@@ -64,13 +63,13 @@ use inkwell::context::Context;
 use inkwell::execution_engine::ExecutionEngine;
 use inkwell::intrinsics::Intrinsic;
 use inkwell::module::Module;
-use inkwell::types::{ArrayType, FunctionType, IntType, PointerType, StructType, VoidType};
+use inkwell::types::{IntType, PointerType, StructType, VoidType};
 use inkwell::values::{BasicValueEnum, FunctionValue, PointerValue};
 
 use super::{CompiledFunction, FunctionCache};
 use crate::arm::disasm::code_block::CodeBlock;
 use crate::arm::disasm::instruction::ArmInstruction;
-use crate::arm::state::{ArmMode, ArmState, NUM_REGS, Reg};
+use crate::arm::state::{ArmMode, NUM_REGS, Reg};
 use crate::jit::builder::reg_map::RegMap;
 
 macro_rules! unimpl_instr {
@@ -374,10 +373,10 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             ArmInsn::ARM_INS_MUL => self.arm_mul(instr),
             ArmInsn::ARM_INS_MVN => self.arm_mvn(instr),
             ArmInsn::ARM_INS_ORR => self.arm_orr(instr),
-            // In ARM mode, ldmia rd! sometimes gets ddecoded with POP mnemonic
-            ArmInsn::ARM_INS_POP => self.arm_ldmia(instr),
-            // In ARM mode, stmdb rd! sometimes gets decoded with PUSH mnemonic
-            ArmInsn::ARM_INS_PUSH => self.arm_stmdb(instr),
+            // ldmia sp! gets decoded with POP mnemonic
+            ArmInsn::ARM_INS_POP => self.arm_pop(instr),
+            // stmdb sp! gets decoded with PUSH mnemonic
+            ArmInsn::ARM_INS_PUSH => self.arm_push(instr),
             ArmInsn::ARM_INS_ROR => unimpl_instr!(instr, "ROR"),
             ArmInsn::ARM_INS_RRX => unimpl_instr!(instr, "RRX"),
             ArmInsn::ARM_INS_RSB => self.arm_rsb(instr),
@@ -415,7 +414,7 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
-    use crate::arm::state::{REG_ITEMS, Reg};
+    use crate::arm::state::{ArmState, REG_ITEMS, Reg};
     use crate::jit::Compiler;
 
     macro_rules! compile_and_run {
