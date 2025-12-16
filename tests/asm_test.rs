@@ -1,6 +1,8 @@
-use grimlet::arm::state::{ArmState, Reg};
+use std::f128::consts::E;
+
 use grimlet::arm::disasm::Disassembler;
-use grimlet::emulator::Emulator;
+use grimlet::arm::state::{ArmState, Reg};
+use grimlet::emulator::{DebugOutput, Emulator};
 
 #[test]
 fn test_factorial() {
@@ -10,7 +12,7 @@ fn test_factorial() {
     let mut run = |n| -> u32 {
         emulator.state.jump_to(0);
         emulator.state.regs[Reg::R0] = n;
-        emulator.run(|st: &ArmState| -> bool { st.curr_instr_addr() >= 40 });
+        emulator.run(|st: &ArmState| -> bool { st.curr_instr_addr() >= 40 }, None);
         emulator.state.regs[Reg::R1]
     };
     assert_eq!(run(0), 1);
@@ -20,4 +22,14 @@ fn test_factorial() {
     assert_eq!(run(4), 24);
     assert_eq!(run(5), 120);
     assert_eq!(run(12), 479001600);
+}
+
+#[test]
+fn test_basic_load_store() {
+    let disasm = Disassembler::default();
+    let mut emulator = Emulator::new(disasm, Some("tests/programs/load_store.gba")).unwrap();
+    let exit = |st: &ArmState| -> bool { st.curr_instr_addr() >= 812 };
+    emulator.run(exit, Some(DebugOutput::Struct));
+
+    assert_eq!(emulator.state.regs[Reg::R0], 0x56c7c13d);
 }

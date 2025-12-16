@@ -1,8 +1,8 @@
 use std::env;
 
 use anyhow::Result;
-use grimlet::arm::state::ArmState;
 use grimlet::arm::disasm::Disassembler;
+use grimlet::arm::state::ArmState;
 use grimlet::emulator::Emulator;
 
 fn main() -> Result<()> {
@@ -10,6 +10,6 @@ fn main() -> Result<()> {
     let disasm = Disassembler::default();
     let mut emulator = Emulator::new(disasm, Some(&bios_path))?;
     let exit = |_: &ArmState| -> bool { false };
-    emulator.run(exit);
+    emulator.run(exit, None);
     Ok(())
 }

@@ -1,14 +1,20 @@
 use anyhow::Result;
 use inkwell::context::Context;
 
-use crate::arm::state::ArmState;
 use crate::arm::disasm::Disasm;
+use crate::arm::state::ArmState;
 use crate::jit::{Compiler, FunctionCache};
 
 pub struct Emulator {
     pub state: ArmState,
     llvm_ctx: Context,
     disasm: Box<dyn Disasm>,
+}
+
+/// Print codeblocks before running
+pub enum DebugOutput {
+    Assembly,
+    Struct,
 }
 
 impl Emulator {
@@ -25,7 +31,7 @@ impl Emulator {
         })
     }
 
-    pub fn run<F>(&mut self, exit_condition: F)
+    pub fn run<F>(&mut self, exit_condition: F, print: Option<DebugOutput>)
     where
         F: Fn(&ArmState) -> bool,
     {
@@ -34,6 +40,9 @@ impl Emulator {
 
         loop {
             if exit_condition(&self.state) {
+                compiler
+                    .dump()
+                    .unwrap_or_else(|_| println!("failed to dump LLVM"));
                 break;
             }
             let instr_addr = self.state.curr_instr_addr();
@@ -41,7 +50,11 @@ impl Emulator {
                 Some(func) => func,
                 None => {
                     let code_block = self.disasm.next_code_block(&self.state.mem, instr_addr);
-                    println!("{:#?}", code_block);
+                    match print {
+                        Some(DebugOutput::Assembly) => println!("{}", code_block),
+                        Some(DebugOutput::Struct) => println!("{:#?}", code_block),
+                        None => (),
+                    }
                     match compiler
                         .new_function(instr_addr, Some(&func_cache))
                         .build_body(code_block)
@@ -70,11 +83,11 @@ mod tests {
     use capstone::arch::arm::{ArmCC, ArmInsn};
 
     use super::*;
-    use crate::arm::state::Reg;
-    use crate::arm::state::memory::MainMemory;
     use crate::arm::disasm::code_block::CodeBlock;
     use crate::arm::disasm::cons::*;
     use crate::arm::disasm::instruction::ArmInstruction;
+    use crate::arm::state::Reg;
+    use crate::arm::state::memory::MainMemory;
     pub struct VecDisassembler {
         pub program: Vec<ArmInstruction>,
     }
@@ -108,7 +121,10 @@ mod tests {
         emulator.state.regs[Reg::R1] = confirm_val;
         // Prev instruction on initialization is just a NOP, so it won't override these flags
         emulator.state.regs[Reg::CPSR as usize] = flags << 28;
-        emulator.run(|st: &ArmState| -> bool { st.curr_instr_addr() == 100 });
+        emulator.run(
+            |st: &ArmState| -> bool { st.curr_instr_addr() == 100 },
+            None,
+        );
 
         // True if it ran, false if skipped
         emulator.state.regs[Reg::R0] == confirm_val
@@ -194,7 +210,7 @@ mod tests {
             em.state.jump_to(0);
             em.state.regs[r0] = n;
             em.state.regs[cpsr] = 0;
-            em.run(exit);
+            em.run(exit, None);
             em.state.regs[cpsr] >> 28
         };
 

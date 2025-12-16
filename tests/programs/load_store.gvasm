@@ -1,0 +1,44 @@
+.begin main
+    .arm
+    mov r1, #816
+    ldr r0, [r1]
+    b end
+    // reduce by 1 for each new instruction
+    .u32fill 200
+end: // 812
+    nop
+random_data: // 816
+    .u8 0x3d
+    .u8 0xc1
+    .u8 0xc7
+    .u8 0x56
+    .u8 0x8d
+    .u8 0xb7
+    .u8 0xb3
+    .u8 0x15
+    .u8 0xab
+    .u8 0x48
+    .u8 0x0e
+    .u8 0xca
+    .u8 0xaf
+    .u8 0x91
+    .u8 0xe9
+    .u8 0xfc
+    .u8 0x6d
+    .u8 0xce
+    .u8 0x1c
+    .u8 0x3f
+    .u8 0x5e
+    .u8 0x28
+    .u8 0x0f
+    .u8 0x78
+    .u8 0xa4
+    .u8 0x60
+    .u8 0x38
+    .u8 0xe2
+    .u8 0xa3
+    .u8 0x1c
+    .u8 0x68
+    .u8 0xfe
+.end
+
