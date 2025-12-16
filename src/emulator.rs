@@ -225,4 +225,108 @@ mod tests {
         // signed underflow only (positive result)
         assert_eq!(test_case(i32::MIN as u32), 0b0011); // nzcv
     }
+
+    macro_rules! stmdb_tests {
+        ($($name:ident: $value:expr,)*) => {
+        $(
+            #[test]
+            fn $name() {
+                let (instruction, expected_sp) = $value;
+
+                let mut instrs = vec![
+                    op_reg_imm(ArmInsn::ARM_INS_MOV, 13, 0x4000, None),
+                    op_reg_imm(ArmInsn::ARM_INS_MOV, 0, 1, None),
+                    op_reg_imm(ArmInsn::ARM_INS_MOV, 1, 2, None),
+                    op_reg_imm(ArmInsn::ARM_INS_MOV, 2, 3, None),
+                    op_reg_imm(ArmInsn::ARM_INS_MOV, 3, 5, None),
+                    op_reg_imm(ArmInsn::ARM_INS_MOV, 4, 7, None),
+                    op_reg_imm(ArmInsn::ARM_INS_MOV, 5, 11, None),
+                    op_reg_imm(ArmInsn::ARM_INS_MOV, 6, 13, None),
+                    op_reg_imm(ArmInsn::ARM_INS_MOV, 7, 17, None),
+                ];
+                instrs.push(instruction);
+                instrs.push(op_imm(ArmInsn::ARM_INS_B, 100, None));
+
+                let disasm = VecDisassembler::new(instrs);
+                let mut emulator = Emulator::new(disasm, None).unwrap();
+
+                let exit = |st: &ArmState| -> bool { st.curr_instr_addr() == 100 };
+                emulator.run(exit, Some(DebugOutput::Assembly));
+
+                println!("{:?}", &emulator.state.regs);
+                println!("{:?}", &emulator.state.mem.bios[0x4000 - (32)..]);
+
+                assert_eq!(emulator.state.regs[Reg::SP], expected_sp);
+                let expected = [1, 2, 3, 5, 7, 11, 13, 17];
+                for (i, w) in emulator.state.mem.iter_word(0x4000 - 32).enumerate() {
+                    assert_eq!(u32::from_le_bytes(w.try_into().unwrap()), expected[i])
+                }
+            }
+        )*
+        }
+    }
+
+    stmdb_tests! {
+        test_stmdb_writeback: (
+            ArmInstruction {
+                opcode: ArmInsn::ARM_INS_STMDB,
+                cond: ArmCC::ARM_CC_AL,
+                operands: vec![
+                    reg(Reg::SP as usize),
+                    // mis-ordered to testing ordering behaviour
+                    reg(0),
+                    reg(2),
+                    reg(5),
+                    reg(1),
+                    reg(3),
+                    reg(7),
+                    reg(6),
+                    reg(4),
+                ],
+                writeback: true,
+                ..Default::default()
+            },
+            0x4000 - 32
+        ),
+        test_stmdb_no_writeback: (
+            ArmInstruction {
+                opcode: ArmInsn::ARM_INS_STMDB,
+                cond: ArmCC::ARM_CC_AL,
+                operands: vec![
+                    reg(Reg::SP as usize),
+                    // mis-ordered to testing ordering behaviour
+                    reg(4),
+                    reg(0),
+                    reg(2),
+                    reg(1),
+                    reg(3),
+                    reg(7),
+                    reg(6),
+                    reg(5),
+                ],
+                writeback: false,
+                ..Default::default()
+            },
+            0x4000,
+        ),
+        test_push: (
+            ArmInstruction {
+                opcode: ArmInsn::ARM_INS_PUSH,
+                cond: ArmCC::ARM_CC_AL,
+                operands: vec![
+                    reg(4),
+                    reg(0),
+                    reg(2),
+                    reg(1),
+                    reg(3),
+                    reg(7),
+                    reg(6),
+                    reg(5),
+                ],
+                writeback: false,
+                ..Default::default()
+            },
+            0x4000 - 32,
+        ),
+    }
 }
