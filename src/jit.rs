@@ -76,7 +76,9 @@ impl<'ctx> Compiler<'ctx> {
         let module = self.modules.last().unwrap();
         self.engines.push(
             module
-                .create_jit_execution_engine(OptimizationLevel::None)
+                // Less handles at least optimizing out `br i1 true, label %if, label %end`
+                // branches that are emitted for AL cond
+                .create_jit_execution_engine(OptimizationLevel::Less)
                 .expect("failed to create LLVM execution engine"),
         );
         self.modules.len() - 1

@@ -1,6 +1,6 @@
 use anyhow::{Context as _, Result, anyhow};
 use capstone::RegId;
-use capstone::arch::arm::{ArmCC, ArmOperand, ArmOperandType, ArmShift};
+use capstone::arch::arm::{ArmOperand, ArmOperandType, ArmShift};
 use inkwell::IntPredicate;
 use inkwell::values::IntValue;
 
@@ -155,30 +155,6 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         F: Fn(&mut Self, &ArmInstruction) -> Result<DataProcResult<'a>>,
     {
         let mode = instr.mode;
-
-        if instr.cond == ArmCC::ARM_CC_AL {
-            let calc_result = inner(self, instr)?;
-            match calc_result.action {
-                DataProcAction::Ignored => (),
-                DataProcAction::SingleUpdate(RegUpdate { reg: r, value: v }) => {
-                    self.reg_map.update(r, v);
-                }
-                DataProcAction::DoubleUpdate((
-                    RegUpdate { reg: r1, value: v1 },
-                    RegUpdate { reg: r2, value: v2 },
-                )) => {
-                    self.reg_map.update(r1, v1);
-                    self.reg_map.update(r2, v2);
-                }
-            }
-            if let Some(cpsr) = calc_result.cpsr {
-                self.reg_map.update(Reg::CPSR, cpsr);
-            }
-
-            self.increment_pc(mode);
-            return Ok(());
-        }
-
         let ctx = self.llvm_ctx;
         let bd = self.builder;
         let if_block = ctx.append_basic_block(self.func, "if");

@@ -1,6 +1,6 @@
 use std::iter::zip;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use capstone::arch::arm::ArmCC;
 use inkwell::IntPredicate;
 use inkwell::values::IntValue;
@@ -20,6 +20,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     pub(super) fn eval_cond(&mut self, cond: ArmCC) -> Result<IntValue<'a>> {
         let bd = self.builder;
         let cond = match cond {
+            ArmCC::ARM_CC_AL => self.llvm_ctx.bool_type().const_int(1, false),
             ArmCC::ARM_CC_EQ => self.get_flag(Z)?,
             ArmCC::ARM_CC_NE => self.get_neg_flag(Z)?,
             ArmCC::ARM_CC_HS => self.get_flag(C)?,
@@ -46,7 +47,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                 bd.build_int_compare(IntPredicate::NE, self.get_flag(N)?, self.get_flag(V)?, "lt")?,
                 "le",
             )?,
-            _ => panic!("invalid cond"),
+            _ => bail!("invalid cond"),
         };
         Ok(cond)
     }
