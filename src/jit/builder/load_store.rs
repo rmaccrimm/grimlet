@@ -78,13 +78,21 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         exec_and_expect!(self, instr, Self::str::<u16>)
     }
 
-    pub(super) fn arm_stmia(&mut self, _instr: ArmInstruction) { todo!() }
+    pub(super) fn arm_stmia(&mut self, instr: ArmInstruction) {
+        exec_and_expect!(self, instr, Self::stmia)
+    }
 
-    pub(super) fn arm_stmib(&mut self, _instr: ArmInstruction) { todo!() }
+    pub(super) fn arm_stmib(&mut self, instr: ArmInstruction) {
+        exec_and_expect!(self, instr, Self::stmib)
+    }
 
-    pub(super) fn arm_stmda(&mut self, _instr: ArmInstruction) { todo!() }
+    pub(super) fn arm_stmda(&mut self, instr: ArmInstruction) {
+        exec_and_expect!(self, instr, Self::stmda)
+    }
 
-    pub(super) fn arm_stmdb(&mut self, _instr: ArmInstruction) { todo!() }
+    pub(super) fn arm_stmdb(&mut self, instr: ArmInstruction) {
+        exec_and_expect!(self, instr, Self::stmdb)
+    }
 
     fn exec_load_store_conditional<F>(&mut self, instr: &ArmInstruction, inner: F) -> Result<()>
     where
@@ -212,7 +220,6 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let read_fn_t = self
             .i32_t
             .fn_type(&[self.ptr_t.into(), self.i32_t.into()], false);
-
         let read_fn_ptr = self.get_external_func_pointer(
             MainMemory::read::<T> as fn(&MainMemory, u32) -> u32 as usize,
         )?;
@@ -223,7 +230,6 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             reg: rd,
             value: load_val,
         }];
-
         if let Some(wb) = addr_mode.writeback {
             updates.push(wb);
         }
@@ -235,12 +241,14 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let rn = instr.get_reg_op(1);
         let base_addr = self.reg_map.get(rn);
         let reg_list = instr.get_reg_list()?;
+
         let read_fn_t = self
             .i32_t
             .fn_type(&[self.ptr_t.into(), self.i32_t.into()], false);
         let read_fn_ptr = self.get_external_func_pointer(
             MainMemory::read::<u32> as fn(&MainMemory, u32) -> u32 as usize,
         )?;
+
         let mut updates = vec![];
         let mut addr = base_addr;
         for &reg in reg_list.iter() {
@@ -262,12 +270,14 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let rn = instr.get_reg_op(1);
         let base_addr = self.reg_map.get(rn);
         let reg_list = instr.get_reg_list()?;
+
         let read_fn_t = self
             .i32_t
             .fn_type(&[self.ptr_t.into(), self.i32_t.into()], false);
         let read_fn_ptr = self.get_external_func_pointer(
             MainMemory::read::<u32> as fn(&MainMemory, u32) -> u32 as usize,
         )?;
+
         let mut updates = vec![];
         let mut addr = base_addr;
         for &reg in reg_list.iter() {
@@ -289,12 +299,14 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let rn = instr.get_reg_op(1);
         let base_addr = self.reg_map.get(rn);
         let reg_list = instr.get_reg_list()?;
+
         let read_fn_t = self
             .i32_t
             .fn_type(&[self.ptr_t.into(), self.i32_t.into()], false);
         let read_fn_ptr = self.get_external_func_pointer(
             MainMemory::read::<u32> as fn(&MainMemory, u32) -> u32 as usize,
         )?;
+
         let mut updates = vec![];
         let mut addr =
             bd.build_int_sub(base_addr, imm!(self, 4 * (reg_list.len() - 1)), "start")?;
@@ -317,12 +329,14 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let rn = instr.get_reg_op(1);
         let base_addr = self.reg_map.get(rn);
         let reg_list = instr.get_reg_list()?;
+
         let read_fn_t = self
             .i32_t
             .fn_type(&[self.ptr_t.into(), self.i32_t.into()], false);
         let read_fn_ptr = self.get_external_func_pointer(
             MainMemory::read::<u32> as fn(&MainMemory, u32) -> u32 as usize,
         )?;
+
         let mut updates = vec![];
         let mut addr = bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "start")?;
         for &reg in reg_list.iter() {
@@ -354,16 +368,140 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         );
         let write_fn_ptr = self
             .get_external_func_pointer(MainMemory::write as fn(&mut MainMemory, u32, T) as usize)?;
-        bd.build_indirect_call(
+
+        call_indirect!(
+            bd,
             write_fn_t,
             write_fn_ptr,
-            &[self.mem_ptr.into(), addr_mode.addr.into(), rd_val.into()],
-            "call",
-        )?;
+            self.mem_ptr,
+            addr_mode.addr,
+            rd_val
+        );
         Ok(match addr_mode.writeback {
             Some(wb) => vec![wb],
             None => vec![],
         })
+    }
+
+    fn stmia(&self, instr: &ArmInstruction) -> Result<Vec<RegUpdate<'a>>> {
+        let bd = self.builder;
+        let rn = instr.get_reg_op(1);
+        let base_addr = self.reg_map.get(rn);
+        let reg_list = instr.get_reg_list()?;
+
+        let write_fn_t = self.void_t.fn_type(
+            &[self.ptr_t.into(), self.i32_t.into(), self.i32_t.into()],
+            false,
+        );
+        let write_fn_ptr = self.get_external_func_pointer(
+            MainMemory::write as fn(&mut MainMemory, u32, u32) as usize,
+        )?;
+
+        let mut updates = vec![];
+        let mut addr = base_addr;
+        for &reg in reg_list.iter() {
+            let value = self.reg_map.get(reg);
+            call_indirect!(bd, write_fn_t, write_fn_ptr, self.mem_ptr, addr, value);
+            addr = bd.build_int_add(addr, imm!(self, 4), "addr")?;
+        }
+        if instr.writeback {
+            updates.push(RegUpdate {
+                reg: rn,
+                value: addr,
+            })
+        }
+        Ok(updates)
+    }
+
+    fn stmib(&self, instr: &ArmInstruction) -> Result<Vec<RegUpdate<'a>>> {
+        let bd = self.builder;
+        let rn = instr.get_reg_op(1);
+        let base_addr = self.reg_map.get(rn);
+        let reg_list = instr.get_reg_list()?;
+
+        let write_fn_t = self.void_t.fn_type(
+            &[self.ptr_t.into(), self.i32_t.into(), self.i32_t.into()],
+            false,
+        );
+        let write_fn_ptr = self.get_external_func_pointer(
+            MainMemory::write as fn(&mut MainMemory, u32, u32) as usize,
+        )?;
+
+        let mut updates = vec![];
+        let mut addr = base_addr;
+        for &reg in reg_list.iter() {
+            addr = bd.build_int_add(addr, imm!(self, 4), "ib")?;
+            let value = self.reg_map.get(reg);
+            call_indirect!(bd, write_fn_t, write_fn_ptr, self.mem_ptr, addr, value);
+        }
+        if instr.writeback {
+            updates.push(RegUpdate {
+                reg: rn,
+                value: addr,
+            })
+        }
+        Ok(updates)
+    }
+
+    fn stmda(&self, instr: &ArmInstruction) -> Result<Vec<RegUpdate<'a>>> {
+        let bd = self.builder;
+        let rn = instr.get_reg_op(1);
+        let base_addr = self.reg_map.get(rn);
+        let reg_list = instr.get_reg_list()?;
+
+        let write_fn_t = self.void_t.fn_type(
+            &[self.ptr_t.into(), self.i32_t.into(), self.i32_t.into()],
+            false,
+        );
+        let write_fn_ptr = self.get_external_func_pointer(
+            MainMemory::write as fn(&mut MainMemory, u32, u32) as usize,
+        )?;
+
+        let mut updates = vec![];
+        let mut addr =
+            bd.build_int_sub(base_addr, imm!(self, 4 * (reg_list.len() - 1)), "start")?;
+        for &reg in reg_list.iter() {
+            let value = self.reg_map.get(reg);
+            call_indirect!(bd, write_fn_t, write_fn_ptr, self.mem_ptr, addr, value);
+            addr = bd.build_int_add(addr, imm!(self, 4), "da")?;
+        }
+        if instr.writeback {
+            updates.push(RegUpdate {
+                reg: rn,
+                value: bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "wb")?,
+            })
+        }
+        Ok(updates)
+    }
+
+    fn stmdb(&self, instr: &ArmInstruction) -> Result<Vec<RegUpdate<'a>>> {
+        let bd = self.builder;
+        let rn = instr.get_reg_op(1);
+        let base_addr = self.reg_map.get(rn);
+        let reg_list = instr.get_reg_list()?;
+
+        let write_fn_t = self.void_t.fn_type(
+            &[self.ptr_t.into(), self.i32_t.into(), self.i32_t.into()],
+            false,
+        );
+        let write_fn_ptr = self.get_external_func_pointer(
+            MainMemory::write as fn(&mut MainMemory, u32, u32) as usize,
+        )?;
+
+        let mut updates = vec![];
+        let mut addr = bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "start")?;
+        for &reg in reg_list.iter() {
+            let value = self.reg_map.get(reg);
+            call_indirect!(bd, write_fn_t, write_fn_ptr, self.mem_ptr, addr, value);
+            addr = bd.build_int_add(addr, imm!(self, 4), "da")?;
+        }
+        if instr.writeback {
+            updates.push(RegUpdate {
+                reg: rn,
+                value: bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "wb")?,
+            })
+        }
+        Ok(updates)
     }
 }
 

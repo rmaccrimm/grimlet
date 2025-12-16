@@ -387,10 +387,10 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             ArmInsn::ARM_INS_SMULL => self.arm_smull(instr),
             ArmInsn::ARM_INS_STC => unimpl_instr!(instr, "STC"),
             ArmInsn::ARM_INS_STM => self.arm_stmia(instr),
-            ArmInsn::ARM_INS_STMIB => unimpl_instr!(instr, "STMIB"),
-            ArmInsn::ARM_INS_STMDA => unimpl_instr!(instr, "STMDA"),
+            ArmInsn::ARM_INS_STMIB => self.arm_stmib(instr),
+            ArmInsn::ARM_INS_STMDA => self.arm_stmda(instr),
             // Possibly decoded as a PUSH? When writeback enabled
-            ArmInsn::ARM_INS_STMDB => unimpl_instr!(instr, "STMDB"),
+            ArmInsn::ARM_INS_STMDB => self.arm_stmdb(instr),
 
             ArmInsn::ARM_INS_STR => self.arm_str(instr),
             ArmInsn::ARM_INS_STRB => self.arm_strb(instr),
