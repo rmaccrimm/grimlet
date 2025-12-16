@@ -198,6 +198,20 @@ impl ArmInstruction {
             }
         }
     }
+
+    pub fn get_reg_list(&self) -> Result<Vec<Reg>> {
+        let mut regs = vec![];
+        for operand in self.operands.iter() {
+            match operand.op_type {
+                ArmOperandType::Reg(reg_id) => regs.push(Reg::from(reg_id)),
+                _ => bail!("non-register operand in register list"),
+            }
+        }
+        if regs.is_empty() {
+            bail!("no register list provided")
+        }
+        Ok(regs)
+    }
 }
 
 impl Display for ArmInstruction {

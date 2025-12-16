@@ -1,11 +1,9 @@
-#![allow(dead_code)]
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Context as _, Result, anyhow, bail};
 use capstone::arch::arm::ArmShift;
 use inkwell::values::IntValue;
-use num::traits::FromBytes;
 
 use crate::arm::disasm::instruction::{ArmInstruction, MemOffset, MemOperand, WritebackMode};
-use crate::arm::state::memory::MainMemory;
+use crate::arm::state::memory::{MainMemory, MemReadable, MemWriteable};
 use crate::jit::builder::FunctionBuilder;
 use crate::jit::builder::alu::RegUpdate;
 use crate::jit::builder::flags::C;
@@ -16,12 +14,77 @@ struct AddrMode<'a> {
     addr: IntValue<'a>,
 }
 
-impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
-    pub(super) fn arm_ldmia(&mut self, _instr: ArmInstruction) { todo!() }
+macro_rules! exec_and_expect {
+    ($self:ident, $arg:ident, Self::$method:ident::<$T:ty>) => {
+        $self
+            .exec_load_store_conditional(&$arg, Self::$method::<$T>)
+            .with_context(|| format!("{:?}", $arg))
+            .expect("LLVM codegen failed")
+    };
+    ($self:ident, $arg:ident, Self::$method:ident) => {
+        $self
+            .exec_load_store_conditional(&$arg, Self::$method)
+            .with_context(|| format!("{:?}", $arg))
+            .expect("LLVM codegen failed")
+    };
+}
 
-    pub(super) fn arm_stmdb(&mut self, _instr: ArmInstruction) { todo!() }
+impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
+    pub(super) fn arm_ldr(&mut self, instr: ArmInstruction) {
+        exec_and_expect!(self, instr, Self::ldr::<u32>)
+    }
+
+    pub(super) fn arm_ldrb(&mut self, instr: ArmInstruction) {
+        exec_and_expect!(self, instr, Self::ldr::<u8>)
+    }
+
+    pub(super) fn arm_ldrh(&mut self, instr: ArmInstruction) {
+        exec_and_expect!(self, instr, Self::ldr::<u16>)
+    }
+
+    pub(super) fn arm_ldrsb(&mut self, instr: ArmInstruction) {
+        exec_and_expect!(self, instr, Self::ldr::<i8>)
+    }
+
+    pub(super) fn arm_ldrsh(&mut self, instr: ArmInstruction) {
+        exec_and_expect!(self, instr, Self::ldr::<i16>)
+    }
+
+    pub(super) fn arm_ldmia(&mut self, instr: ArmInstruction) {
+        exec_and_expect!(self, instr, Self::ldmia)
+    }
+
+    pub(super) fn arm_ldmib(&mut self, instr: ArmInstruction) {
+        exec_and_expect!(self, instr, Self::ldmib)
+    }
+
+    pub(super) fn arm_ldmda(&mut self, instr: ArmInstruction) {
+        exec_and_expect!(self, instr, Self::ldmda)
+    }
+
+    pub(super) fn arm_ldmdb(&mut self, instr: ArmInstruction) {
+        exec_and_expect!(self, instr, Self::ldmdb)
+    }
+
+    pub(super) fn arm_str(&mut self, instr: ArmInstruction) {
+        exec_and_expect!(self, instr, Self::str::<u32>)
+    }
+
+    pub(super) fn arm_strb(&mut self, instr: ArmInstruction) {
+        exec_and_expect!(self, instr, Self::str::<u8>)
+    }
+
+    pub(super) fn arm_strh(&mut self, instr: ArmInstruction) {
+        exec_and_expect!(self, instr, Self::str::<u16>)
+    }
 
     pub(super) fn arm_stmia(&mut self, _instr: ArmInstruction) { todo!() }
+
+    pub(super) fn arm_stmib(&mut self, _instr: ArmInstruction) { todo!() }
+
+    pub(super) fn arm_stmda(&mut self, _instr: ArmInstruction) { todo!() }
+
+    pub(super) fn arm_stmdb(&mut self, _instr: ArmInstruction) { todo!() }
 
     fn exec_load_store_conditional<F>(&mut self, instr: &ArmInstruction, inner: F) -> Result<()>
     where
@@ -42,6 +105,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         // Inner doesn't touch reg_map so the values in it can be used to get the first option
         // for the phi values
+        // TODO - jump when updating PC
         for update in updates {
             let r_init = self.reg_map.get(update.reg);
             let r_new = update.value;
@@ -139,7 +203,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
     fn ldr<T>(&self, instr: &ArmInstruction) -> Result<Vec<RegUpdate<'a>>>
     where
-        T: FromBytes,
+        T: MemReadable,
     {
         let bd = self.builder;
         let rd = instr.get_reg_op(0);
@@ -148,33 +212,137 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let read_fn_t = self
             .i32_t
             .fn_type(&[self.ptr_t.into(), self.i32_t.into()], false);
-        todo!()
-        // let read_fn_ptr =
-        //     self.get_external_func_pointer(MainMemory::read as fn(&MainMemory, u32) -> T as usize)?;
-        // let call = bd.build_indirect_call(
-        //     read_fn_t,
-        //     read_fn_ptr,
-        //     &[self.mem_ptr.into(), addr_mode.addr.into()],
-        //     "call",
-        // )?;
-        // let load_val = call
-        //     .try_as_basic_value()
-        //     .left()
-        //     .ok_or(anyhow!("failed to get return val"))?
-        //     .into_int_value();
 
-        // let mut updates = vec![RegUpdate {
-        //     reg: rd,
-        //     value: load_val,
-        // }];
+        let read_fn_ptr = self.get_external_func_pointer(
+            MainMemory::read::<T> as fn(&MainMemory, u32) -> u32 as usize,
+        )?;
+        let load_val =
+            call_indirect_with_return!(bd, read_fn_t, read_fn_ptr, self.mem_ptr, addr_mode.addr);
 
-        // if let Some(wb) = addr_mode.writeback {
-        //     updates.push(wb);
-        // }
-        // Ok(updates)
+        let mut updates = vec![RegUpdate {
+            reg: rd,
+            value: load_val,
+        }];
+
+        if let Some(wb) = addr_mode.writeback {
+            updates.push(wb);
+        }
+        Ok(updates)
     }
 
-    fn str(&mut self, instr: &ArmInstruction) -> Result<Vec<RegUpdate<'a>>> {
+    fn ldmia(&self, instr: &ArmInstruction) -> Result<Vec<RegUpdate<'a>>> {
+        let bd = self.builder;
+        let rn = instr.get_reg_op(1);
+        let base_addr = self.reg_map.get(rn);
+        let reg_list = instr.get_reg_list()?;
+        let read_fn_t = self
+            .i32_t
+            .fn_type(&[self.ptr_t.into(), self.i32_t.into()], false);
+        let read_fn_ptr = self.get_external_func_pointer(
+            MainMemory::read::<u32> as fn(&MainMemory, u32) -> u32 as usize,
+        )?;
+        let mut updates = vec![];
+        let mut addr = base_addr;
+        for &reg in reg_list.iter() {
+            let value = call_indirect_with_return!(bd, read_fn_t, read_fn_ptr, self.mem_ptr, addr);
+            updates.push(RegUpdate { reg, value });
+            addr = bd.build_int_add(addr, imm!(self, 4), "addr")?;
+        }
+        if instr.writeback {
+            updates.push(RegUpdate {
+                reg: rn,
+                value: addr,
+            })
+        }
+        Ok(updates)
+    }
+
+    fn ldmib(&self, instr: &ArmInstruction) -> Result<Vec<RegUpdate<'a>>> {
+        let bd = self.builder;
+        let rn = instr.get_reg_op(1);
+        let base_addr = self.reg_map.get(rn);
+        let reg_list = instr.get_reg_list()?;
+        let read_fn_t = self
+            .i32_t
+            .fn_type(&[self.ptr_t.into(), self.i32_t.into()], false);
+        let read_fn_ptr = self.get_external_func_pointer(
+            MainMemory::read::<u32> as fn(&MainMemory, u32) -> u32 as usize,
+        )?;
+        let mut updates = vec![];
+        let mut addr = base_addr;
+        for &reg in reg_list.iter() {
+            addr = bd.build_int_add(addr, imm!(self, 4), "ib")?;
+            let value = call_indirect_with_return!(bd, read_fn_t, read_fn_ptr, self.mem_ptr, addr);
+            updates.push(RegUpdate { reg, value });
+        }
+        if instr.writeback {
+            updates.push(RegUpdate {
+                reg: rn,
+                value: addr,
+            })
+        }
+        Ok(updates)
+    }
+
+    fn ldmda(&self, instr: &ArmInstruction) -> Result<Vec<RegUpdate<'a>>> {
+        let bd = self.builder;
+        let rn = instr.get_reg_op(1);
+        let base_addr = self.reg_map.get(rn);
+        let reg_list = instr.get_reg_list()?;
+        let read_fn_t = self
+            .i32_t
+            .fn_type(&[self.ptr_t.into(), self.i32_t.into()], false);
+        let read_fn_ptr = self.get_external_func_pointer(
+            MainMemory::read::<u32> as fn(&MainMemory, u32) -> u32 as usize,
+        )?;
+        let mut updates = vec![];
+        let mut addr =
+            bd.build_int_sub(base_addr, imm!(self, 4 * (reg_list.len() - 1)), "start")?;
+        for &reg in reg_list.iter() {
+            let value = call_indirect_with_return!(bd, read_fn_t, read_fn_ptr, self.mem_ptr, addr);
+            updates.push(RegUpdate { reg, value });
+            addr = bd.build_int_add(addr, imm!(self, 4), "da")?;
+        }
+        if instr.writeback {
+            updates.push(RegUpdate {
+                reg: rn,
+                value: bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "wb")?,
+            })
+        }
+        Ok(updates)
+    }
+
+    fn ldmdb(&self, instr: &ArmInstruction) -> Result<Vec<RegUpdate<'a>>> {
+        let bd = self.builder;
+        let rn = instr.get_reg_op(1);
+        let base_addr = self.reg_map.get(rn);
+        let reg_list = instr.get_reg_list()?;
+        let read_fn_t = self
+            .i32_t
+            .fn_type(&[self.ptr_t.into(), self.i32_t.into()], false);
+        let read_fn_ptr = self.get_external_func_pointer(
+            MainMemory::read::<u32> as fn(&MainMemory, u32) -> u32 as usize,
+        )?;
+        let mut updates = vec![];
+        let mut addr = bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "start")?;
+        for &reg in reg_list.iter() {
+            let value = call_indirect_with_return!(bd, read_fn_t, read_fn_ptr, self.mem_ptr, addr);
+            updates.push(RegUpdate { reg, value });
+            addr = bd.build_int_add(addr, imm!(self, 4), "da")?;
+        }
+        if instr.writeback {
+            updates.push(RegUpdate {
+                reg: rn,
+                value: bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "wb")?,
+            })
+        }
+        Ok(updates)
+    }
+
+    fn str<T>(&self, instr: &ArmInstruction) -> Result<Vec<RegUpdate<'a>>>
+    where
+        T: MemWriteable,
+    {
         let bd = self.builder;
         let rd = instr.get_reg_op(0);
         let rd_val = self.reg_map.get(rd);
@@ -184,12 +352,11 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             &[self.ptr_t.into(), self.i32_t.into(), self.i32_t.into()],
             false,
         );
-        let read_fn_ptr = self.get_external_func_pointer(
-            MainMemory::write as fn(&mut MainMemory, u32, u32) as usize,
-        )?;
+        let write_fn_ptr = self
+            .get_external_func_pointer(MainMemory::write as fn(&mut MainMemory, u32, T) as usize)?;
         bd.build_indirect_call(
             write_fn_t,
-            read_fn_ptr,
+            write_fn_ptr,
             &[self.mem_ptr.into(), addr_mode.addr.into(), rd_val.into()],
             "call",
         )?;
@@ -205,14 +372,8 @@ mod tests {
     use inkwell::context::Context;
 
     use super::*;
-    use crate::arm::state::memory::MainMemory;
     use crate::arm::state::{ArmState, Reg};
     use crate::jit::{CompiledFunction, Compiler};
-
-    struct ImmShiftTestCase<'ctx> {
-        f: CompiledFunction<'ctx>,
-        state: ArmState,
-    }
 
     /// Apply the given shift to R0
     fn shift_test_case(context: &Context, init: u32, shift: ArmShift, c_flag: Option<bool>) -> u32 {

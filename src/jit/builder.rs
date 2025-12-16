@@ -24,6 +24,28 @@ macro_rules! call_intrinsic {
     };
 }
 
+macro_rules! call_indirect {
+    ($builder:ident, $func_t:expr, $func_ptr:ident, $($args:expr),+) => {
+        $builder
+            .build_indirect_call(
+                $func_t,
+                $func_ptr,
+                &[$($args.into()),+],
+                &format!("{}_res", stringify!(intrinsic))
+            )?
+    };
+}
+
+macro_rules! call_indirect_with_return {
+    ($builder:ident, $func_t:expr, $func_ptr:ident, $($args:expr),+) => {
+        call_indirect!($builder, $func_t, $func_ptr, $($args),+)
+            .try_as_basic_value()
+            .left()
+            .ok_or_else(|| anyhow!("failed to get {} return val", stringify!(intrinsic)))?
+            .into_int_value()
+    };
+}
+
 mod alu;
 mod branch;
 mod flags;
@@ -328,17 +350,17 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             ArmInsn::ARM_INS_EOR => self.arm_eor(instr),
             ArmInsn::ARM_INS_LDC => unimpl_instr!(instr, "LDC"),
             ArmInsn::ARM_INS_LDM => self.arm_ldmia(instr),
-            ArmInsn::ARM_INS_LDMDA => unimpl_instr!(instr, "LDMDA"),
-            ArmInsn::ARM_INS_LDMDB => unimpl_instr!(instr, "LDMDB"),
-            ArmInsn::ARM_INS_LDMIB => unimpl_instr!(instr, "LDMIB"),
-            ArmInsn::ARM_INS_LDR => unimpl_instr!(instr, "LDR"),
-            ArmInsn::ARM_INS_LDRB => unimpl_instr!(instr, "LDRB"),
+            ArmInsn::ARM_INS_LDMDA => self.arm_ldmda(instr),
+            ArmInsn::ARM_INS_LDMDB => self.arm_ldmdb(instr),
+            ArmInsn::ARM_INS_LDMIB => self.arm_ldmib(instr),
+            ArmInsn::ARM_INS_LDR => self.arm_ldr(instr),
+            ArmInsn::ARM_INS_LDRB => self.arm_ldrb(instr),
             ArmInsn::ARM_INS_LDRBT => unimpl_instr!(instr, "LDRBT"),
-            ArmInsn::ARM_INS_LDRH => unimpl_instr!(instr, "LDRH"),
+            ArmInsn::ARM_INS_LDRH => self.arm_ldrh(instr),
             ArmInsn::ARM_INS_LDRHT => unimpl_instr!(instr, "LDRHT"),
-            ArmInsn::ARM_INS_LDRSB => unimpl_instr!(instr, "LDRSB"),
+            ArmInsn::ARM_INS_LDRSB => self.arm_ldrsb(instr),
             ArmInsn::ARM_INS_LDRSBT => unimpl_instr!(instr, "LDRSBT"),
-            ArmInsn::ARM_INS_LDRSH => unimpl_instr!(instr, "LDRSH"),
+            ArmInsn::ARM_INS_LDRSH => self.arm_ldrsh(instr),
             ArmInsn::ARM_INS_LDRSHT => unimpl_instr!(instr, "LDRSHT"),
             ArmInsn::ARM_INS_LDRT => unimpl_instr!(instr, "LDRT"),
             ArmInsn::ARM_INS_LSL => unimpl_instr!(instr, "LSL"),
@@ -370,10 +392,10 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             // Possibly decoded as a PUSH? When writeback enabled
             ArmInsn::ARM_INS_STMDB => unimpl_instr!(instr, "STMDB"),
 
-            ArmInsn::ARM_INS_STR => unimpl_instr!(instr, "STR"),
-            ArmInsn::ARM_INS_STRB => unimpl_instr!(instr, "STRB"),
+            ArmInsn::ARM_INS_STR => self.arm_str(instr),
+            ArmInsn::ARM_INS_STRB => self.arm_strb(instr),
             ArmInsn::ARM_INS_STRBT => unimpl_instr!(instr, "STRBT"),
-            ArmInsn::ARM_INS_STRH => unimpl_instr!(instr, "STRH"),
+            ArmInsn::ARM_INS_STRH => self.arm_strh(instr),
             ArmInsn::ARM_INS_STRT => unimpl_instr!(instr, "STRT"),
             ArmInsn::ARM_INS_SUB => self.arm_sub(instr),
             // SWI?

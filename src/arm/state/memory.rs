@@ -8,6 +8,11 @@ pub struct MainMemory {
     pub bios: Vec<u8>,
 }
 
+pub trait MemReadable =
+    AsPrimitive<u32> + for<'a> FromBytes<Bytes: TryFrom<&'a [u8], Error = TryFromSliceError>>;
+
+pub trait MemWriteable = ToBytes<Bytes: IntoIterator<Item = u8>>;
+
 impl Default for MainMemory {
     fn default() -> Self {
         // 16 kB
@@ -28,9 +33,9 @@ impl MainMemory {
     }
 
     /// Sign or zero-extends the result to 32 bits depending type parameter
-    pub fn read<'a, T>(&'a self, addr: u32) -> u32
+    pub fn read<T>(&self, addr: u32) -> u32
     where
-        T: AsPrimitive<u32> + FromBytes<Bytes: TryFrom<&'a [u8], Error = TryFromSliceError>>,
+        T: MemReadable,
     {
         let mem_slice = self
             .mem_map_lookup(addr)
@@ -43,7 +48,7 @@ impl MainMemory {
 
     pub fn write<T>(&mut self, addr: u32, value: T)
     where
-        T: ToBytes<Bytes: IntoIterator<Item = u8>>,
+        T: MemWriteable,
     {
         let mut mem_iter = self.mem_map_lookup_mut(addr).iter_mut();
         for byte in value.to_le_bytes() {
@@ -114,7 +119,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic = "reached end of bytes while reading u32"]
+    #[should_panic = "reached end of bytes while reading"]
     fn test_read_past_end_of_bytes_panics() {
         let mem = MainMemory {
             bios: vec![0x34, 0xff, 0xbe, 0x70],
