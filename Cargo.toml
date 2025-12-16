@@ -3,6 +3,18 @@ name = "grimlet"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "main"
+test = false
+
+[[bin]]
+name = "assemble"
+test = false
+
+[[bin]]
+name = "disassemble"
+test = false
+
 [dependencies]
 anyhow = "1.0.100"
 capstone = "0.13.0"
