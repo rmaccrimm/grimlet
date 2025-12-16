@@ -1,10 +1,10 @@
 use std::collections::HashSet;
 use std::fmt::Display;
 
-use capstone::arch::arm::ArmInsn;
+use capstone::arch::arm::{ArmInsn, ArmOperandType};
 
-use crate::arm::state::Reg;
 use crate::arm::disasm::instruction::ArmInstruction;
+use crate::arm::state::Reg;
 
 /// A single batch of instrutions to be compiled into an LLVM function
 #[derive(Debug)]
@@ -35,7 +35,8 @@ impl CodeBlock {
         start_addr: usize,
     ) -> Self {
         let mut instrs = Vec::new();
-        let mut regs_read = HashSet::new();
+        let mut regs_accessed = HashSet::new();
+
         for instr in instr_iter {
             instrs.push(instr);
             let instr = instrs.last().unwrap();
@@ -45,14 +46,29 @@ impl CodeBlock {
                 }
                 _ => {}
             }
-            for r in instr.regs_accessed.iter() {
-                regs_read.insert(*r);
+            for a in instr.operands.iter() {
+                match a.op_type {
+                    ArmOperandType::Reg(reg_id) => {
+                        regs_accessed.insert(Reg::from(reg_id));
+                    }
+                    ArmOperandType::Mem(arm_op_mem) => {
+                        let base = arm_op_mem.base();
+                        let index = arm_op_mem.index();
+                        if base.0 != 0 {
+                            regs_accessed.insert(Reg::from(base));
+                        }
+                        if index.0 != 0 {
+                            regs_accessed.insert(Reg::from(index));
+                        }
+                    }
+                    _ => (),
+                }
             }
         }
         CodeBlock {
             instrs,
             start_addr,
-            regs_accessed: regs_read,
+            regs_accessed,
         }
     }
 }

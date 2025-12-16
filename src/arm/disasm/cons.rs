@@ -8,7 +8,7 @@ use capstone::{
 use super::ArmInstruction;
 use crate::arm::state::REG_ITEMS;
 
-fn reg(r: usize) -> ArmOperand {
+pub fn reg(r: usize) -> ArmOperand {
     // Janky, inverse of the conversion done in register::Reg. Would like to eliminate this
     let reg_id = match r {
         0 => ArmReg::ARM_REG_R0,
@@ -36,7 +36,7 @@ fn reg(r: usize) -> ArmOperand {
     }
 }
 
-fn imm(i: i32) -> ArmOperand {
+pub fn imm(i: i32) -> ArmOperand {
     ArmOperand {
         op_type: ArmOperandType::Imm(i),
         ..Default::default()
@@ -57,7 +57,15 @@ pub fn op_reg_imm(opcode: ArmInsn, r: usize, i: i32, cc: Option<ArmCC>) -> ArmIn
         opcode,
         cond: cc.unwrap_or(ArmCC::ARM_CC_AL),
         operands: vec![reg(r), imm(i)],
-        regs_accessed: vec![REG_ITEMS[r]],
+        ..Default::default()
+    }
+}
+
+pub fn op_reg(opcode: ArmInsn, r: usize, cc: Option<ArmCC>) -> ArmInstruction {
+    ArmInstruction {
+        opcode,
+        cond: cc.unwrap_or(ArmCC::ARM_CC_AL),
+        operands: vec![reg(r)],
         ..Default::default()
     }
 }
@@ -67,7 +75,6 @@ pub fn op_reg_reg(opcode: ArmInsn, r1: usize, r2: usize, cc: Option<ArmCC>) -> A
         opcode,
         cond: cc.unwrap_or(ArmCC::ARM_CC_AL),
         operands: vec![reg(r1), reg(r2)],
-        regs_accessed: vec![REG_ITEMS[r1], REG_ITEMS[r2]],
         ..Default::default()
     }
 }
@@ -83,7 +90,6 @@ pub fn op_reg_reg_imm(
         opcode,
         cond: cc.unwrap_or(ArmCC::ARM_CC_AL),
         operands: vec![reg(r1), reg(r2), imm(i)],
-        regs_accessed: vec![REG_ITEMS[r1], REG_ITEMS[r2]],
         ..Default::default()
     }
 }
@@ -99,7 +105,6 @@ pub fn op_reg_reg_reg(
         opcode,
         cond: cc.unwrap_or(ArmCC::ARM_CC_AL),
         operands: vec![reg(r1), reg(r2), reg(r3)],
-        regs_accessed: vec![REG_ITEMS[r1], REG_ITEMS[r2], REG_ITEMS[r3]],
         ..Default::default()
     }
 }

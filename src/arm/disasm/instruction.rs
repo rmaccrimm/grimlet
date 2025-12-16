@@ -3,7 +3,7 @@ use std::fmt::Display;
 use anyhow::{Result, bail};
 use capstone::arch::ArchOperand;
 use capstone::arch::arm::{ArmCC, ArmInsn, ArmOperand, ArmOperandType, ArmShift};
-use capstone::{Capstone, Insn};
+use capstone::{Capstone, Insn, RegId};
 
 use crate::arm::state::{ArmMode, Reg};
 
@@ -18,7 +18,6 @@ pub struct ArmInstruction {
     pub cond: ArmCC,
     pub mode: ArmMode,
     pub updates_flags: bool,
-    pub regs_accessed: Vec<Reg>,
     pub writeback: bool,
 }
 
@@ -57,7 +56,6 @@ impl Default for ArmInstruction {
             repr: None,
             mode: ArmMode::ARM,
             updates_flags: true,
-            regs_accessed: vec![],
             writeback: false,
         }
     }
@@ -72,14 +70,10 @@ impl ArmInstruction {
         let arch_detail = detail.arch_detail();
         let arm_detail = arch_detail.arm().expect("expected an arm instruction");
 
-        let mut regs_accessed = Vec::new();
         let mut operands = Vec::new();
 
         for op in arch_detail.operands() {
             if let ArchOperand::ArmOperand(a) = op {
-                if let ArmOperandType::Reg(reg_id) = a.op_type {
-                    regs_accessed.push(Reg::from(reg_id))
-                }
                 operands.push(a);
             } else {
                 panic!("not an ARM operand")
@@ -103,7 +97,6 @@ impl ArmInstruction {
             cond,
             mode,
             updates_flags: arm_detail.update_flags(),
-            regs_accessed,
             writeback: arm_detail.writeback(),
         }
     }
@@ -199,9 +192,10 @@ impl ArmInstruction {
         }
     }
 
-    pub fn get_reg_list(&self) -> Result<Vec<Reg>> {
+    // return register operands after 1st in ascending order
+    pub fn get_reg_list(&self, skip: usize) -> Result<Vec<Reg>> {
         let mut regs = vec![];
-        for operand in self.operands.iter() {
+        for operand in self.operands.iter().skip(skip) {
             match operand.op_type {
                 ArmOperandType::Reg(reg_id) => regs.push(Reg::from(reg_id)),
                 _ => bail!("non-register operand in register list"),
@@ -210,6 +204,7 @@ impl ArmInstruction {
         if regs.is_empty() {
             bail!("no register list provided")
         }
+        regs.sort();
         Ok(regs)
     }
 }
