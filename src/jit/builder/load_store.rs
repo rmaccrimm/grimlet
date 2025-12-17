@@ -131,6 +131,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             self.reg_map
                 .update(update.reg, phi.as_basic_value().into_int_value());
         }
+        self.increment_pc(instr.mode);
+        self.current_block = end_block;
         Ok(())
     }
 
