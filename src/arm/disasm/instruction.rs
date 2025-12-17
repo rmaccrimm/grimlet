@@ -22,7 +22,7 @@ pub struct ArmInstruction {
 }
 
 pub enum ShifterOperand {
-    Imm { imm: i32, rotate: Option<i32> },
+    Imm { imm: u8, rotate: Option<u8> },
     Reg { reg: Reg, shift: ArmShift },
 }
 
@@ -227,14 +227,17 @@ impl ArmInstruction {
                 Some(snd_op) => {
                     if let ArmOperandType::Imm(rot) = snd_op.op_type {
                         ShifterOperand::Imm {
-                            imm,
-                            rotate: Some(rot),
+                            imm: imm as u8,
+                            rotate: Some(rot as u8),
                         }
                     } else {
                         bail!("Shifter operand rotation must be an immediate value")
                     }
                 }
-                None => ShifterOperand::Imm { imm, rotate: None },
+                None => ShifterOperand::Imm {
+                    imm: imm as u8,
+                    rotate: None,
+                },
             },
             _ => bail!("Invalid shifter operand type"),
         })

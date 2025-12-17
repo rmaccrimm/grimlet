@@ -262,11 +262,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                         bd.build_int_compare(IntPredicate::EQ, shifted, one, "rot_msb")?;
                     Ok((rot_val, Some(rot_msb)))
                 } else {
-                    let imm_val = imm!(self, imm);
-                    let shifted = bd.build_right_shift(imm_val, imm!(self, 31), false, "sh")?;
-                    let imm_msb =
-                        bd.build_int_compare(IntPredicate::EQ, shifted, one, "imm_msb")?;
-                    Ok((imm_val, Some(imm_msb)))
+                    Ok((imm!(self, imm), None))
                 }
             }
             ShifterOperand::Reg { reg, shift } => {
@@ -1606,5 +1602,76 @@ mod tests {
         let res = tst.run(0b11110001100111001110000001001101, None);
         let expect_res = (0b01111000110011100111000000100110, true);
         assert_eq!(res, expect_res);
+    }
+
+    macro_rules! immediate_shifter_op_tests {
+        ($($name:ident: $params:expr,)*) => {
+        $(
+            #[test]
+            // Place the immediate shifter operand value into r0 and update the C flag
+            fn $name() {
+                let (op, c_set, expected_val, expected_c) = $params;
+
+                let context = Context::create();
+                let mut compiler = Compiler::new(&context);
+                let mut f = compiler.new_function(0, None);
+                f.load_initial_reg_values(&vec![Reg::R0, Reg::R1, Reg::CPSR].into_iter().collect())
+                    .unwrap();
+
+                let (shifter, carry_out) = f.shifter_operand(op).unwrap();
+                f.reg_map.update(Reg::R0, shifter);
+                f.reg_map
+                    .update(Reg::CPSR, f.set_flags(None, None, carry_out, None).unwrap());
+                f.write_state_out().unwrap();
+                f.builder.build_return(None).unwrap();
+                let f = f.compile().unwrap();
+
+                let mut state = ArmState::default();
+                if c_set {
+                    state.regs[Reg::CPSR] |= C.0;
+                }
+                unsafe {
+                    f.call(&mut state);
+                }
+                assert_eq!(state.regs[Reg::R0], expected_val);
+                assert_eq!((state.regs[Reg::CPSR] & C.0) > 0, expected_c);
+            }
+        )*
+        };
+    }
+
+    immediate_shifter_op_tests! {
+        test_unrotated_imm_0: (
+            ShifterOperand::Imm{imm: 15, rotate: None}, false,
+            15, false
+        ),
+        test_unrotated_imm_1: (
+            ShifterOperand::Imm{imm: 99, rotate: None}, true,
+            99, true
+        ),
+        test_unrotated_imm_2: (
+            ShifterOperand::Imm{imm: 0b10011100, rotate: None}, false,
+            0b10011100, false
+        ),
+        test_unrotated_imm_3: (
+            ShifterOperand::Imm{imm: 0b11010110, rotate: None}, true,
+            0b11010110, true
+        ),
+        test_rotate_imm_0: (
+            ShifterOperand::Imm{imm: 1, rotate: Some(30)}, false,
+            4, false
+        ),
+        test_rotate_imm_1: (
+            ShifterOperand::Imm{imm: 1, rotate: Some(30)}, true,
+            4, false
+        ),
+        test_rotate_imm_2: (
+            ShifterOperand::Imm{imm: 1, rotate: Some(1)}, false,
+            2147483648, true
+        ),
+        test_rotate_imm_3: (
+            ShifterOperand::Imm{imm: 1, rotate: Some(1)}, true,
+            2147483648, true
+        ),
     }
 }
