@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use anyhow::{Result, bail};
+use anyhow::{Result, anyhow, bail};
 use capstone::arch::ArchOperand;
 use capstone::arch::arm::{ArmCC, ArmInsn, ArmOperand, ArmOperandType, ArmShift};
 use capstone::{Capstone, Insn, RegId};
@@ -19,6 +19,11 @@ pub struct ArmInstruction {
     pub mode: ArmMode,
     pub updates_flags: bool,
     pub writeback: bool,
+}
+
+pub enum ShifterOperand {
+    Imm { imm: i32, rotate: Option<i32> },
+    Reg { reg: Reg, shift: ArmShift },
 }
 
 /// <addressing_mode> operand for single Load/Store instructions. For other operand types, the
@@ -206,6 +211,33 @@ impl ArmInstruction {
         }
         regs.sort();
         Ok(regs)
+    }
+
+    pub fn get_shifter_op(&self, skip: usize) -> Result<ShifterOperand> {
+        let mut op_iter = self.operands.iter().skip(skip);
+        let first = op_iter
+            .next()
+            .ok_or(anyhow!("missing 1st shifter operand"))?;
+        Ok(match first.op_type {
+            ArmOperandType::Reg(reg_id) => ShifterOperand::Reg {
+                reg: Reg::from(reg_id),
+                shift: first.shift,
+            },
+            ArmOperandType::Imm(imm) => match op_iter.next() {
+                Some(snd_op) => {
+                    if let ArmOperandType::Imm(rot) = snd_op.op_type {
+                        ShifterOperand::Imm {
+                            imm,
+                            rotate: Some(rot),
+                        }
+                    } else {
+                        bail!("Shifter operand rotation must be an immediate value")
+                    }
+                }
+                None => ShifterOperand::Imm { imm, rotate: None },
+            },
+            _ => bail!("Invalid shifter operand type"),
+        })
     }
 }
 

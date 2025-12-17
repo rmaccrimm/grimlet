@@ -1,10 +1,10 @@
-use anyhow::{Context as _, Result, anyhow};
+use anyhow::{Context as _, Result, anyhow, bail};
 use capstone::RegId;
 use capstone::arch::arm::{ArmOperand, ArmOperandType, ArmShift};
 use inkwell::IntPredicate;
 use inkwell::values::IntValue;
 
-use crate::arm::disasm::instruction::ArmInstruction;
+use crate::arm::disasm::instruction::{ArmInstruction, ShifterOperand};
 use crate::arm::state::Reg;
 use crate::jit::FunctionBuilder;
 use crate::jit::builder::flags::C;
@@ -244,23 +244,35 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     // unaffected)
     fn shifter_operand(
         &self,
-        operand: &ArmOperand,
+        operand: ShifterOperand,
     ) -> Result<(IntValue<'a>, Option<IntValue<'a>>)> {
         let bd = self.builder;
         let one = imm!(self, 1);
-        let zero = imm!(self, 0);
+        let zero = self.i32_t.const_zero();
 
-        match operand.op_type {
-            ArmOperandType::Imm(imm) => {
-                let imm_val = self.i32_t.const_int(imm as u64, false);
-                let shifted = bd.build_right_shift(imm_val, imm!(self, 31), false, "sh")?;
-                let imm_msb = bd.build_int_compare(IntPredicate::EQ, shifted, one, "imm_msb")?;
-                Ok((imm_val, Some(imm_msb)))
+        match operand {
+            ShifterOperand::Imm { imm, rotate } => {
+                if let Some(r) = rotate {
+                    let imm_val = imm!(self, imm);
+                    let rot_amt = imm!(self, r);
+                    let rot_val =
+                        call_intrinsic!(bd, self.fshr, imm_val, imm_val, rot_amt).into_int_value();
+                    let shifted = bd.build_right_shift(rot_val, imm!(self, 31), false, "sh")?;
+                    let rot_msb =
+                        bd.build_int_compare(IntPredicate::EQ, shifted, one, "rot_msb")?;
+                    Ok((rot_val, Some(rot_msb)))
+                } else {
+                    let imm_val = imm!(self, imm);
+                    let shifted = bd.build_right_shift(imm_val, imm!(self, 31), false, "sh")?;
+                    let imm_msb =
+                        bd.build_int_compare(IntPredicate::EQ, shifted, one, "imm_msb")?;
+                    Ok((imm_val, Some(imm_msb)))
+                }
             }
-            ArmOperandType::Reg(reg_id) => {
-                let base = self.reg_map.get(Reg::from(reg_id));
+            ShifterOperand::Reg { reg, shift } => {
+                let base = self.reg_map.get(reg);
 
-                match operand.shift {
+                match shift {
                     ArmShift::Invalid => Ok((base, None)),
                     ArmShift::Lsl(imm) => {
                         debug_assert!(imm < 32);
@@ -506,8 +518,6 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                     ArmShift::RrxReg(_reg_id) => panic!("unsupported operand (RRX reg)"),
                 }
             }
-            ArmOperandType::Mem(_) => todo!(),
-            _ => panic!("unhandled operand type"),
         }
     }
 
@@ -516,7 +526,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
         let rn_val = self.reg_map.get(rn);
-        let (shifter_op, _) = self.shifter_operand(&instr.operands[2])?;
+        let (shifter_op, _) = self.shifter_operand(instr.get_shifter_op(2)?)?;
 
         let bd = self.builder;
         let c_in = bd.build_int_cast(self.get_flag(C)?, self.i32_t, "c32")?;
@@ -579,7 +589,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
         let rn_val = self.reg_map.get(rn);
-        let (shifter_op, _) = self.shifter_operand(&instr.operands[2])?;
+        let (shifter_op, _) = self.shifter_operand(instr.get_shifter_op(2)?)?;
 
         if !instr.updates_flags {
             return Ok(DataProcResult {
@@ -617,7 +627,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
         let rn_val = self.reg_map.get(rn);
-        let (shifter_op, c_flag) = self.shifter_operand(&instr.operands[2])?;
+        let (shifter_op, c_flag) = self.shifter_operand(instr.get_shifter_op(2)?)?;
 
         let res_val = bd.build_and(rn_val, shifter_op, "and")?;
         if !instr.updates_flags {
@@ -641,7 +651,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
         let rn_val = self.reg_map.get(rn);
-        let (shifter_op, c_flag) = self.shifter_operand(&instr.operands[2])?;
+        let (shifter_op, c_flag) = self.shifter_operand(instr.get_shifter_op(2)?)?;
 
         let not_shifter = bd.build_not(shifter_op, "not_shift")?;
         let res_val = bd.build_and(rn_val, not_shifter, "bic")?;
@@ -696,7 +706,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
         let rn_val = self.reg_map.get(rn);
-        let (shifter_op, c_flag) = self.shifter_operand(&instr.operands[2])?;
+        let (shifter_op, c_flag) = self.shifter_operand(instr.get_shifter_op(2)?)?;
 
         let res_val = bd.build_xor(rn_val, shifter_op, "eor")?;
 
@@ -720,7 +730,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     fn mov(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
         let bd = self.builder;
         let rd = instr.get_reg_op(0);
-        let (shifter, c) = self.shifter_operand(&instr.operands[1])?;
+        let (shifter, c) = self.shifter_operand(instr.get_shifter_op(1)?)?;
 
         if instr.updates_flags {
             let n = bd.build_int_compare(IntPredicate::SLT, shifter, imm!(self, 0), "n")?;
@@ -741,7 +751,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     fn mvn(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
         let bd = self.builder;
         let rd = instr.get_reg_op(0);
-        let (shifter, c) = self.shifter_operand(&instr.operands[1])?;
+        let (shifter, c) = self.shifter_operand(instr.get_shifter_op(1)?)?;
 
         let res_val = bd.build_not(shifter, "mvn")?;
 
@@ -767,7 +777,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
         let rn_val = self.reg_map.get(rn);
-        let (shifter_op, c) = self.shifter_operand(&instr.operands[2])?;
+        let (shifter_op, c) = self.shifter_operand(instr.get_shifter_op(2)?)?;
 
         let res_val = bd.build_or(rn_val, shifter_op, "orr")?;
 
@@ -793,7 +803,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
         let rn_val = self.reg_map.get(rn);
-        let (shifter_op, _) = self.shifter_operand(&instr.operands[2])?;
+        let (shifter_op, _) = self.shifter_operand(instr.get_shifter_op(2)?)?;
 
         if !instr.updates_flags {
             let res_val = bd.build_int_sub(shifter_op, rn_val, "rsb")?;
@@ -830,7 +840,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
         let rn_val = self.reg_map.get(rn);
-        let (shifter_op, _) = self.shifter_operand(&instr.operands[2])?;
+        let (shifter_op, _) = self.shifter_operand(instr.get_shifter_op(2)?)?;
 
         let c_in = bd.build_int_cast(self.get_flag(C)?, self.i32_t, "c32")?;
         let not_c = bd.build_not(c_in, "not_c")?;
@@ -892,7 +902,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
         let rn_val = self.reg_map.get(rn);
-        let (shifter_op, _) = self.shifter_operand(&instr.operands[2])?;
+        let (shifter_op, _) = self.shifter_operand(instr.get_shifter_op(2)?)?;
 
         let c_in = bd.build_int_cast(self.get_flag(C)?, self.i32_t, "c32")?;
         let not_c = bd.build_not(c_in, "not_c")?;
@@ -954,7 +964,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
         let rn_val = self.reg_map.get(rn);
-        let (shifter_op, _) = self.shifter_operand(&instr.operands[2])?;
+        let (shifter_op, _) = self.shifter_operand(instr.get_shifter_op(2)?)?;
 
         if !instr.updates_flags {
             let sub_res = bd.build_int_sub(rn_val, shifter_op, "sub")?;
@@ -1285,17 +1295,16 @@ mod tests {
 
     impl<'ctx> ShifterOperandTestCase<'ctx> {
         fn new(context: &'ctx Context, shift: ArmShift) -> Self {
-            let op = ArmOperand {
-                op_type: ArmOperandType::Reg(RegId(ArmReg::ARM_REG_R0 as u16)),
+            let op = ShifterOperand::Reg {
+                reg: Reg::R0,
                 shift,
-                ..Default::default()
             };
             let mut compiler = Compiler::new(context);
             let mut f = compiler.new_function(0, None);
             f.load_initial_reg_values(&vec![Reg::R0, Reg::R1, Reg::CPSR].into_iter().collect())
                 .unwrap();
 
-            let (shifted, carry_out) = f.shifter_operand(&op).unwrap();
+            let (shifted, carry_out) = f.shifter_operand(op).unwrap();
             f.reg_map.update(Reg::R0, shifted);
             f.reg_map
                 .update(Reg::CPSR, f.set_flags(None, None, carry_out, None).unwrap());
