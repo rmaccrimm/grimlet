@@ -16,11 +16,11 @@ macro_rules! call_intrinsic {
             .build_call(
                 $self.$intrinsic,
                 &[$($args.into()),+],
-                &format!("{}_res", stringify!(intrinsic))
+                &format!("{}_res", stringify!($intrinsic))
             )?
             .try_as_basic_value()
             .left()
-            .ok_or_else(|| anyhow!("failed to get {} return val", stringify!(intrinsic)))?
+            .ok_or_else(|| anyhow!("failed to get {} return val", stringify!($intrinsic)))?
     };
 }
 
@@ -31,7 +31,7 @@ macro_rules! call_indirect {
                 $func_t,
                 $func_ptr,
                 &[$($args.into()),+],
-                &format!("{}_res", stringify!(intrinsic))
+                &format!("{}_res", stringify!($func_ptr))
             )?
     };
 }
@@ -41,7 +41,7 @@ macro_rules! call_indirect_with_return {
         call_indirect!($builder, $func_t, $func_ptr, $($args),+)
             .try_as_basic_value()
             .left()
-            .ok_or_else(|| anyhow!("failed to get {} return val", stringify!(intrinsic)))?
+            .ok_or_else(|| anyhow!("failed to get {} return val", stringify!($func_ptr)))?
             .into_int_value()
     };
 }
@@ -334,6 +334,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     pub fn build(&mut self, instr: ArmInstruction) {
+        println!("{}", instr.clone().repr.unwrap());
         match instr.opcode {
             ArmInsn::ARM_INS_ADC => self.arm_adc(instr),
             ArmInsn::ARM_INS_ADD => self.arm_add(instr),
