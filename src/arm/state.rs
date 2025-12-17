@@ -134,6 +134,7 @@ impl ArmState {
         state.mem = MainMemory {
             bios: fs::read(path)?,
         };
+        state.mem.bios.resize(0x4000, 0);
         Ok(state)
     }
 
