@@ -2,57 +2,44 @@
     .arm
 // init stack
     mov sp, #0x4000
+    ldr r10, =end
+    sub r10, r10, #4
 
-// first test - covers [reg] and [reg, #offset]
-    mov r1, #0x330
-    ldr r0, [r1]
-    ldr r2, =0x56c7c13d // pc-relative load
-    cmp r0, r2
+// load word, covers [reg] and pc-relative
+    ldr r0, [r10]
+    ldr r1, =0x56c7c13d
+    cmp r0, r1
     beq s1
-    ldr r0, =-1
-    push {r0}
-    b end
+    ldr r2, =-1
+    push {r2}
+    b exit
 s1:
-    mov r3, #1
-    push {r3}
-    
-// reduce by 1 for each new instruction
-    .u32fill 192
-end: // 0x32c
-    nop
-random_data: // 0x330
+    mov r2, #1
+    push {r2}
+
+// load halfword
+    ldrh r0, [r10]
+    ldr r1, =0xc13d
+    cmp r0, r1
+    beq s2
+    ldr r2, =-1
+    push {r2}
+    b exit
+s2:
+    mov r2, #1
+    push {r2}
+
+exit: 
+    // test exit condition
+    mov r11, #25344
+    b end
+// data to test reads
     .u8 0x3d
     .u8 0xc1
     .u8 0xc7
     .u8 0x56
-    .u8 0x8d
-    .u8 0xb7
-    .u8 0xb3
-    .u8 0x15
-    .u8 0xab
-    .u8 0x48
-    .u8 0x0e
-    .u8 0xca
-    .u8 0xaf
-    .u8 0x91
-    .u8 0xe9
-    .u8 0xfc
-    .u8 0x6d
-    .u8 0xce
-    .u8 0x1c
-    .u8 0x3f
-    .u8 0x5e
-    .u8 0x28
-    .u8 0x0f
-    .u8 0x78
-    .u8 0xa4
-    .u8 0x60
-    .u8 0x38
-    .u8 0xe2
-    .u8 0xa3
-    .u8 0x1c
-    .u8 0x68
-    .u8 0xfe
+end:
+    nop
 .pool        
 .end
 

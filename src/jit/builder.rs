@@ -334,7 +334,6 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     pub fn build(&mut self, instr: ArmInstruction) {
-        println!("{}", instr.clone().repr.unwrap());
         match instr.opcode {
             ArmInsn::ARM_INS_ADC => self.arm_adc(instr),
             ArmInsn::ARM_INS_ADD => self.arm_add(instr),

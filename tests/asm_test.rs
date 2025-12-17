@@ -26,9 +26,22 @@ fn test_factorial() {
 fn test_basic_load_store() {
     let disasm = Disassembler::default();
     let mut emulator = Emulator::new(disasm, Some("tests/programs/load_store.gba")).unwrap();
-    let exit = |st: &ArmState| -> bool { st.curr_instr_addr() >= 812 };
-    emulator.run(exit, Some(DebugOutput::Assembly));
+    let exit = |st: &ArmState| -> bool { st.regs[Reg::R11] == 25344 };
+    emulator.run(exit, Some(DebugOutput::Struct));
+
+    let bios = &emulator.state.mem.bios;
     println!("{:?}", &emulator.state.regs);
-    println!("{:?}", &emulator.state.mem.bios[0x4000 - (32)..]);
-    assert_eq!(emulator.state.mem.read::<u32>(0x3ffc), 1);
+    println!("{:?}", &bios[0x4000 - (32)..]);
+
+    let num_tests = 2;
+    for (i, w) in bios
+        .rchunks(4)
+        .map(|ch| i32::from_le_bytes(ch.try_into().unwrap()))
+        .enumerate()
+    {
+        if i == num_tests {
+            break;
+        }
+        assert_eq!(w, 1);
+    }
 }
