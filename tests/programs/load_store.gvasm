@@ -1,15 +1,26 @@
 .begin main
     .arm
-    // setup stack
-    mov sp, #16383
-    mov r1, #816
+// init stack
+    mov sp, #0x4000
+
+// first test - covers [reg] and [reg, #offset]
+    mov r1, #0x330
     ldr r0, [r1]
+    ldr r2, =0x56c7c13d // pc-relative load
+    cmp r0, r2
+    beq s1
+    ldr r0, =-1
+    push {r0}
     b end
-    // reduce by 1 for each new instruction
-    .u32fill 199
-end: // 812
+s1:
+    mov r3, #1
+    push {r3}
+    
+// reduce by 1 for each new instruction
+    .u32fill 192
+end: // 0x32c
     nop
-random_data: // 816
+random_data: // 0x330
     .u8 0x3d
     .u8 0xc1
     .u8 0xc7
@@ -42,5 +53,8 @@ random_data: // 816
     .u8 0x1c
     .u8 0x68
     .u8 0xfe
+.pool        
 .end
+
+
 
