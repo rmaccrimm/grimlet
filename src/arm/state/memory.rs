@@ -1,6 +1,7 @@
 use std::array::TryFromSliceError;
 use std::slice::Chunks;
 
+use anyhow::{Context as _, Result, bail};
 use num::traits::{AsPrimitive, FromBytes, ToBytes};
 
 #[repr(C)]
@@ -39,6 +40,7 @@ impl MainMemory {
     {
         let mem_slice = self
             .mem_map_lookup(addr)
+            .expect("out of bounds read")
             .get(0..size_of::<T>())
             .expect("reached end of bytes while reading");
         let bytes: T::Bytes = mem_slice.try_into().expect("conversion from bytes failed");
@@ -50,38 +52,47 @@ impl MainMemory {
     where
         T: MemWriteable,
     {
-        let mut mem_iter = self.mem_map_lookup_mut(addr).iter_mut();
+        let mut mem_iter = self
+            .mem_map_lookup_mut(addr)
+            .expect("out of bounds write")
+            .iter_mut();
         for byte in value.to_le_bytes() {
             let mem_val = mem_iter.next().expect("reached end of bytes while writing");
             *mem_val = byte;
         }
     }
 
-    pub fn get_ptr(&self, addr: u32) -> *const u8 { self.mem_map_lookup(addr).as_ptr() }
+    pub fn get_ptr(&self, addr: u32) -> *const u8 {
+        self.mem_map_lookup(addr)
+            .expect("get_ptr address out of bounds")
+            .as_ptr()
+    }
 
     /// Planning to use this to be slightly more convenient for multiple stores. TODO what if
     /// they were writing to memory mapped IO? Could that happen?
     pub fn get_mut_ptr(&mut self, addr: u32) -> *mut u8 {
-        self.mem_map_lookup_mut(addr).as_mut_ptr()
+        self.mem_map_lookup_mut(addr)
+            .expect("get_mut_ptr address out of bounds")
+            .as_mut_ptr()
     }
 
-    fn mem_map_lookup(&self, addr: u32) -> &[u8] {
+    fn mem_map_lookup(&self, addr: u32) -> Result<&[u8]> {
         let base = addr & 0x0f000000;
         let index = (addr - base) as usize;
-        match base {
+        Ok(match base {
             0x00000000 => &self.bios[index..],
-            _ => panic!("unused area of memory (addr: {})", addr),
-        }
+            _ => bail!("unused area of memory (addr: {:#08x})", addr),
+        })
     }
 
     // Would be nice if these could be combined somehow
-    fn mem_map_lookup_mut(&mut self, addr: u32) -> &mut [u8] {
+    fn mem_map_lookup_mut(&mut self, addr: u32) -> Result<&mut [u8]> {
         let base = addr & 0x0f000000;
         let index = (addr - base) as usize;
-        match base {
+        Ok(match base {
             0x00000000 => &mut self.bios[index..],
-            _ => panic!("unused area of memory (addr: {})", addr),
-        }
+            _ => bail!("unused area of memory (addr: {:#08x})", addr),
+        })
     }
 }
 
