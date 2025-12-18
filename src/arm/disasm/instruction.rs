@@ -22,8 +22,11 @@ pub struct ArmInstruction {
 }
 
 pub enum ShifterOperand {
-    Imm { imm: u8, rotate: Option<u8> },
     Reg { reg: Reg, shift: ArmShift },
+
+    // What Capstone returns is somewhat inconsistent - sometimes it seems to be a 32-bit value
+    // already parsed from the 8 bit immediate + shift, other times it's the two values separately
+    Imm { imm: i32, rotate: Option<i32> },
 }
 
 /// <addressing_mode> operand for single Load/Store instructions. For other operand types, the
@@ -227,15 +230,15 @@ impl ArmInstruction {
                 Some(snd_op) => {
                     if let ArmOperandType::Imm(rot) = snd_op.op_type {
                         ShifterOperand::Imm {
-                            imm: imm as u8,
-                            rotate: Some(rot as u8),
+                            imm: imm,
+                            rotate: Some(rot),
                         }
                     } else {
                         bail!("Shifter operand rotation must be an immediate value")
                     }
                 }
                 None => ShifterOperand::Imm {
-                    imm: imm as u8,
+                    imm: imm,
                     rotate: None,
                 },
             },
