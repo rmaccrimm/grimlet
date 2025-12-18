@@ -1,28 +1,56 @@
-use inkwell::values::IntValue;
+use std::fmt::Pointer;
+
+use inkwell::values::{IntValue, PointerValue};
 
 use crate::arm::state::{NUM_REGS, Reg};
 
+#[derive(Copy, Clone)]
+pub struct RegMapItem<'a> {
+    /// The current value of the register, to be written back to state object at end of function
+    /// invocation if modified
+    pub current_value: IntValue<'a>,
+
+    /// Points the the associated element in the state register array
+    pub state_ptr: PointerValue<'a>,
+
+    /// whether value has changed or not
+    pub dirty: bool,
+}
+
 pub struct RegMap<'a> {
-    pub llvm_values: Vec<Option<IntValue<'a>>>,
-    pub dirty: Vec<bool>,
+    pub items: Vec<Option<RegMapItem<'a>>>,
 }
 
 #[allow(dead_code)]
 impl<'a> RegMap<'a> {
     pub fn new() -> Self {
         Self {
-            llvm_values: vec![None; NUM_REGS],
-            dirty: vec![false; NUM_REGS],
+            items: vec![None; NUM_REGS],
         }
     }
 
+    pub fn init(&mut self, reg: Reg, value: IntValue<'a>, ptr: PointerValue<'a>) {
+        self.items[reg as usize] = Some(RegMapItem {
+            current_value: value,
+            state_ptr: ptr,
+            dirty: false,
+        });
+    }
+
     pub fn update(&mut self, reg: Reg, value: IntValue<'a>) {
-        self.llvm_values[reg as usize] = Some(value);
-        self.dirty[reg as usize] = true;
+        let item =
+            self.items[reg as usize].unwrap_or_else(|| panic!("reg {:?} has not been loaded", reg));
+        self.items[reg as usize] = Some(RegMapItem {
+            current_value: value,
+            state_ptr: item.state_ptr,
+            dirty: true,
+        });
     }
 
     pub fn get(&self, reg: Reg) -> IntValue<'a> {
-        self.llvm_values[reg as usize].unwrap_or_else(|| panic!("reg {:?} was not loaded", reg))
+        self.items[reg as usize]
+            .unwrap_or_else(|| panic!("reg {:?} has not been loaded", reg))
+            .current_value
     }
 
     pub fn r0(&self) -> IntValue<'a> { self.get(Reg::R0) }

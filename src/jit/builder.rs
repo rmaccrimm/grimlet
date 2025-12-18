@@ -70,7 +70,7 @@ use super::{CompiledFunction, FunctionCache};
 use crate::arm::disasm::code_block::CodeBlock;
 use crate::arm::disasm::instruction::ArmInstruction;
 use crate::arm::state::{ArmMode, NUM_REGS, Reg};
-use crate::jit::builder::reg_map::RegMap;
+use crate::jit::builder::reg_map::{RegMap, RegMapItem};
 
 macro_rules! unimpl_instr {
     ($instr:expr, $mnemonic:expr) => {
@@ -239,8 +239,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
     fn load_initial_reg_values(&mut self, regs_read: &HashSet<Reg>) -> Result<()> {
         let bd = self.builder;
-        for r in regs_read.iter() {
-            let i = *r as usize;
+        for &r in regs_read.iter() {
+            let i = r as usize;
             let name = format!("r{}_elem_ptr", i);
             let gep_inds = [
                 self.i32_t.const_zero(),
@@ -251,9 +251,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                 unsafe { bd.build_gep(self.arm_state_t, self.arm_state_ptr, &gep_inds, &name)? };
             let name = format!("r{}", i);
             let v = bd.build_load(self.i32_t, ptr, &name)?.into_int_value();
-            // Go around the update method to not mark as dirty.
-            // TODO - probably belongs in reg_map somewhere
-            self.reg_map.llvm_values[i] = Some(v);
+            self.reg_map.init(r, v, ptr);
         }
         Ok(())
     }
@@ -315,20 +313,12 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     /// When context switching, write out the latest values in reg_map to the guest state
     fn write_state_out(&self) -> Result<()> {
         let bd = &self.builder;
-        for (i, r) in self.reg_map.llvm_values.iter().enumerate() {
-            if !self.reg_map.dirty[i] {
+        let items: Vec<RegMapItem> = self.reg_map.items.iter().flatten().cloned().collect();
+        for r in items {
+            if !r.dirty {
                 continue;
             }
-            let name = format!("r{}_elem_ptr", i);
-            let gep_inds = [
-                self.i32_t.const_zero(),
-                self.i32_t.const_int(1, false),
-                self.i32_t.const_int(i as u64, false),
-            ];
-            let ptr =
-                unsafe { bd.build_gep(self.arm_state_t, self.arm_state_ptr, &gep_inds, &name)? };
-
-            bd.build_store(ptr, *r.as_ref().expect("reg has no value"))?;
+            bd.build_store(r.state_ptr, r.current_value)?;
         }
         Ok(())
     }
