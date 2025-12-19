@@ -7,6 +7,7 @@ use num::traits::{AsPrimitive, FromBytes, ToBytes};
 #[repr(C)]
 pub struct MainMemory {
     pub bios: Vec<u8>,
+    pub cart_rom: Vec<u8>,
 }
 
 pub trait MemReadable =
@@ -16,9 +17,10 @@ pub trait MemWriteable = ToBytes<Bytes: IntoIterator<Item = u8>>;
 
 impl Default for MainMemory {
     fn default() -> Self {
-        // 16 kB
-        let bios = vec![0; 0x4000];
-        Self { bios }
+        let bios = vec![];
+        // Just 1 kB while getting started
+        let cart_rom = vec![0; 1 << 10];
+        Self { bios, cart_rom }
     }
 }
 
@@ -81,6 +83,7 @@ impl MainMemory {
         let index = (addr - base) as usize;
         Ok(match base {
             0x00000000 => &self.bios[index..],
+            0x08000000 => &self.cart_rom[index..],
             _ => bail!("unused area of memory (addr: {:#08x})", addr),
         })
     }
@@ -91,6 +94,7 @@ impl MainMemory {
         let index = (addr - base) as usize;
         Ok(match base {
             0x00000000 => &mut self.bios[index..],
+            0x08000000 => &mut self.cart_rom[index..],
             _ => bail!("unused area of memory (addr: {:#08x})", addr),
         })
     }
@@ -100,33 +104,43 @@ impl MainMemory {
 mod tests {
     use crate::arm::state::memory::MainMemory;
 
-    #[test]
-    fn test_read_unsigned() {
-        let mem = MainMemory {
-            bios: vec![0x34, 0xff, 0xbe, 0x70, 0xf1],
+    macro_rules! read_tests {
+        ($bytes:expr, $($name:ident: $T:ty, $data:expr,)*) => {
+            $(
+                #[test]
+                fn $name() {
+                    let (read_addr, expected) = $data;
+
+                    let mem = MainMemory {
+                        bios: $bytes,
+                        cart_rom: vec![],
+                    };
+                    assert_eq!(mem.read::<$T>(read_addr), expected);
+                }
+            )*
         };
-        // // TODO enforce alignment?
-        assert_eq!(mem.read::<u8>(0), 0x00000034);
-        assert_eq!(mem.read::<u8>(1), 0x000000ff);
-        assert_eq!(mem.read::<u8>(2), 0x000000be);
-        assert_eq!(mem.read::<u16>(0), 0x0000ff34);
-        assert_eq!(mem.read::<u16>(1), 0x0000beff);
-        assert_eq!(mem.read::<u16>(2), 0x000070be);
-        assert_eq!(mem.read::<u32>(0), 0x70beff34);
-        assert_eq!(mem.read::<u32>(1), 0xf170beff);
     }
 
-    #[test]
-    fn test_read_signed() {
-        let mem = MainMemory {
-            bios: vec![0x84, 0xff, 0x3e, 0x70, 0x80],
-        };
-        assert_eq!(mem.read::<i8>(0), 0xffffff84);
-        assert_eq!(mem.read::<i8>(2), 0x0000003e);
-        assert_eq!(mem.read::<i16>(0), 0xffffff84);
-        assert_eq!(mem.read::<i16>(1), 0x00003eff);
-        assert_eq!(mem.read::<i32>(0), 0x703eff84);
-        assert_eq!(mem.read::<i32>(1), 0x80703eff);
+    read_tests! {
+        vec![0x34, 0xff, 0xbe, 0x70, 0xf1],
+        test_read_unsigned_0: u8, (0, 0x00000034),
+        test_read_unsigned_1: u8, (1, 0x000000ff),
+        test_read_unsigned_2: u8, (2, 0x000000be),
+        test_read_unsigned_3: u16, (0, 0x0000ff34),
+        test_read_unsigned_4: u16, (1, 0x0000beff),
+        test_read_unsigned_5: u16, (2, 0x000070be),
+        test_read_unsigned_6: u32, (0, 0x70beff34),
+        test_read_unsigned_7: u32, (1, 0xf170beff),
+    }
+
+    read_tests! {
+        vec![0x84, 0xff, 0x3e, 0x70, 0x80],
+        test_read_signed_0: i8, (0, 0xffffff84),
+        test_read_signed_1: i8, (2, 0x0000003e),
+        test_read_signed_2: i16, (0, 0xffffff84),
+        test_read_signed_3: i16, (1, 0x00003eff),
+        test_read_signed_4: i32, (0, 0x703eff84),
+        test_read_signed_5: i32, (1, 0x80703eff),
     }
 
     #[test]
@@ -134,13 +148,17 @@ mod tests {
     fn test_read_past_end_of_bytes_panics() {
         let mem = MainMemory {
             bios: vec![0x34, 0xff, 0xbe, 0x70],
+            cart_rom: vec![],
         };
         mem.read::<u32>(1);
     }
 
     #[test]
     fn test_write() {
-        let mut mem = MainMemory { bios: vec![0; 4] };
+        let mut mem = MainMemory {
+            bios: vec![0; 4],
+            cart_rom: vec![],
+        };
         mem.write(0, 0x12345678u32);
         assert_eq!(mem.bios, vec![0x78, 0x56, 0x34, 0x12]);
         mem.write(0, 0u8);
