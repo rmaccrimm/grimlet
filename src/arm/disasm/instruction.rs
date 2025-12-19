@@ -3,7 +3,7 @@ use std::fmt::Display;
 use anyhow::{Result, anyhow, bail};
 use capstone::arch::ArchOperand;
 use capstone::arch::arm::{ArmCC, ArmInsn, ArmOperand, ArmOperandType, ArmShift};
-use capstone::{Capstone, Insn, RegId};
+use capstone::{Capstone, Insn};
 
 use crate::arm::state::{ArmMode, Reg};
 
@@ -19,6 +19,7 @@ pub struct ArmInstruction {
     pub mode: ArmMode,
     pub updates_flags: bool,
     pub writeback: bool,
+    pub binary: u32,
 }
 
 pub enum ShifterOperand {
@@ -65,6 +66,7 @@ impl Default for ArmInstruction {
             mode: ArmMode::ARM,
             updates_flags: true,
             writeback: false,
+            binary: 0,
         }
     }
 }
@@ -87,7 +89,6 @@ impl ArmInstruction {
                 panic!("not an ARM operand")
             }
         }
-
         let cond = arm_detail.cc();
 
         Self {
@@ -106,6 +107,7 @@ impl ArmInstruction {
             mode,
             updates_flags: arm_detail.update_flags(),
             writeback: arm_detail.writeback(),
+            binary: u32::from_le_bytes(insn.bytes().try_into().expect("failed to read bytes")),
         }
     }
 
@@ -230,17 +232,14 @@ impl ArmInstruction {
                 Some(snd_op) => {
                     if let ArmOperandType::Imm(rot) = snd_op.op_type {
                         ShifterOperand::Imm {
-                            imm: imm,
+                            imm,
                             rotate: Some(rot),
                         }
                     } else {
                         bail!("Shifter operand rotation must be an immediate value")
                     }
                 }
-                None => ShifterOperand::Imm {
-                    imm: imm,
-                    rotate: None,
-                },
+                None => ShifterOperand::Imm { imm, rotate: None },
             },
             _ => bail!("Invalid shifter operand type"),
         })

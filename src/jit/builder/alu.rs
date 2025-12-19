@@ -1,6 +1,6 @@
-use anyhow::{Context as _, Result, anyhow, bail};
+use anyhow::{Context as _, Result, anyhow};
 use capstone::RegId;
-use capstone::arch::arm::{ArmOperand, ArmOperandType, ArmShift};
+use capstone::arch::arm::{ArmOperandType, ArmShift};
 use inkwell::IntPredicate;
 use inkwell::values::IntValue;
 

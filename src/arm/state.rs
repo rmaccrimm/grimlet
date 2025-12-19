@@ -1,9 +1,7 @@
 pub mod memory;
 
-use std::fs;
 use std::ops::{Index, IndexMut};
 
-use anyhow::{Result, anyhow};
 use capstone::arch::arm::ArmReg;
 
 use crate::arm::state::memory::MainMemory;
@@ -114,7 +112,7 @@ impl ArmMode {
 impl Default for ArmState {
     fn default() -> Self {
         let mut regs = [0; NUM_REGS];
-        regs[Reg::PC] = 8; // points 2 instructions ahead
+        regs[Reg::PC] = 8; // 2 instructions ahead
         Self {
             current_mode: ArmMode::ARM,
             regs,
@@ -124,26 +122,12 @@ impl Default for ArmState {
 }
 
 impl ArmState {
-    pub fn with_bios(bios_path: impl AsRef<str>) -> Result<Self> {
-        let mut state = Self::default();
-
-        let path = bios_path.as_ref();
-        if !fs::exists(path)? {
-            return Err(anyhow!("BIOS file not found"));
-        }
-        state.mem = MainMemory {
-            bios: fs::read(path)?,
-        };
-        state.mem.bios.resize(0x4000, 0);
-        Ok(state)
-    }
-
     pub fn curr_instr_addr(&self) -> usize {
         (self.regs[Reg::PC] - self.current_mode.pc_byte_offset()) as usize
     }
 
     pub fn jump_to(&mut self, addr: u32) {
-        println!("JUMPING TO: {}", addr);
+        println!("JUMPING TO: {:#08x}", addr);
         self.regs[Reg::PC] = addr + self.current_mode.pc_byte_offset();
     }
 }

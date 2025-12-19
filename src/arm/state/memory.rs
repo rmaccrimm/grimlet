@@ -1,13 +1,13 @@
 use std::array::TryFromSliceError;
 use std::slice::Chunks;
 
-use anyhow::{Context as _, Result, bail};
+use anyhow::{Result, bail};
 use num::traits::{AsPrimitive, FromBytes, ToBytes};
 
 #[repr(C)]
 pub struct MainMemory {
-    pub bios: Vec<u8>,
-    pub cart_rom: Vec<u8>,
+    bios: Vec<u8>,
+    cart_rom: Vec<u8>,
 }
 
 pub trait MemReadable =
@@ -17,22 +17,20 @@ pub trait MemWriteable = ToBytes<Bytes: IntoIterator<Item = u8>>;
 
 impl Default for MainMemory {
     fn default() -> Self {
-        let bios = vec![];
-        // Just 1 kB while getting started
-        let cart_rom = vec![0; 1 << 10];
-        Self { bios, cart_rom }
+        // Not yet the actual proper amounts
+        Self {
+            bios: vec![0; 16 << 10],
+            cart_rom: vec![0; 1 << 10],
+        }
     }
 }
 
 impl MainMemory {
-    pub fn iter_word(&self, start_addr: usize) -> Chunks<'_, u8> {
+    pub fn iter_word(&self, start_addr: u32) -> Result<Chunks<'_, u8>> {
         if !start_addr.is_multiple_of(4) {
             panic!("Mis-alligned word address: {:x}", start_addr);
         }
-        match start_addr {
-            0..0x3ffc => self.bios[start_addr..].chunks(4),
-            _ => panic!("Address out of range: {:x}", start_addr),
-        }
+        Ok(self.mem_map_lookup(start_addr)?.chunks(4))
     }
 
     /// Sign or zero-extends the result to 32 bits depending type parameter
@@ -78,7 +76,7 @@ impl MainMemory {
             .as_mut_ptr()
     }
 
-    fn mem_map_lookup(&self, addr: u32) -> Result<&[u8]> {
+    pub fn mem_map_lookup(&self, addr: u32) -> Result<&[u8]> {
         let base = addr & 0x0f000000;
         let index = (addr - base) as usize;
         Ok(match base {
@@ -89,7 +87,7 @@ impl MainMemory {
     }
 
     // Would be nice if these could be combined somehow
-    fn mem_map_lookup_mut(&mut self, addr: u32) -> Result<&mut [u8]> {
+    pub fn mem_map_lookup_mut(&mut self, addr: u32) -> Result<&mut [u8]> {
         let base = addr & 0x0f000000;
         let index = (addr - base) as usize;
         Ok(match base {

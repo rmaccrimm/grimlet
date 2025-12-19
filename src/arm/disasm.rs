@@ -14,7 +14,7 @@ use crate::arm::state::memory::MainMemory;
 /// Trait for CodeBlock producers. Mainly exists so tests can provide instructions without needing
 /// an actual binary.
 pub trait Disasm {
-    fn next_code_block(&self, mem: &MainMemory, addr: usize) -> CodeBlock;
+    fn next_code_block(&self, mem: &MainMemory, addr: usize) -> Result<CodeBlock>;
 }
 
 // Produces CodeBlocks from in-memory program
@@ -63,11 +63,15 @@ impl Default for Disassembler {
 }
 
 impl Disasm for Disassembler {
-    fn next_code_block(&self, mem: &MainMemory, start_addr: usize) -> CodeBlock {
-        let instr_iter = mem.iter_word(start_addr).enumerate().map(move |(i, ch)| {
-            let addr = start_addr + 4 * i;
-            self.disasm_single(ch, addr)
-        });
-        CodeBlock::from_instructions(instr_iter, start_addr)
+    fn next_code_block(&self, mem: &MainMemory, start_addr: usize) -> Result<CodeBlock> {
+        // TODO what's the appropriate type for addresses?
+        let instr_iter = mem
+            .iter_word(start_addr as u32)?
+            .enumerate()
+            .map(move |(i, ch)| {
+                let addr = start_addr + 4 * i;
+                self.disasm_single(ch, addr)
+            });
+        Ok(CodeBlock::from_instructions(instr_iter, start_addr))
     }
 }

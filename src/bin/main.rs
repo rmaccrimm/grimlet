@@ -8,7 +8,8 @@ use grimlet::emulator::Emulator;
 fn main() -> Result<()> {
     let bios_path = env::args().nth(1).unwrap();
     let disasm = Disassembler::default();
-    let mut emulator = Emulator::new(disasm, Some(&bios_path))?;
+    let mut emulator = Emulator::new(disasm);
+    emulator.load_rom(bios_path, 0)?;
     let exit = |_: &ArmState| -> bool { false };
     emulator.run(exit, None);
     Ok(())

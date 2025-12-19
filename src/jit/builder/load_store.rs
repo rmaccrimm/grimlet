@@ -1,5 +1,5 @@
 use anyhow::{Context as _, Result, anyhow, bail};
-use capstone::arch::arm::{ArmOperand, ArmShift};
+use capstone::arch::arm::ArmShift;
 use inkwell::values::IntValue;
 
 use crate::arm::disasm::instruction::{ArmInstruction, MemOffset, MemOperand, WritebackMode};

@@ -6,7 +6,6 @@ use capstone::{
 };
 
 use super::ArmInstruction;
-use crate::arm::state::REG_ITEMS;
 
 pub fn reg(r: usize) -> ArmOperand {
     // Janky, inverse of the conversion done in register::Reg. Would like to eliminate this

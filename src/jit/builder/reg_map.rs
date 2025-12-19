@@ -1,5 +1,3 @@
-use std::fmt::Pointer;
-
 use inkwell::values::{IntValue, PointerValue};
 
 use crate::arm::state::{NUM_REGS, Reg};

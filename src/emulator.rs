@@ -1,4 +1,7 @@
-use anyhow::Result;
+use std::fs::{self, File};
+use std::io::{BufReader, Read};
+
+use anyhow::{Result, bail};
 use inkwell::context::Context;
 
 use crate::arm::disasm::Disasm;
@@ -18,17 +21,28 @@ pub enum DebugOutput {
 }
 
 impl Emulator {
-    pub fn new(disasm: impl Disasm + 'static, bios_path: Option<&str>) -> Result<Self> {
-        let state = match bios_path {
-            Some(path) => ArmState::with_bios(path)?,
-            None => ArmState::default(),
-        };
+    pub fn new(disasm: impl Disasm + 'static) -> Self {
+        let state = ArmState::default();
         let llvm_ctx = Context::create();
-        Ok(Self {
+        Self {
             state,
             disasm: Box::new(disasm),
             llvm_ctx,
-        })
+        }
+    }
+
+    pub fn load_rom(&mut self, rom_path: impl AsRef<str>, addr: u32) -> Result<()> {
+        let path = rom_path.as_ref();
+        if !fs::exists(path)? {
+            bail!("ROM file not found");
+        }
+        let f = BufReader::new(File::open(path)?);
+        let mem_ref = self.state.mem.mem_map_lookup_mut(addr)?;
+
+        for (i, byte) in f.bytes().enumerate() {
+            mem_ref[i] = byte?;
+        }
+        Ok(())
     }
 
     pub fn run<F>(&mut self, exit_condition: F, print: Option<DebugOutput>)
@@ -49,7 +63,10 @@ impl Emulator {
             let func = match func_cache.get(&instr_addr) {
                 Some(func) => func,
                 None => {
-                    let code_block = self.disasm.next_code_block(&self.state.mem, instr_addr);
+                    let code_block = self
+                        .disasm
+                        .next_code_block(&self.state.mem, instr_addr)
+                        .expect("disassembly failed");
                     match print {
                         Some(DebugOutput::Assembly) => println!("{}", code_block),
                         Some(DebugOutput::Struct) => println!("{:#?}", code_block),
@@ -102,9 +119,12 @@ mod tests {
     }
 
     impl Disasm for VecDisassembler {
-        fn next_code_block(&self, _mem: &MainMemory, addr: usize) -> CodeBlock {
+        fn next_code_block(&self, _mem: &MainMemory, addr: usize) -> Result<CodeBlock> {
             let ind = addr / 4;
-            CodeBlock::from_instructions(self.program[ind..].iter().cloned(), addr)
+            Ok(CodeBlock::from_instructions(
+                self.program[ind..].iter().cloned(),
+                addr,
+            ))
         }
     }
 
@@ -115,7 +135,7 @@ mod tests {
             op_imm(ArmInsn::ARM_INS_B, 100, None),
         ]);
 
-        let mut emulator = Emulator::new(disasm, None).unwrap();
+        let mut emulator = Emulator::new(disasm);
         // Appears in R0 if MOV was successful
         let confirm_val = u32::MAX;
         emulator.state.regs[Reg::R1] = confirm_val;
@@ -200,7 +220,7 @@ mod tests {
             op_imm(ArmInsn::ARM_INS_B, 100, None),
         ]);
 
-        let mut em = Emulator::new(disasm, None).unwrap();
+        let mut em = Emulator::new(disasm);
 
         let exit = |st: &ArmState| -> bool { st.curr_instr_addr() == 100 };
         let r0 = Reg::R0;
@@ -248,17 +268,14 @@ mod tests {
                 instrs.push(op_imm(ArmInsn::ARM_INS_B, 100, None));
 
                 let disasm = VecDisassembler::new(instrs);
-                let mut emulator = Emulator::new(disasm, None).unwrap();
+                let mut emulator = Emulator::new(disasm);
 
                 let exit = |st: &ArmState| -> bool { st.curr_instr_addr() == 100 };
                 emulator.run(exit, Some(DebugOutput::Assembly));
 
-                println!("{:?}", &emulator.state.regs);
-                println!("{:?}", &emulator.state.mem.bios[0x4000 - (32)..]);
-
                 assert_eq!(emulator.state.regs[Reg::SP], expected_sp);
                 let expected = [1, 2, 3, 5, 7, 11, 13, 17];
-                for (i, w) in emulator.state.mem.iter_word(0x4000 - 32).enumerate() {
+                for (i, w) in emulator.state.mem.iter_word(0x4000 - 32).unwrap().enumerate() {
                     assert_eq!(u32::from_le_bytes(w.try_into().unwrap()), expected[i])
                 }
             }

@@ -5,7 +5,7 @@
     ldr r10, =end
     sub r10, r10, #4
 
-// load word, covers [reg] and pc-relative
+// load word, covers [reg] and pc-relative (3)
     ldr r0, [r10]
     ldr r1, =0x56c7c13d
     cmp r0, r1
@@ -13,11 +13,11 @@
     ldr r2, =-1
     push {r2}
     b exit
-s1:
+s1: // (10)
     mov r2, #1
     push {r2}
 
-// load halfword
+// load halfword (12)
     ldrh r0, [r10]
     ldr r1, =0xc13d
     cmp r0, r1
@@ -25,12 +25,12 @@ s1:
     ldr r2, =-1
     push {r2}
     b exit
-s2:
+s2: // (19)
     mov r2, #1
     push {r2}
 
 exit: 
-    // test exit condition
+    // emulator test exit condition (21)
     mov r11, #25344
     b end
 // data to test reads
@@ -38,7 +38,7 @@ exit:
     .u8 0xc1
     .u8 0xc7
     .u8 0x56
-end:
+end: //(24)
     nop
 .pool        
 .end
