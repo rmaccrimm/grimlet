@@ -120,7 +120,7 @@
     bne fail
     push {r9}
 
-// 17-24. store and load multiple
+// 17-24. store byte and halfword, load multiple
     ldr r2, =0x0343a12c
     mov r3, r10    
     add r10, r10, #8
@@ -194,7 +194,7 @@ data:
     .u8 0x48
 empty:
     .u32fill 30
-end: //(24)
+end:
     nop
 .pool        
 .end

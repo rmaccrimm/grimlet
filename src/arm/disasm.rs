@@ -1,5 +1,4 @@
 pub mod code_block;
-pub mod cons;
 pub mod instruction;
 
 use anyhow::Result;

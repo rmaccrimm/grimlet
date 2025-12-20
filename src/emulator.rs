@@ -94,11 +94,11 @@ impl Emulator {
 
 #[cfg(test)]
 mod tests {
-    use capstone::arch::arm::{ArmCC, ArmInsn};
+    use capstone::RegId;
+    use capstone::arch::arm::{ArmCC, ArmInsn, ArmOperand, ArmOperandType, ArmReg};
 
     use super::*;
     use crate::arm::disasm::code_block::CodeBlock;
-    use crate::arm::disasm::cons::*;
     use crate::arm::disasm::instruction::ArmInstruction;
     use crate::arm::state::Reg;
     use crate::arm::state::memory::MainMemory;
@@ -125,11 +125,56 @@ mod tests {
         }
     }
 
+    pub fn reg(r: usize) -> ArmOperand {
+        let reg_id = match r {
+            0 => ArmReg::ARM_REG_R0,
+            1 => ArmReg::ARM_REG_R1,
+            2 => ArmReg::ARM_REG_R2,
+            3 => ArmReg::ARM_REG_R3,
+            4 => ArmReg::ARM_REG_R4,
+            5 => ArmReg::ARM_REG_R5,
+            6 => ArmReg::ARM_REG_R6,
+            7 => ArmReg::ARM_REG_R7,
+            8 => ArmReg::ARM_REG_R8,
+            9 => ArmReg::ARM_REG_R9,
+            10 => ArmReg::ARM_REG_R10,
+            11 => ArmReg::ARM_REG_R11,
+            12 => ArmReg::ARM_REG_R12,
+            13 => ArmReg::ARM_REG_SP,
+            14 => ArmReg::ARM_REG_LR,
+            15 => ArmReg::ARM_REG_PC,
+            16 => ArmReg::ARM_REG_CPSR,
+            _ => panic!("unhandled reg"),
+        };
+        ArmOperand {
+            op_type: ArmOperandType::Reg(RegId(reg_id as u16)),
+            ..Default::default()
+        }
+    }
+
+    pub fn imm(i: i32) -> ArmOperand {
+        ArmOperand {
+            op_type: ArmOperandType::Imm(i),
+            ..Default::default()
+        }
+    }
+
+    macro_rules! op {
+        ($opcode:expr, $cond:expr, $($args:expr),+) => {
+            ArmInstruction {
+                opcode: $opcode,
+                cond: $cond.unwrap_or(ArmCC::ARM_CC_AL),
+                operands: vec![$($args),+],
+                ..Default::default()
+            }
+        };
+    }
+
     fn cond_test_case(cond: ArmCC, flags: u32) -> bool {
         // Conditionally move r1 to r0, then exit
         let disasm = VecDisassembler::new(vec![
-            op_reg_reg(ArmInsn::ARM_INS_MOV, 0, 1, Some(cond)),
-            op_imm(ArmInsn::ARM_INS_B, 100, None),
+            op!(ArmInsn::ARM_INS_MOV, Some(cond), reg(0), reg(1)),
+            op!(ArmInsn::ARM_INS_B, None, imm(100)),
         ]);
 
         let mut emulator = Emulator::new(disasm);
@@ -213,8 +258,8 @@ mod tests {
         // cmp r0, #1
         // b 100
         let disasm = VecDisassembler::new(vec![
-            op_reg_imm(ArmInsn::ARM_INS_CMP, 0, 1, None),
-            op_imm(ArmInsn::ARM_INS_B, 100, None),
+            op!(ArmInsn::ARM_INS_CMP, None, reg(0), imm(1)),
+            op!(ArmInsn::ARM_INS_B, None, imm(100)),
         ]);
 
         let mut em = Emulator::new(disasm);
@@ -251,18 +296,18 @@ mod tests {
                 let (instruction, expected_sp) = $value;
 
                 let mut instrs = vec![
-                    op_reg_imm(ArmInsn::ARM_INS_MOV, 13, 0x4000, None),
-                    op_reg_imm(ArmInsn::ARM_INS_MOV, 0, 1, None),
-                    op_reg_imm(ArmInsn::ARM_INS_MOV, 1, 2, None),
-                    op_reg_imm(ArmInsn::ARM_INS_MOV, 2, 3, None),
-                    op_reg_imm(ArmInsn::ARM_INS_MOV, 3, 5, None),
-                    op_reg_imm(ArmInsn::ARM_INS_MOV, 4, 7, None),
-                    op_reg_imm(ArmInsn::ARM_INS_MOV, 5, 11, None),
-                    op_reg_imm(ArmInsn::ARM_INS_MOV, 6, 13, None),
-                    op_reg_imm(ArmInsn::ARM_INS_MOV, 7, 17, None),
+                    op!(ArmInsn::ARM_INS_MOV, None, reg(13), imm(0x4000)),
+                    op!(ArmInsn::ARM_INS_MOV, None, reg(0), imm(1)),
+                    op!(ArmInsn::ARM_INS_MOV, None, reg(1), imm(2)),
+                    op!(ArmInsn::ARM_INS_MOV, None, reg(2), imm(3)),
+                    op!(ArmInsn::ARM_INS_MOV, None, reg(3), imm(5)),
+                    op!(ArmInsn::ARM_INS_MOV, None, reg(4), imm(7)),
+                    op!(ArmInsn::ARM_INS_MOV, None, reg(5), imm(11)),
+                    op!(ArmInsn::ARM_INS_MOV, None, reg(6), imm(13)),
+                    op!(ArmInsn::ARM_INS_MOV, None, reg(7), imm(17)),
                 ];
                 instrs.push(instruction);
-                instrs.push(op_imm(ArmInsn::ARM_INS_B, 100, None));
+                instrs.push(op!(ArmInsn::ARM_INS_B, None, imm(100)));
 
                 let disasm = VecDisassembler::new(instrs);
                 let mut emulator = Emulator::new(disasm);
