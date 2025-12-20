@@ -46,6 +46,21 @@ macro_rules! call_indirect_with_return {
     };
 }
 
+macro_rules! exec_instr {
+    ($self:ident, $wrapper:ident, $arg:ident, Self::$inner:ident) => {
+        $self
+            .$wrapper(&$arg, Self::$inner)
+            .with_context(|| format!("{:?}", $arg))
+            .expect("LLVM codegen failed")
+    };
+    ($self:ident, $wrapper:ident, $arg:ident, Self::$inner:ident::<$T:ty>) => {
+        $self
+            .exec_load_store_conditional(&$arg, Self::$inner::<$T>)
+            .with_context(|| format!("{:?}", $arg))
+            .expect("LLVM codegen failed")
+    };
+}
+
 mod alu;
 mod branch;
 mod flags;

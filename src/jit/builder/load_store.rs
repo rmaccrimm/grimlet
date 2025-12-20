@@ -15,92 +15,77 @@ struct AddrMode<'a> {
     addr: IntValue<'a>,
 }
 
-macro_rules! exec_and_expect {
-    ($self:ident, $arg:ident, Self::$method:ident::<$T:ty>) => {
-        $self
-            .exec_load_store_conditional(&$arg, Self::$method::<$T>)
-            .with_context(|| format!("{:?}", $arg))
-            .expect("LLVM codegen failed")
-    };
-    ($self:ident, $arg:ident, Self::$method:ident) => {
-        $self
-            .exec_load_store_conditional(&$arg, Self::$method)
-            .with_context(|| format!("{:?}", $arg))
-            .expect("LLVM codegen failed")
-    };
-}
-
 impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     pub(super) fn arm_ldr(&mut self, instr: ArmInstruction) {
-        exec_and_expect!(self, instr, Self::ldr::<u32>)
+        exec_instr!(self, exec_load_store_conditional, instr, Self::ldr::<u32>)
     }
 
     pub(super) fn arm_ldrb(&mut self, instr: ArmInstruction) {
-        exec_and_expect!(self, instr, Self::ldr::<u8>)
+        exec_instr!(self, exec_load_store_conditional, instr, Self::ldr::<u8>)
     }
 
     pub(super) fn arm_ldrh(&mut self, instr: ArmInstruction) {
-        exec_and_expect!(self, instr, Self::ldr::<u16>)
+        exec_instr!(self, exec_load_store_conditional, instr, Self::ldr::<u16>)
     }
 
     pub(super) fn arm_ldrsb(&mut self, instr: ArmInstruction) {
-        exec_and_expect!(self, instr, Self::ldr::<i8>)
+        exec_instr!(self, exec_load_store_conditional, instr, Self::ldr::<i8>)
     }
 
     pub(super) fn arm_ldrsh(&mut self, instr: ArmInstruction) {
-        exec_and_expect!(self, instr, Self::ldr::<i16>)
+        exec_instr!(self, exec_load_store_conditional, instr, Self::ldr::<i16>)
     }
 
     pub(super) fn arm_ldmia(&mut self, instr: ArmInstruction) {
-        exec_and_expect!(self, instr, Self::ldmia)
+        exec_instr!(self, exec_load_store_conditional, instr, Self::ldmia)
     }
 
     pub(super) fn arm_ldmib(&mut self, instr: ArmInstruction) {
-        exec_and_expect!(self, instr, Self::ldmib)
+        exec_instr!(self, exec_load_store_conditional, instr, Self::ldmib)
     }
 
     pub(super) fn arm_ldmda(&mut self, instr: ArmInstruction) {
-        exec_and_expect!(self, instr, Self::ldmda)
+        exec_instr!(self, exec_load_store_conditional, instr, Self::ldmda)
     }
 
     pub(super) fn arm_ldmdb(&mut self, instr: ArmInstruction) {
-        exec_and_expect!(self, instr, Self::ldmdb)
+        exec_instr!(self, exec_load_store_conditional, instr, Self::ldmdb)
     }
 
     pub(super) fn arm_str(&mut self, instr: ArmInstruction) {
-        exec_and_expect!(self, instr, Self::str::<u32>)
+        exec_instr!(self, exec_load_store_conditional, instr, Self::str::<u32>)
     }
 
     pub(super) fn arm_strb(&mut self, instr: ArmInstruction) {
-        exec_and_expect!(self, instr, Self::str::<u8>)
+        exec_instr!(self, exec_load_store_conditional, instr, Self::str::<u8>)
     }
 
     pub(super) fn arm_strh(&mut self, instr: ArmInstruction) {
-        exec_and_expect!(self, instr, Self::str::<u16>)
+        exec_instr!(self, exec_load_store_conditional, instr, Self::str::<u16>)
     }
 
     pub(super) fn arm_stmia(&mut self, instr: ArmInstruction) {
-        exec_and_expect!(self, instr, Self::stmia)
+        exec_instr!(self, exec_load_store_conditional, instr, Self::stmia)
     }
 
     pub(super) fn arm_stmib(&mut self, instr: ArmInstruction) {
-        exec_and_expect!(self, instr, Self::stmib)
+        exec_instr!(self, exec_load_store_conditional, instr, Self::stmib)
     }
 
     pub(super) fn arm_stmda(&mut self, instr: ArmInstruction) {
-        exec_and_expect!(self, instr, Self::stmda)
+        exec_instr!(self, exec_load_store_conditional, instr, Self::stmda)
     }
 
     pub(super) fn arm_stmdb(&mut self, instr: ArmInstruction) {
-        exec_and_expect!(self, instr, Self::stmdb)
+        exec_instr!(self, exec_load_store_conditional, instr, Self::stmdb)
     }
 
     pub(super) fn arm_push(&mut self, instr: ArmInstruction) {
-        exec_and_expect!(self, instr, Self::push)
+        exec_instr!(self, exec_load_store_conditional, instr, Self::push)
     }
 
     pub(super) fn arm_pop(&mut self, instr: ArmInstruction) {
-        exec_and_expect!(self, instr, Self::pop)
+        exec_instr!(self, exec_load_store_conditional, instr, Self::pop)
     }
 
     fn exec_load_store_conditional<F>(&mut self, instr: &ArmInstruction, inner: F) -> Result<()>

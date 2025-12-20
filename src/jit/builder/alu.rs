@@ -41,110 +41,101 @@ struct DataProcResult<'a> {
     cpsr: Option<IntValue<'a>>,
 }
 
-macro_rules! exec_and_expect {
-    ($self:ident, $arg:ident, Self::$method:ident) => {
-        $self
-            .exec_alu_conditional(&$arg, Self::$method)
-            .with_context(|| format!("{:?}", $arg))
-            .expect("LLVM codegen failed")
-    };
-}
-
 impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     pub(super) fn arm_adc(&mut self, instr: ArmInstruction) {
-        exec_and_expect!(self, instr, Self::adc)
+        exec_instr!(self, exec_alu_conditional, instr, Self::adc)
     }
 
     pub(super) fn arm_add(&mut self, instr: ArmInstruction) {
-        exec_and_expect!(self, instr, Self::add)
+        exec_instr!(self, exec_alu_conditional, instr, Self::add)
     }
 
     pub(super) fn arm_and(&mut self, instr: ArmInstruction) {
-        exec_and_expect!(self, instr, Self::and)
+        exec_instr!(self, exec_alu_conditional, instr, Self::and)
     }
 
     pub(super) fn arm_bic(&mut self, instr: ArmInstruction) {
-        exec_and_expect!(self, instr, Self::bic)
+        exec_instr!(self, exec_alu_conditional, instr, Self::bic)
     }
 
     pub(super) fn arm_cmn(&mut self, instr: ArmInstruction) {
-        exec_and_expect!(self, instr, Self::cmn)
+        exec_instr!(self, exec_alu_conditional, instr, Self::cmn)
     }
 
     pub(super) fn arm_cmp(&mut self, instr: ArmInstruction) {
-        exec_and_expect!(self, instr, Self::cmp)
+        exec_instr!(self, exec_alu_conditional, instr, Self::cmp)
     }
 
     pub(super) fn arm_eor(&mut self, instr: ArmInstruction) {
-        exec_and_expect!(self, instr, Self::eor)
+        exec_instr!(self, exec_alu_conditional, instr, Self::eor)
     }
 
     pub(super) fn arm_mla(&mut self, instr: ArmInstruction) {
-        exec_and_expect!(self, instr, Self::mla)
+        exec_instr!(self, exec_alu_conditional, instr, Self::mla)
     }
 
     pub(super) fn arm_mov(&mut self, instr: ArmInstruction) {
-        exec_and_expect!(self, instr, Self::mov)
+        exec_instr!(self, exec_alu_conditional, instr, Self::mov)
     }
 
     pub(super) fn arm_mvn(&mut self, instr: ArmInstruction) {
-        exec_and_expect!(self, instr, Self::mvn)
+        exec_instr!(self, exec_alu_conditional, instr, Self::mvn)
     }
 
     pub(super) fn arm_orr(&mut self, instr: ArmInstruction) {
-        exec_and_expect!(self, instr, Self::orr)
+        exec_instr!(self, exec_alu_conditional, instr, Self::orr)
     }
 
     pub(super) fn arm_rsb(&mut self, instr: ArmInstruction) {
-        exec_and_expect!(self, instr, Self::rsb)
+        exec_instr!(self, exec_alu_conditional, instr, Self::rsb)
     }
 
     pub(super) fn arm_rsc(&mut self, instr: ArmInstruction) {
-        exec_and_expect!(self, instr, Self::rsc)
+        exec_instr!(self, exec_alu_conditional, instr, Self::rsc)
     }
 
     pub(super) fn arm_sbc(&mut self, instr: ArmInstruction) {
-        exec_and_expect!(self, instr, Self::sbc)
+        exec_instr!(self, exec_alu_conditional, instr, Self::sbc)
     }
 
     pub(super) fn arm_smlal(&mut self, instr: ArmInstruction) {
-        exec_and_expect!(self, instr, Self::smlal)
+        exec_instr!(self, exec_alu_conditional, instr, Self::smlal)
     }
 
     pub(super) fn arm_smull(&mut self, instr: ArmInstruction) {
-        exec_and_expect!(self, instr, Self::smull)
+        exec_instr!(self, exec_alu_conditional, instr, Self::smull)
     }
 
     pub(super) fn arm_sub(&mut self, instr: ArmInstruction) {
-        exec_and_expect!(self, instr, Self::sub)
+        exec_instr!(self, exec_alu_conditional, instr, Self::sub)
     }
 
     pub(super) fn arm_teq(&mut self, instr: ArmInstruction) {
-        exec_and_expect!(self, instr, Self::teq)
+        exec_instr!(self, exec_alu_conditional, instr, Self::teq)
     }
 
     pub(super) fn arm_tst(&mut self, instr: ArmInstruction) {
-        exec_and_expect!(self, instr, Self::tst)
+        exec_instr!(self, exec_alu_conditional, instr, Self::tst)
     }
 
     pub(super) fn arm_umlal(&mut self, instr: ArmInstruction) {
-        exec_and_expect!(self, instr, Self::umlal)
+        exec_instr!(self, exec_alu_conditional, instr, Self::umlal)
     }
 
     pub(super) fn arm_umull(&mut self, instr: ArmInstruction) {
-        exec_and_expect!(self, instr, Self::umull)
+        exec_instr!(self, exec_alu_conditional, instr, Self::umull)
     }
 
     pub(super) fn arm_mul(&mut self, instr: ArmInstruction) {
-        exec_and_expect!(self, instr, Self::mul)
+        exec_instr!(self, exec_alu_conditional, instr, Self::mul)
     }
 
     pub(super) fn arm_mrs(&mut self, instr: ArmInstruction) {
-        exec_and_expect!(self, instr, Self::mrs)
+        exec_instr!(self, exec_alu_conditional, instr, Self::mrs)
     }
 
     pub(super) fn arm_msr(&mut self, instr: ArmInstruction) {
-        exec_and_expect!(self, instr, Self::msr)
+        exec_instr!(self, exec_alu_conditional, instr, Self::msr)
     }
 
     /// Wraps a function for emitting an instruction in a conditional block, evaluates flags and
