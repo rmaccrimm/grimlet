@@ -54,9 +54,6 @@ impl Emulator {
 
         loop {
             if exit_condition(&self.state) {
-                compiler
-                    .dump()
-                    .unwrap_or_else(|_| println!("failed to dump LLVM"));
                 break;
             }
             let instr_addr = self.state.curr_instr_addr();

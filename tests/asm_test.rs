@@ -41,12 +41,17 @@ fn test_basic_load_store() {
     let exit = |st: &ArmState| -> bool { st.regs[Reg::R11] == 25344 };
     emulator.state.jump_to(CART_START_ADDR);
     emulator.run(exit, Some(DebugOutput::Assembly));
+    println!("{:08x?}", emulator.state.regs);
 
-    let num_tests = 2;
+    let num_asserts = emulator.state.regs[Reg::R8];
     let mut result_addr = 0x4000 - 4;
-    for _ in 0..num_tests {
+    for i in 1..=num_asserts {
         let word = emulator.state.mem.read::<u32>(result_addr);
-        assert_eq!(word, 1);
+        println!("{}: {}", i, word);
+        assert_eq!(word, 1, "failed on assertion {}", i);
         result_addr -= 4;
     }
+    println!("{} assertions passed!", num_asserts);
+
+    assert_eq!(emulator.state.regs[Reg::SP], 0x4000 - (4 * num_asserts));
 }

@@ -1,43 +1,199 @@
 .begin main
     .arm
-// init stack
+    // number of assertions
+    mov r8, #24
+    // stack
     mov sp, #0x4000
-    ldr r10, =end
-    sub r10, r10, #4
+    // data address
+    ldr r10, =data
+    // test result, pushed onto stack
+    mov r9, #1 
 
-// load word, covers [reg] and pc-relative (3)
+// 1. load word 1
     ldr r0, [r10]
     ldr r1, =0x56c7c13d
     cmp r0, r1
-    beq s1
-    ldr r2, =-1
-    push {r2}
-    b exit
-s1: // (10)
-    mov r2, #1
-    push {r2}
+    bne fail
+    push {r9}
 
-// load halfword (12)
+// 2. load word 2
+    ldr r0, [r10, #4]
+    ldr r1, =0x4800c3c4
+    cmp r0, r1
+    bne fail
+    push {r9}
+
+// 3. load halfword 1
     ldrh r0, [r10]
     ldr r1, =0xc13d
     cmp r0, r1
-    beq s2
-    ldr r2, =-1
-    push {r2}
-    b exit
-s2: // (19)
-    mov r2, #1
-    push {r2}
+    bne fail
+    push {r9}
 
+// 4. load halfword, misalligned
+    ldrh r0, [r10, #1]
+    ldr r1, =0xc7c1
+    cmp r0, r1
+    bne fail
+    push {r9}
+    
+// 5. load halfword, halfword-alligned
+    ldrh r0, [r10, #2]
+    ldr r1, =0x56c7
+    cmp r0, r1
+    bne fail
+    push {r9}
+
+// 6. load byte 1
+    ldrb r0, [r10]
+    ldr r1, =0x3d
+    cmp r0, r1
+    bne fail
+    push {r9}
+
+// 7. load byte 2
+    ldrb r0, [r10, #1]
+    ldr r1, =0xc1
+    cmp r0, r1
+    bne fail
+    push {r9}
+
+// 8. load byte 3
+    ldrb r0, [r10, #2]
+    ldr r1, =0xc7
+    cmp r0, r1
+    bne fail
+    push {r9}
+
+// 9. load word, rotated offset
+    mov r2, #1
+    ldr r0, [r10, r2, ror #30] // = 4
+    ldr r1, =0x4800c3c4
+    cmp r0, r1
+    bne fail
+    push {r9}
+
+// 10-11. load word, writeback pre-increment
+    ldr r2, =empty
+    ldr r0, [r2, #-8]!
+    ldr r1, =0x56c7c13d
+    cmp r0, r1
+    bne fail
+    push {r9}
+
+    cmp r2, r10
+    bne fail
+    push {r9}
+
+// 12-13. load word, writeback post-increment
+    ldr r2, =empty
+    ldr r0, [r2], #-8
+    ldr r1, =0x00000000
+    cmp r0, r1
+    bne fail
+    push {r9}
+
+    cmp r2, r10
+    bne fail
+    push {r9}
+
+// 14. store word 1
+    ldr r10, =empty
+    ldr r2, =0xf170339c
+    str r2, [r10]
+    ldr r1, [r10]
+    cmp r1, r2
+    bne fail
+    push {r9}
+
+// 15-16. store word 2, writeback pre-increment
+    ldr r2, =0xe03bbd00
+    mov r3, r10
+    str r2, [r3, #4]!
+    sub r3, r3, #4
+    cmp r3, r10
+    bne fail
+    push {r9}
+
+    ldr r1, [r10, #4]
+    cmp r1, r2
+    bne fail
+    push {r9}
+
+// 17-24. store and load multiple
+    ldr r2, =0x0343a12c
+    mov r3, r10    
+    add r10, r10, #8
+    str r2, [r10], #4
+    add r3, r3, #12
+    cmp r10, r3
+    bne fail
+    push {r9}
+
+    ldr r2, =0x5eb79b81 // upper bytes will be ignored
+    strh r2, [r10], #4
+
+    ldr r2, =empty
+    add r2, r2, #16
+    cmp r10, r2 // checking r10 is still where expected
+    bne fail
+    push {r9}
+
+    ldr r2, =0x45851dc3 // upper bytes will be ignored
+    strb r2, [r10, #4] // skipping a word, since r10 was already incremented
+
+    ldr r10, =empty
+    ldmia r10, {r1, r2, r3, r4, r5, r6}
+
+    ldr r0, =0xf170339c
+    cmp r1, r0
+    bne fail
+    push {r9}
+
+    ldr r0, =0xe03bbd00
+    cmp r2, r0
+    bne fail
+    push {r9}
+
+    ldr r0, =0x0343a12c
+    cmp r3, r0
+    bne fail
+    push {r9}
+
+    ldr r0, =0x00009b81
+    cmp r4, r0
+    bne fail
+    push {r9}
+
+    mov r0, #0
+    cmp r5, r0
+    bne fail
+    push {r9}
+
+    ldr r0, =0x000000c3
+    cmp r6, r0
+    bne fail
+    push {r9}
+
+    b exit
+fail:
+    ldr r9, =-1
+    push {r9}
 exit: 
-    // emulator test exit condition (21)
+    // emulator test exit condition
     mov r11, #25344
     b end
-// data to test reads
+data:
     .u8 0x3d
     .u8 0xc1
     .u8 0xc7
     .u8 0x56
+    .u8 0xc4
+    .u8 0xc3
+    .u8 0x00
+    .u8 0x48
+empty:
+    .u32fill 30
 end: //(24)
     nop
 .pool        
