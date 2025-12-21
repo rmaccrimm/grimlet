@@ -1,0 +1,43 @@
+.begin
+    .arm
+    // number of assertions
+    mov r8, #4
+    // stack
+    mov sp, #0x4000
+    // test result, pushed onto stack
+    mov r0, #1         
+
+    ldr pc, =l1
+    b fail
+l1: // 20
+    push {r0}
+
+    add pc, pc, #0
+    b fail
+    push {r0} // 32
+
+    mov r1, pc
+    add r1, r1, #8
+    mov pc, r1
+    b fail
+    push {r0}
+
+    mov r1, pc
+    add r1, r1, #12
+    push {r1}
+    pop {pc}
+    b fail
+    push {r0}
+    b exit
+
+fail:
+    ldr r9, =-1
+    push {r9}
+exit: 
+    // emulator test exit condition
+    mov r11, #25344
+    b end
+end:
+    nop
+.pool
+.end

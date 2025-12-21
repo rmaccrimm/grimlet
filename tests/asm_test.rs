@@ -67,3 +67,28 @@ fn test_bx() {
     emulator.state.jump_to(CART_START_ADDR, false);
     emulator.run(exit, Some(DebugOutput::Struct));
 }
+
+#[test]
+fn test_mov_pc() {
+    let disasm = Disassembler::default();
+    let mut emulator = Emulator::new(disasm);
+    emulator
+        .load_rom("tests/programs/mov_pc.gba", CART_START_ADDR)
+        .unwrap();
+    let exit = |st: &ArmState| -> bool { st.regs[Reg::R11] == 25344 };
+    emulator.state.jump_to(CART_START_ADDR, false);
+    emulator.run(exit, None);
+    println!("{:08x?}", emulator.state.regs);
+
+    let num_asserts = emulator.state.regs[Reg::R8];
+    let mut result_addr = 0x4000 - 4;
+    for i in 1..=num_asserts {
+        let word = emulator.state.mem.read::<u32>(result_addr);
+        println!("{}: {}", i, word);
+        assert_eq!(word, 1, "failed on assertion {}", i);
+        result_addr -= 4;
+    }
+    println!("{} assertions passed!", num_asserts);
+
+    assert_eq!(emulator.state.regs[Reg::SP], 0x4000 - (4 * num_asserts));
+}
