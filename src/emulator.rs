@@ -1,6 +1,6 @@
 use std::fs::{self, File};
 use std::io::{BufReader, Read};
-use std::sync::mpsc::{self, Receiver, TryRecvError};
+use std::sync::mpsc::{self, Receiver, TryRecvError, channel};
 
 use anyhow::{Result, bail};
 use inkwell::context::Context;

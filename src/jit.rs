@@ -3,7 +3,7 @@ mod builder;
 use std::collections::HashMap;
 use std::fs;
 
-use anyhow::Result as AnyResult;
+use anyhow::Result;
 use builder::FunctionBuilder;
 use inkwell::OptimizationLevel;
 use inkwell::builder::Builder;
@@ -60,7 +60,7 @@ impl<'ctx> Compiler<'ctx> {
         )
     }
 
-    pub fn dump(&self) -> AnyResult<()> {
+    pub fn dump(&self) -> Result<()> {
         if fs::exists("llvm")? && fs::metadata("llvm")?.is_dir() {
             fs::remove_dir_all("llvm")?
         }
