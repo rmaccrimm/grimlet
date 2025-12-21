@@ -126,8 +126,14 @@ impl ArmState {
         (self.regs[Reg::PC] - self.current_mode.pc_byte_offset()) as usize
     }
 
-    pub fn jump_to(&mut self, addr: u32) {
+    pub fn jump_to(&mut self, addr: u32, change_mode: bool) {
         println!("JUMPING TO: {:#08x}", addr);
         self.regs[Reg::PC] = addr + self.current_mode.pc_byte_offset();
+        if change_mode {
+            self.current_mode = match self.current_mode {
+                ArmMode::ARM => ArmMode::THUMB,
+                ArmMode::THUMB => ArmMode::ARM,
+            }
+        }
     }
 }

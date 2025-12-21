@@ -54,6 +54,7 @@ impl Emulator {
 
         loop {
             if exit_condition(&self.state) {
+                // compiler.dump().unwrap();
                 break;
             }
             let instr_addr = self.state.curr_instr_addr();
@@ -269,13 +270,12 @@ mod tests {
         let cpsr = Reg::CPSR as usize;
 
         let mut test_case = |n: u32| -> u32 {
-            em.state.jump_to(0);
+            em.state.jump_to(0, false);
             em.state.regs[r0] = n;
             em.state.regs[cpsr] = 0;
-            em.run(exit, None);
+            em.run(exit, Some(DebugOutput::Assembly));
             em.state.regs[cpsr] >> 28
         };
-
         // Positive result
         assert_eq!(test_case(2), 0b0010); // nzcv
         // 0 result

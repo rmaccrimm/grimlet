@@ -4,6 +4,12 @@ macro_rules! imm {
     };
 }
 
+macro_rules! imm8 {
+    ($self:ident, $i:expr) => {
+        $self.i8_t.const_int($i as u64, false)
+    };
+}
+
 macro_rules! imm64 {
     ($self:ident, $i:expr) => {
         $self.llvm_ctx.i64_type().const_int($i as u64, false)
@@ -126,6 +132,7 @@ where
 
     // Frequently used LLVM types
     arm_state_t: StructType<'a>,
+    i8_t: IntType<'a>,
     i32_t: IntType<'a>,
     ptr_t: PointerType<'a>,
     void_t: VoidType<'a>,
@@ -171,6 +178,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
             let name = func_name(addr);
             let ctx = llvm_ctx;
+            let i8_t = ctx.i8_type();
             let i32_t = ctx.i32_type();
             let ptr_t = ctx.ptr_type(AddressSpace::default());
             let void_t = ctx.void_type();
@@ -219,6 +227,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                 current_block: basic_block,
                 func_cache,
                 arm_state_t,
+                i8_t,
                 i32_t,
                 ptr_t,
                 void_t,
@@ -346,8 +355,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             ArmInsn::ARM_INS_ASR => unimpl_instr!(instr, "ASR"),
             ArmInsn::ARM_INS_B => self.arm_b(instr),
             ArmInsn::ARM_INS_BIC => self.arm_bic(instr),
-            ArmInsn::ARM_INS_BL => unimpl_instr!(instr, "BL"),
-            ArmInsn::ARM_INS_BX => unimpl_instr!(instr, "BX"),
+            ArmInsn::ARM_INS_BL => self.arm_bl(instr),
+            ArmInsn::ARM_INS_BX => self.arm_bx(instr),
             ArmInsn::ARM_INS_CDP => unimpl_instr!(instr, "CDP"),
             ArmInsn::ARM_INS_CMN => self.arm_cmn(instr),
             ArmInsn::ARM_INS_CMP => self.arm_cmp(instr),
@@ -505,7 +514,7 @@ mod tests {
         f1.write_state_out().unwrap();
 
         let func_ptr_param = f1
-            .get_external_func_pointer(ArmState::jump_to as fn(&mut ArmState, u32) as usize)
+            .get_external_func_pointer(ArmState::jump_to as fn(&mut ArmState, u32, bool) as usize)
             .unwrap();
 
         let interp_fn_t = f1

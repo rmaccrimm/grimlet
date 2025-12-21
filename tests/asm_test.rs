@@ -14,7 +14,7 @@ fn test_factorial() {
         .unwrap();
 
     let mut run = |n| -> u32 {
-        emulator.state.jump_to(CART_START_ADDR);
+        emulator.state.jump_to(CART_START_ADDR, false);
         emulator.state.regs[Reg::R0] = n;
         emulator.run(
             |st: &ArmState| -> bool { st.curr_instr_addr() >= 40 + (CART_START_ADDR as usize) },
@@ -39,7 +39,7 @@ fn test_basic_load_store() {
         .load_rom("tests/programs/load_store.gba", CART_START_ADDR)
         .unwrap();
     let exit = |st: &ArmState| -> bool { st.regs[Reg::R11] == 25344 };
-    emulator.state.jump_to(CART_START_ADDR);
+    emulator.state.jump_to(CART_START_ADDR, false);
     emulator.run(exit, Some(DebugOutput::Assembly));
     println!("{:08x?}", emulator.state.regs);
 
