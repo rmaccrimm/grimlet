@@ -33,6 +33,13 @@ impl MainMemory {
         Ok(self.mem_map_lookup(start_addr)?.chunks(4))
     }
 
+    pub fn iter_halfword(&self, start_addr: u32) -> Result<Chunks<'_, u8>> {
+        if !start_addr.is_multiple_of(2) {
+            panic!("Mis-alligned halfword address: {:x}", start_addr);
+        }
+        Ok(self.mem_map_lookup(start_addr)?.chunks(2))
+    }
+
     /// Sign or zero-extends the result to 32 bits depending type parameter
     pub fn read<T>(&self, addr: u32) -> u32
     where

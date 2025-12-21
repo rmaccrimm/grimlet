@@ -57,13 +57,14 @@ impl Default for Disassembler {
 impl Disasm for Disassembler {
     fn next_code_block(&self, mem: &MainMemory, start_addr: usize) -> Result<CodeBlock> {
         // TODO what's the appropriate type for addresses?
-        let instr_iter = mem
-            .iter_word(start_addr as u32)?
-            .enumerate()
-            .map(move |(i, ch)| {
-                let addr = start_addr + 4 * i;
-                self.disasm_single(ch, addr)
-            });
+        let mem_iter = match self.current_mode {
+            ArmMode::ARM => mem.iter_word(start_addr as u32),
+            ArmMode::THUMB => mem.iter_halfword(start_addr as u32),
+        }?;
+        let instr_iter = mem_iter.enumerate().map(move |(i, ch)| {
+            let addr = start_addr + 4 * i;
+            self.disasm_single(ch, addr)
+        });
         Ok(CodeBlock::from_instructions(instr_iter, start_addr))
     }
 
