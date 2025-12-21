@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::fmt::Display;
 
-use capstone::arch::arm::{ArmInsn, ArmOperandType};
+use capstone::arch::arm::{ArmInsn, ArmOperand, ArmOperandType};
 
 use crate::arm::disasm::instruction::ArmInstruction;
 use crate::arm::state::Reg;
@@ -57,11 +57,8 @@ impl CodeBlock {
                     _ => (),
                 }
             }
-            match instr.opcode {
-                ArmInsn::ARM_INS_B | ArmInsn::ARM_INS_BX | ArmInsn::ARM_INS_BL => {
-                    break;
-                }
-                _ => {}
+            if is_terminator(instr) {
+                break;
             }
         }
         CodeBlock {
@@ -69,5 +66,63 @@ impl CodeBlock {
             start_addr,
             regs_accessed,
         }
+    }
+}
+
+/// This function ends the LLVM function (performs a branch)
+fn is_terminator(instr: &ArmInstruction) -> bool {
+    match instr.opcode {
+        ArmInsn::ARM_INS_B | ArmInsn::ARM_INS_BX | ArmInsn::ARM_INS_BL => true,
+        // Instructions that write to pc
+        ArmInsn::ARM_INS_AND
+        | ArmInsn::ARM_INS_EOR
+        | ArmInsn::ARM_INS_SUB
+        | ArmInsn::ARM_INS_RSB
+        | ArmInsn::ARM_INS_ADD
+        | ArmInsn::ARM_INS_ADC
+        | ArmInsn::ARM_INS_SBC
+        | ArmInsn::ARM_INS_RSC
+        | ArmInsn::ARM_INS_ORR
+        | ArmInsn::ARM_INS_MOV
+        | ArmInsn::ARM_INS_MVN
+        | ArmInsn::ARM_INS_BIC => match instr.operands.first() {
+            Some(ArmOperand {
+                op_type: ArmOperandType::Reg(reg_id),
+                ..
+            }) => Reg::from(*reg_id) == Reg::PC,
+            _ => false,
+        },
+        ArmInsn::ARM_INS_LDR
+        | ArmInsn::ARM_INS_LDRB
+        | ArmInsn::ARM_INS_LDRSB
+        | ArmInsn::ARM_INS_LDRH
+        | ArmInsn::ARM_INS_LDRSH => {
+            let rd = instr.get_reg_op(0);
+            // At the moment this is done twice for every instruction, probably best to replace
+            // the capstone operands alltogether on first load. This would also allow for some
+            // separation of error types (builder can just return BuilderErrors)
+            let op = instr.get_mem_op().expect("failed to get mem op");
+            rd == Reg::PC || (instr.writeback && op.base == Reg::PC)
+        }
+        ArmInsn::ARM_INS_STR | ArmInsn::ARM_INS_STRB | ArmInsn::ARM_INS_STRH => {
+            let op = instr.get_mem_op().expect("failed to get mem op");
+            instr.writeback && op.base == Reg::PC
+        }
+        ArmInsn::ARM_INS_LDM
+        | ArmInsn::ARM_INS_LDMIB
+        | ArmInsn::ARM_INS_LDMDA
+        | ArmInsn::ARM_INS_LDMDB => instr
+            .get_reg_list(1)
+            .expect("failed to get reg list")
+            .into_iter()
+            .any(|r| r == Reg::PC),
+        ArmInsn::ARM_INS_POP => instr
+            .get_reg_list(0)
+            .expect("failed to get reg list")
+            .into_iter()
+            .any(|r| r == Reg::PC),
+        // Behaviour of a number of others (mul, e.g.) is unpredictable if they write to pc.
+        // Ignoring these for now.
+        _ => false,
     }
 }

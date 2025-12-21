@@ -21,6 +21,8 @@ pub struct ArmInstruction {
     pub writeback: bool,
 }
 
+/// <shifter_operand> operands for data processing instructions. Parsed out ahead of time since it
+/// potentially is encoded in multiple Capstone operands.
 pub enum ShifterOperand {
     Reg { reg: Reg, shift: ArmShift },
 
@@ -29,8 +31,8 @@ pub enum ShifterOperand {
     Imm { imm: i32, rotate: Option<i32> },
 }
 
-/// <addressing_mode> operand for single Load/Store instructions. For other operand types, the
-/// capstone types are currently used directly
+/// <addressing_mode> operand for single Load/Store instructions. Parsed out ahead of time since it
+/// potentially is encoded in multiple Capstone operands.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MemOperand {
     pub base: Reg,
