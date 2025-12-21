@@ -6,7 +6,7 @@ thumb:
     .thumb
     mov r1, #1
     ldr r0, =end
-    bx r0
+    bx r0.
 end:
     .align 4
     .arm

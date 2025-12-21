@@ -130,7 +130,6 @@ impl ArmState {
 
     pub fn jump_to(&mut self, addr: u32, change_mode: bool) {
         println!("JUMPING TO: {:#08x}", addr);
-        self.regs[Reg::PC] = addr + self.current_mode.pc_byte_offset();
         if change_mode {
             self.current_mode = match self.current_mode {
                 ArmMode::ARM => ArmMode::THUMB,
@@ -140,5 +139,6 @@ impl ArmState {
                 .send(SystemMessage::ChangeMode(self.current_mode))
                 .expect("channel was closed");
         }
+        self.regs[Reg::PC] = addr + self.current_mode.pc_byte_offset();
     }
 }

@@ -65,5 +65,5 @@ fn test_bx() {
         .unwrap();
     let exit = |st: &ArmState| -> bool { st.regs[Reg::R1] == 1 };
     emulator.state.jump_to(CART_START_ADDR, false);
-    emulator.run(exit, Some(DebugOutput::Assembly));
+    emulator.run(exit, Some(DebugOutput::Struct));
 }

@@ -39,12 +39,6 @@ impl CodeBlock {
         for instr in instr_iter {
             instrs.push(instr);
             let instr = instrs.last().unwrap();
-            match instr.opcode {
-                ArmInsn::ARM_INS_B | ArmInsn::ARM_INS_BX | ArmInsn::ARM_INS_BL => {
-                    break;
-                }
-                _ => {}
-            }
             for a in instr.operands.iter() {
                 match a.op_type {
                     ArmOperandType::Reg(reg_id) => {
@@ -62,6 +56,12 @@ impl CodeBlock {
                     }
                     _ => (),
                 }
+            }
+            match instr.opcode {
+                ArmInsn::ARM_INS_B | ArmInsn::ARM_INS_BX | ArmInsn::ARM_INS_BL => {
+                    break;
+                }
+                _ => {}
             }
         }
         CodeBlock {
