@@ -48,19 +48,18 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             let return_addr = bd.build_int_sub(self.reg_map.get(Reg::PC), imm!(self, 1), "ret")?;
             // Update lr temporarily, and restore it after the context switch so that
             // the unaltered value is used if we skip the end block
-            let prev_lr = self.reg_map.get(Reg::LR);
+            let tmp_reg_map = self.reg_map.clone();
             self.reg_map.update(Reg::LR, return_addr);
-            self.write_state_out()?;
-            self.reg_map.update(Reg::LR, prev_lr);
+            self.write_state_out(&tmp_reg_map)?;
         } else {
-            self.write_state_out()?;
+            self.write_state_out(&self.reg_map)?;
         }
         self.branch_and_return(target, change_mode)?;
 
         // No need to branch to end block, since we have returned already
         bd.position_at_end(end_block);
         self.increment_pc(mode);
-        self.write_state_out()?;
+        self.write_state_out(&self.reg_map)?;
         bd.build_return(None)?;
         Ok(())
     }

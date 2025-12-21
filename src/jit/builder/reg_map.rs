@@ -15,6 +15,7 @@ pub struct RegMapItem<'a> {
     pub dirty: bool,
 }
 
+#[derive(Clone)]
 pub struct RegMap<'a> {
     pub items: Vec<Option<RegMapItem<'a>>>,
 }

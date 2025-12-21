@@ -1114,7 +1114,7 @@ mod tests {
             f.reg_map.update(Reg::R0, shifted);
             f.reg_map
                 .update(Reg::CPSR, f.set_flags(None, None, carry_out, None).unwrap());
-            f.write_state_out().unwrap();
+            f.write_state_out(&f.reg_map).unwrap();
             f.builder.build_return(None).unwrap();
             let f = f.compile().unwrap();
             let (tx, _) = mpsc::channel();
@@ -1433,7 +1433,7 @@ mod tests {
                 f.reg_map.update(Reg::R0, shifter);
                 f.reg_map
                     .update(Reg::CPSR, f.set_flags(None, None, carry_out, None).unwrap());
-                f.write_state_out().unwrap();
+                f.write_state_out(&f.reg_map).unwrap();
                 f.builder.build_return(None).unwrap();
                 let f = f.compile().unwrap();
 

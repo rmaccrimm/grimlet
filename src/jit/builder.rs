@@ -347,9 +347,9 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     /// When context switching, write out the latest values in reg_map to the guest state
-    fn write_state_out(&self) -> Result<()> {
+    fn write_state_out(&self, reg_map: &RegMap) -> Result<()> {
         let bd = &self.builder;
-        let items: Vec<RegMapItem> = self.reg_map.items.iter().flatten().cloned().collect();
+        let items: Vec<RegMapItem> = reg_map.items.iter().flatten().cloned().collect();
         for r in items {
             if !r.dirty {
                 continue;
@@ -381,15 +381,18 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             updates.iter().find(|r| r.reg == Reg::PC).map(|r| r.value);
 
         if let Some(target) = branch_target {
+            let mut tmp_reg_map = self.reg_map.clone();
             for RegUpdate { reg, value } in updates {
-                self.reg_map.update(reg, value);
+                tmp_reg_map.update(reg, value);
             }
-            self.write_state_out()?;
+            self.write_state_out(&tmp_reg_map)?;
             self.branch_and_return(target, false)?;
+
             bd.position_at_end(end_block);
             self.increment_pc(instr.mode);
-            self.write_state_out()?;
+            self.write_state_out(&self.reg_map)?;
             bd.build_return(None)?;
+
             return Ok(());
         }
 
@@ -580,7 +583,7 @@ mod tests {
         let v1 = f1.builder.build_int_sub(r0, v0, "v1").unwrap();
 
         // Perform context switch out before jumping to ArmState code
-        f1.write_state_out().unwrap();
+        f1.write_state_out(&f1.reg_map).unwrap();
 
         let func_ptr_param = f1
             .get_external_func_pointer(ArmState::jump_to as fn(&mut ArmState, u32, bool) as usize)
@@ -607,7 +610,7 @@ mod tests {
         let mut f2 = comp.new_function(1, Some(&cache));
         f2.load_initial_reg_values(&all_regs).unwrap();
         f2.reg_map.update(Reg::R0, f2.i32_t.const_int(999, false));
-        f2.write_state_out().unwrap();
+        f2.write_state_out(&f2.reg_map).unwrap();
 
         // Construct the function pointer using raw pointer obtained from function cache
         let func_ptr_param = f2.get_compiled_func_pointer(0).unwrap().unwrap();
@@ -678,7 +681,7 @@ mod tests {
 
         f.reg_map.update(Reg::R0, val);
         f.reg_map.update(Reg::R1, overflowed);
-        f.write_state_out().unwrap();
+        f.write_state_out(&f.reg_map).unwrap();
         f.builder.build_return(None).unwrap();
         compile_and_run!(comp, f, state);
 

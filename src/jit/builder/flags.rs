@@ -167,7 +167,7 @@ mod tests {
             .update(Reg::R6, func.set_flag(N, func.reg_map.r6(), t)?);
         func.reg_map
             .update(Reg::R7, func.set_flag(N, func.reg_map.r7(), f)?);
-        func.write_state_out().unwrap();
+        func.write_state_out(&func.reg_map).unwrap();
         func.builder.build_return(None).unwrap();
         compile_and_run!(comp, func, state);
         assert_eq!(
