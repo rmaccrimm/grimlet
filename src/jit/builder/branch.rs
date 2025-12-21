@@ -5,13 +5,25 @@ use crate::arm::disasm::instruction::ArmInstruction;
 use crate::arm::state::{ArmState, Reg};
 use crate::jit::FunctionBuilder;
 
-pub struct BranchAction<'a> {
-    target: IntValue<'a>,
-    save_return: bool,
-    change_mode: bool,
+pub(super) struct BranchAction<'a> {
+    pub(super) target: IntValue<'a>,
+    pub(super) save_return: bool,
+    pub(super) change_mode: bool,
 }
 
 impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
+    pub(super) fn arm_b(&mut self, instr: ArmInstruction) {
+        exec_instr!(self, exec_branch_conditional, instr, Self::b);
+    }
+
+    pub(super) fn arm_bl(&mut self, instr: ArmInstruction) {
+        exec_instr!(self, exec_branch_conditional, instr, Self::bl);
+    }
+
+    pub(super) fn arm_bx(&mut self, instr: ArmInstruction) {
+        exec_instr!(self, exec_branch_conditional, instr, Self::bx);
+    }
+
     // Either executes the branch built by `inner`, or increments the PC and exits the function
     fn exec_branch_conditional<F>(&mut self, instr: &ArmInstruction, inner: F) -> Result<()>
     where
@@ -26,10 +38,15 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         bd.build_conditional_branch(cond, if_block, end_block)?;
         bd.position_at_end(if_block);
 
-        let branch = inner(self, instr)?;
-        if branch.save_return {
+        let BranchAction {
+            target,
+            save_return,
+            change_mode,
+        } = inner(self, instr)?;
+
+        if save_return {
             let return_addr = bd.build_int_sub(self.reg_map.get(Reg::PC), imm!(self, 1), "ret")?;
-            // Update lr temporarily, and restore it after the context switch transfer so that
+            // Update lr temporarily, and restore it after the context switch so that
             // the unaltered value is used if we skip the end block
             let prev_lr = self.reg_map.get(Reg::LR);
             self.reg_map.update(Reg::LR, return_addr);
@@ -38,24 +55,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         } else {
             self.write_state_out()?;
         }
-        let func_t = self.void_t.fn_type(
-            &[self.ptr_t.into(), self.i32_t.into(), self.i8_t.into()],
-            false,
-        );
-
-        let func_ptr = self.get_external_func_pointer(
-            ArmState::jump_to as fn(&mut ArmState, u32, bool) as usize,
-        )?;
-        let call = call_indirect!(
-            bd,
-            func_t,
-            func_ptr,
-            self.arm_state_ptr,
-            branch.target,
-            imm8!(self, branch.change_mode)
-        );
-        call.set_tail_call(true);
-        bd.build_return(None)?;
+        self.branch_and_return(target, change_mode)?;
 
         // No need to branch to end block, since we have returned already
         bd.position_at_end(end_block);
@@ -65,16 +65,27 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         Ok(())
     }
 
-    pub(super) fn arm_b(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_branch_conditional, instr, Self::b);
-    }
-
-    pub(super) fn arm_bl(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_branch_conditional, instr, Self::bl);
-    }
-
-    pub(super) fn arm_bx(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_branch_conditional, instr, Self::bx);
+    // self.write_state_out should be called before calling this
+    pub(super) fn branch_and_return(&self, target: IntValue<'a>, change_mode: bool) -> Result<()> {
+        let bd = self.builder;
+        let func_t = self.void_t.fn_type(
+            &[self.ptr_t.into(), self.i32_t.into(), self.i8_t.into()],
+            false,
+        );
+        let func_ptr = self.get_external_func_pointer(
+            ArmState::jump_to as fn(&mut ArmState, u32, bool) as usize,
+        )?;
+        let call = call_indirect!(
+            bd,
+            func_t,
+            func_ptr,
+            self.arm_state_ptr,
+            target,
+            imm8!(self, change_mode)
+        );
+        call.set_tail_call(true);
+        bd.build_return(None)?;
+        Ok(())
     }
 
     fn b(&self, instr: &ArmInstruction) -> Result<BranchAction<'a>> {

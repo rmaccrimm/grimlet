@@ -31,7 +31,7 @@ macro_rules! call_intrinsic {
 }
 
 macro_rules! call_indirect {
-    ($builder:ident, $func_t:expr, $func_ptr:ident, $($args:expr),+) => {
+    ($builder:expr, $func_t:expr, $func_ptr:ident, $($args:expr),+) => {
         $builder
             .build_indirect_call(
                 $func_t,
@@ -91,6 +91,7 @@ use super::{CompiledFunction, FunctionCache};
 use crate::arm::disasm::code_block::CodeBlock;
 use crate::arm::disasm::instruction::ArmInstruction;
 use crate::arm::state::{ArmMode, NUM_REGS, Reg};
+use crate::jit::builder::branch::BranchAction;
 use crate::jit::builder::reg_map::{RegMap, RegMapItem};
 
 macro_rules! unimpl_instr {
@@ -375,13 +376,31 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         bd.position_at_end(if_block);
 
         let updates = inner(self, instr)?;
+
+        // If an instruction wrote to PC, we need to perform a branch
+        let branch_target: Option<IntValue> =
+            updates.iter().find(|r| r.reg == Reg::PC).map(|r| r.value);
+
+        if let Some(target) = branch_target {
+            for RegUpdate { reg, value } in updates {
+                self.reg_map.update(reg, value);
+            }
+            self.write_state_out()?;
+            self.branch_and_return(target, false)?;
+            bd.position_at_end(end_block);
+            self.increment_pc(instr.mode);
+            self.write_state_out()?;
+            bd.build_return(None)?;
+            return Ok(());
+        }
+
         bd.build_unconditional_branch(end_block)?;
         bd.position_at_end(end_block);
 
-        // Inner doesn't touch reg_map so the values in it can be used to get the first option
-        // for the phi values
-        // TODO - jump when updating PC
+        // Otherwise, select correct reg values and continue
         for update in updates {
+            // Inner doesn't mutate self so the values in reg_map can be used to get the first
+            // option for the phi values
             let r_init = self.reg_map.get(update.reg);
             let r_new = update.value;
             let phi = bd.build_phi(self.i32_t, "phi")?;
