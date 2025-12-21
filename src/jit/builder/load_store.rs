@@ -5,9 +5,8 @@ use inkwell::values::IntValue;
 use crate::arm::disasm::instruction::{ArmInstruction, MemOffset, MemOperand, WritebackMode};
 use crate::arm::state::Reg;
 use crate::arm::state::memory::{MainMemory, MemReadable, MemWriteable};
-use crate::jit::builder::FunctionBuilder;
-use crate::jit::builder::alu::RegUpdate;
 use crate::jit::builder::flags::C;
+use crate::jit::builder::{FunctionBuilder, RegUpdate};
 
 /// Result of addressing mode calculation for single loads/stores
 struct AddrMode<'a> {
@@ -17,108 +16,75 @@ struct AddrMode<'a> {
 
 impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     pub(super) fn arm_ldr(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_load_store_conditional, instr, Self::ldr::<u32>)
+        exec_instr!(self, exec_conditional, instr, Self::ldr::<u32>)
     }
 
     pub(super) fn arm_ldrb(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_load_store_conditional, instr, Self::ldr::<u8>)
+        exec_instr!(self, exec_conditional, instr, Self::ldr::<u8>)
     }
 
     pub(super) fn arm_ldrh(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_load_store_conditional, instr, Self::ldr::<u16>)
+        exec_instr!(self, exec_conditional, instr, Self::ldr::<u16>)
     }
 
     pub(super) fn arm_ldrsb(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_load_store_conditional, instr, Self::ldr::<i8>)
+        exec_instr!(self, exec_conditional, instr, Self::ldr::<i8>)
     }
 
     pub(super) fn arm_ldrsh(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_load_store_conditional, instr, Self::ldr::<i16>)
+        exec_instr!(self, exec_conditional, instr, Self::ldr::<i16>)
     }
 
     pub(super) fn arm_ldmia(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_load_store_conditional, instr, Self::ldmia)
+        exec_instr!(self, exec_conditional, instr, Self::ldmia)
     }
 
     pub(super) fn arm_ldmib(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_load_store_conditional, instr, Self::ldmib)
+        exec_instr!(self, exec_conditional, instr, Self::ldmib)
     }
 
     pub(super) fn arm_ldmda(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_load_store_conditional, instr, Self::ldmda)
+        exec_instr!(self, exec_conditional, instr, Self::ldmda)
     }
 
     pub(super) fn arm_ldmdb(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_load_store_conditional, instr, Self::ldmdb)
+        exec_instr!(self, exec_conditional, instr, Self::ldmdb)
     }
 
     pub(super) fn arm_str(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_load_store_conditional, instr, Self::str::<u32>)
+        exec_instr!(self, exec_conditional, instr, Self::str::<u32>)
     }
 
     pub(super) fn arm_strb(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_load_store_conditional, instr, Self::str::<u8>)
+        exec_instr!(self, exec_conditional, instr, Self::str::<u8>)
     }
 
     pub(super) fn arm_strh(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_load_store_conditional, instr, Self::str::<u16>)
+        exec_instr!(self, exec_conditional, instr, Self::str::<u16>)
     }
 
     pub(super) fn arm_stmia(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_load_store_conditional, instr, Self::stmia)
+        exec_instr!(self, exec_conditional, instr, Self::stmia)
     }
 
     pub(super) fn arm_stmib(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_load_store_conditional, instr, Self::stmib)
+        exec_instr!(self, exec_conditional, instr, Self::stmib)
     }
 
     pub(super) fn arm_stmda(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_load_store_conditional, instr, Self::stmda)
+        exec_instr!(self, exec_conditional, instr, Self::stmda)
     }
 
     pub(super) fn arm_stmdb(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_load_store_conditional, instr, Self::stmdb)
+        exec_instr!(self, exec_conditional, instr, Self::stmdb)
     }
 
     pub(super) fn arm_push(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_load_store_conditional, instr, Self::push)
+        exec_instr!(self, exec_conditional, instr, Self::push)
     }
 
     pub(super) fn arm_pop(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_load_store_conditional, instr, Self::pop)
-    }
-
-    fn exec_load_store_conditional<F>(&mut self, instr: &ArmInstruction, inner: F) -> Result<()>
-    where
-        F: Fn(&Self, &ArmInstruction) -> Result<Vec<RegUpdate<'a>>>,
-    {
-        let ctx = self.llvm_ctx;
-        let bd = self.builder;
-        let if_block = ctx.append_basic_block(self.func, "if");
-        let end_block = ctx.append_basic_block(self.func, "end");
-
-        let cond = self.eval_cond(instr.cond)?;
-        bd.build_conditional_branch(cond, if_block, end_block)?;
-        bd.position_at_end(if_block);
-
-        let updates = inner(self, instr)?;
-        bd.build_unconditional_branch(end_block)?;
-        bd.position_at_end(end_block);
-
-        // Inner doesn't touch reg_map so the values in it can be used to get the first option
-        // for the phi values
-        // TODO - jump when updating PC
-        for update in updates {
-            let r_init = self.reg_map.get(update.reg);
-            let r_new = update.value;
-            let phi = bd.build_phi(self.i32_t, "phi")?;
-            phi.add_incoming(&[(&r_init, self.current_block), (&r_new, if_block)]);
-            self.reg_map
-                .update(update.reg, phi.as_basic_value().into_int_value());
-        }
-        self.increment_pc(instr.mode);
-        self.current_block = end_block;
-        Ok(())
+        exec_instr!(self, exec_conditional, instr, Self::pop)
     }
 
     fn addressing_mode(&self, mem_op: &MemOperand) -> Result<AddrMode<'a>> {

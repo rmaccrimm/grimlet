@@ -8,227 +8,103 @@ use crate::arm::disasm::instruction::{ArmInstruction, ShifterOperand};
 use crate::arm::state::Reg;
 use crate::jit::FunctionBuilder;
 use crate::jit::builder::flags::C;
-
-// A register and the value to write to it
-pub(super) struct RegUpdate<'a> {
-    pub reg: Reg,
-    pub value: IntValue<'a>,
-}
-
-// Indicates what should be done with the result of a calculation
-enum DataProcAction<'a> {
-    Ignored,
-    SingleUpdate(RegUpdate<'a>),
-    DoubleUpdate((RegUpdate<'a>, RegUpdate<'a>)),
-}
-
-impl<'a> DataProcAction<'a> {
-    fn single(reg: Reg, value: IntValue<'a>) -> Self {
-        Self::SingleUpdate(RegUpdate { reg, value })
-    }
-
-    fn double(r1: Reg, v1: IntValue<'a>, r2: Reg, v2: IntValue<'a>) -> Self {
-        Self::DoubleUpdate((
-            RegUpdate { reg: r1, value: v1 },
-            RegUpdate { reg: r2, value: v2 },
-        ))
-    }
-}
-
-// Return type for all data processing operation builder methods
-struct DataProcResult<'a> {
-    action: DataProcAction<'a>,
-    cpsr: Option<IntValue<'a>>,
-}
+use crate::jit::builder::{InstrResult, RegUpdate};
 
 impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     pub(super) fn arm_adc(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_alu_conditional, instr, Self::adc)
+        exec_instr!(self, exec_conditional, instr, Self::adc)
     }
 
     pub(super) fn arm_add(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_alu_conditional, instr, Self::add)
+        exec_instr!(self, exec_conditional, instr, Self::add)
     }
 
     pub(super) fn arm_and(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_alu_conditional, instr, Self::and)
+        exec_instr!(self, exec_conditional, instr, Self::and)
     }
 
     pub(super) fn arm_bic(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_alu_conditional, instr, Self::bic)
+        exec_instr!(self, exec_conditional, instr, Self::bic)
     }
 
     pub(super) fn arm_cmn(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_alu_conditional, instr, Self::cmn)
+        exec_instr!(self, exec_conditional, instr, Self::cmn)
     }
 
     pub(super) fn arm_cmp(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_alu_conditional, instr, Self::cmp)
+        exec_instr!(self, exec_conditional, instr, Self::cmp)
     }
 
     pub(super) fn arm_eor(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_alu_conditional, instr, Self::eor)
+        exec_instr!(self, exec_conditional, instr, Self::eor)
     }
 
     pub(super) fn arm_mla(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_alu_conditional, instr, Self::mla)
+        exec_instr!(self, exec_conditional, instr, Self::mla)
     }
 
     pub(super) fn arm_mov(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_alu_conditional, instr, Self::mov)
+        exec_instr!(self, exec_conditional, instr, Self::mov)
     }
 
     pub(super) fn arm_mvn(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_alu_conditional, instr, Self::mvn)
+        exec_instr!(self, exec_conditional, instr, Self::mvn)
     }
 
     pub(super) fn arm_orr(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_alu_conditional, instr, Self::orr)
+        exec_instr!(self, exec_conditional, instr, Self::orr)
     }
 
     pub(super) fn arm_rsb(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_alu_conditional, instr, Self::rsb)
+        exec_instr!(self, exec_conditional, instr, Self::rsb)
     }
 
     pub(super) fn arm_rsc(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_alu_conditional, instr, Self::rsc)
+        exec_instr!(self, exec_conditional, instr, Self::rsc)
     }
 
     pub(super) fn arm_sbc(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_alu_conditional, instr, Self::sbc)
+        exec_instr!(self, exec_conditional, instr, Self::sbc)
     }
 
     pub(super) fn arm_smlal(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_alu_conditional, instr, Self::smlal)
+        exec_instr!(self, exec_conditional, instr, Self::smlal)
     }
 
     pub(super) fn arm_smull(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_alu_conditional, instr, Self::smull)
+        exec_instr!(self, exec_conditional, instr, Self::smull)
     }
 
     pub(super) fn arm_sub(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_alu_conditional, instr, Self::sub)
+        exec_instr!(self, exec_conditional, instr, Self::sub)
     }
 
     pub(super) fn arm_teq(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_alu_conditional, instr, Self::teq)
+        exec_instr!(self, exec_conditional, instr, Self::teq)
     }
 
     pub(super) fn arm_tst(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_alu_conditional, instr, Self::tst)
+        exec_instr!(self, exec_conditional, instr, Self::tst)
     }
 
     pub(super) fn arm_umlal(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_alu_conditional, instr, Self::umlal)
+        exec_instr!(self, exec_conditional, instr, Self::umlal)
     }
 
     pub(super) fn arm_umull(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_alu_conditional, instr, Self::umull)
+        exec_instr!(self, exec_conditional, instr, Self::umull)
     }
 
     pub(super) fn arm_mul(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_alu_conditional, instr, Self::mul)
+        exec_instr!(self, exec_conditional, instr, Self::mul)
     }
 
     pub(super) fn arm_mrs(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_alu_conditional, instr, Self::mrs)
+        exec_instr!(self, exec_conditional, instr, Self::mrs)
     }
 
     pub(super) fn arm_msr(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_alu_conditional, instr, Self::msr)
-    }
-
-    /// Wraps a function for emitting an instruction in a conditional block, evaluates flags and
-    /// executes based on instruction condition Leaves the builder positioned in the else block and
-    /// emits code to increment program counter.
-    fn exec_alu_conditional<F>(&mut self, instr: &ArmInstruction, inner: F) -> Result<()>
-    where
-        F: Fn(&mut Self, &ArmInstruction) -> Result<DataProcResult<'a>>,
-    {
-        let mode = instr.mode;
-        let ctx = self.llvm_ctx;
-        let bd = self.builder;
-        let if_block = ctx.append_basic_block(self.func, "if");
-        let end_block = ctx.append_basic_block(self.func, "end");
-
-        // Potentially need phi nodes for up to 2 dest registers
-        let rd_0_init = if let Some(op) = instr.operands.first()
-            && let ArmOperandType::Reg(reg_id) = op.op_type
-        {
-            Some(self.reg_map.get(Reg::from(reg_id)))
-        } else {
-            None
-        };
-
-        let rd_1_init = if let Some(op) = instr.operands.get(1)
-            && let ArmOperandType::Reg(reg_id) = op.op_type
-        {
-            Some(self.reg_map.get(Reg::from(reg_id)))
-        } else {
-            None
-        };
-
-        let cpsr_init = self.reg_map.cpsr();
-        let cond = self.eval_cond(instr.cond)?;
-        bd.build_conditional_branch(cond, if_block, end_block)?;
-        bd.position_at_end(if_block);
-
-        let calc_result = inner(self, instr)?;
-        bd.build_unconditional_branch(end_block)?;
-        bd.position_at_end(end_block);
-
-        // Update the output register(s) with phi values depending on branch taken
-        match calc_result.action {
-            DataProcAction::Ignored => {}
-            DataProcAction::SingleUpdate(RegUpdate { reg, value }) => {
-                let phi = bd.build_phi(self.i32_t, "phi")?;
-                phi.add_incoming(&[
-                    (
-                        &rd_0_init.expect("more results than register operands"),
-                        self.current_block,
-                    ),
-                    (&value, if_block),
-                ]);
-                self.reg_map
-                    .update(reg, phi.as_basic_value().into_int_value());
-            }
-            DataProcAction::DoubleUpdate((
-                RegUpdate { reg: r0, value: v0 },
-                RegUpdate { reg: r1, value: v1 },
-            )) => {
-                let phi_0 = bd.build_phi(self.i32_t, "phi_0")?;
-                let phi_1 = bd.build_phi(self.i32_t, "phi_1")?;
-                phi_0.add_incoming(&[
-                    (
-                        &rd_0_init.expect("more results than register operands"),
-                        self.current_block,
-                    ),
-                    (&v0, if_block),
-                ]);
-                phi_1.add_incoming(&[
-                    (
-                        &rd_1_init.expect("more results than register operands"),
-                        self.current_block,
-                    ),
-                    (&v1, if_block),
-                ]);
-                self.reg_map
-                    .update(r0, phi_0.as_basic_value().into_int_value());
-                self.reg_map
-                    .update(r1, phi_1.as_basic_value().into_int_value());
-            }
-        }
-
-        // Update CPSR if instruction sets flags
-        if let Some(cpsr) = calc_result.cpsr {
-            let phi = bd.build_phi(self.i32_t, "phi_cpsr")?;
-            phi.add_incoming(&[(&cpsr_init, self.current_block), (&cpsr, if_block)]);
-            self.reg_map
-                .update(Reg::CPSR, phi.as_basic_value().into_int_value());
-        }
-        self.increment_pc(mode);
-        self.current_block = end_block;
-        Ok(())
+        exec_instr!(self, exec_conditional, instr, Self::msr)
     }
 
     // Returns (i32, Option<i1>) - the value of the operand and the shifter carry-out value (None if
@@ -509,7 +385,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     /// TODO - handle rd = pc case
-    fn adc(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn adc(&self, instr: &ArmInstruction) -> InstrResult<'a> {
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
         let rn_val = self.reg_map.get(rn);
@@ -521,10 +397,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         if !instr.updates_flags {
             let add_1 = bd.build_int_add(rn_val, shifter_op, "add_1")?;
             let add_2 = bd.build_int_add(add_1, c_in, "add_2")?;
-            return Ok(DataProcResult {
-                action: DataProcAction::single(rd, add_2),
-                cpsr: None,
-            });
+            let updates = vec![RegUpdate::new(rd, add_2)];
+            return Ok(updates);
         };
 
         let sadd_res_1 =
@@ -564,14 +438,12 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let v = bd.build_or(v1, v2, "v")?;
         let cpsr = self.set_flags(Some(n), Some(z), Some(c), Some(v))?;
 
-        Ok(DataProcResult {
-            action: DataProcAction::single(rd, s2),
-            cpsr: Some(cpsr),
-        })
+        let updates = vec![RegUpdate::new(rd, s2), RegUpdate::new(Reg::CPSR, cpsr)];
+        Ok(updates)
     }
 
     /// TODO rd = pc case
-    fn add(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn add(&self, instr: &ArmInstruction) -> InstrResult<'a> {
         let bd = self.builder;
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
@@ -579,13 +451,9 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let (shifter_op, _) = self.shifter_operand(instr.get_shifter_op(2)?)?;
 
         if !instr.updates_flags {
-            return Ok(DataProcResult {
-                action: DataProcAction::single(
-                    rd,
-                    bd.build_int_add(rn_val, shifter_op, "add_res")?,
-                ),
-                cpsr: None,
-            });
+            let res = bd.build_int_add(rn_val, shifter_op, "add_res")?;
+            let updates = vec![RegUpdate::new(rd, res)];
+            return Ok(updates);
         }
 
         let sadd_res =
@@ -603,13 +471,11 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let z = bd.build_int_compare(IntPredicate::EQ, res_val, imm!(self, 0), "z")?;
         let cpsr = self.set_flags(Some(n), Some(z), Some(c), Some(v))?;
 
-        Ok(DataProcResult {
-            action: DataProcAction::single(rd, res_val),
-            cpsr: Some(cpsr),
-        })
+        let updates = vec![RegUpdate::new(rd, res_val), RegUpdate::new(Reg::CPSR, cpsr)];
+        Ok(updates)
     }
 
-    fn and(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn and(&self, instr: &ArmInstruction) -> InstrResult<'a> {
         let bd = self.builder;
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
@@ -618,22 +484,18 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         let res_val = bd.build_and(rn_val, shifter_op, "and")?;
         if !instr.updates_flags {
-            return Ok(DataProcResult {
-                action: DataProcAction::single(rd, res_val),
-                cpsr: None,
-            });
+            let updates = vec![RegUpdate::new(rd, res_val)];
+            return Ok(updates);
         }
         let n = bd.build_int_compare(IntPredicate::SLT, res_val, imm!(self, 0), "n")?;
         let z = bd.build_int_compare(IntPredicate::EQ, res_val, imm!(self, 0), "z")?;
         let cpsr = self.set_flags(Some(n), Some(z), c_flag, None)?;
 
-        Ok(DataProcResult {
-            action: DataProcAction::single(rd, res_val),
-            cpsr: Some(cpsr),
-        })
+        let updates = vec![RegUpdate::new(rd, res_val), RegUpdate::new(Reg::CPSR, cpsr)];
+        Ok(updates)
     }
 
-    fn bic(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn bic(&self, instr: &ArmInstruction) -> InstrResult<'a> {
         let bd = self.builder;
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
@@ -644,51 +506,49 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let res_val = bd.build_and(rn_val, not_shifter, "bic")?;
 
         if !instr.updates_flags {
-            return Ok(DataProcResult {
-                action: DataProcAction::single(rd, res_val),
-                cpsr: None,
-            });
+            let updates = vec![RegUpdate::new(rd, res_val)];
+            return Ok(updates);
         }
 
         let n = bd.build_int_compare(IntPredicate::SLT, res_val, imm!(self, 0), "n")?;
         let z = bd.build_int_compare(IntPredicate::EQ, res_val, imm!(self, 0), "z")?;
         let cpsr = self.set_flags(Some(n), Some(z), c_flag, None)?;
 
-        Ok(DataProcResult {
-            action: DataProcAction::single(rd, res_val),
-            cpsr: Some(cpsr),
-        })
+        let updates = vec![RegUpdate::new(rd, res_val), RegUpdate::new(Reg::CPSR, cpsr)];
+        Ok(updates)
     }
 
-    fn cmn(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn cmn(&self, instr: &ArmInstruction) -> InstrResult<'a> {
         let mut instr = instr.clone();
         let rd_op = instr.operands[0].clone();
         let rm_op = instr.operands[1].clone();
         // Insert a dummy operand for rd
         instr.operands = vec![rd_op.clone(), rd_op, rm_op];
         instr.updates_flags = true;
-        let DataProcResult { action: _, cpsr } = self.add(&instr)?;
-        Ok(DataProcResult {
-            action: DataProcAction::Ignored,
-            cpsr,
-        })
+        // Perform an addition but keep only the cpsr update
+        Ok(self
+            .add(&instr)?
+            .into_iter()
+            .filter(|up| up.reg == Reg::CPSR)
+            .collect())
     }
 
-    fn cmp(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn cmp(&self, instr: &ArmInstruction) -> InstrResult<'a> {
         let mut instr = instr.clone();
         let rd_op = instr.operands[0].clone();
         let rm_op = instr.operands[1].clone();
         // Insert a dummy operand for rd
         instr.operands = vec![rd_op.clone(), rd_op, rm_op];
         instr.updates_flags = true;
-        let DataProcResult { action: _, cpsr } = self.sub(&instr)?;
-        Ok(DataProcResult {
-            action: DataProcAction::Ignored,
-            cpsr,
-        })
+        // Perform an subtractxion but keep only the cpsr update
+        Ok(self
+            .sub(&instr)?
+            .into_iter()
+            .filter(|up| up.reg == Reg::CPSR)
+            .collect())
     }
 
-    fn eor(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn eor(&self, instr: &ArmInstruction) -> InstrResult<'a> {
         let bd = self.builder;
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
@@ -698,44 +558,34 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let res_val = bd.build_xor(rn_val, shifter_op, "eor")?;
 
         if !instr.updates_flags {
-            return Ok(DataProcResult {
-                action: DataProcAction::single(rd, res_val),
-                cpsr: None,
-            });
+            let updates = vec![RegUpdate::new(rd, res_val)];
+            return Ok(updates);
         }
 
         let n = bd.build_int_compare(IntPredicate::SLT, res_val, imm!(self, 0), "n")?;
         let z = bd.build_int_compare(IntPredicate::EQ, res_val, imm!(self, 0), "z")?;
         let cpsr = self.set_flags(Some(n), Some(z), c_flag, None)?;
 
-        Ok(DataProcResult {
-            action: DataProcAction::single(rd, res_val),
-            cpsr: Some(cpsr),
-        })
+        let updates = vec![RegUpdate::new(rd, res_val), RegUpdate::new(Reg::CPSR, cpsr)];
+        Ok(updates)
     }
 
-    fn mov(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn mov(&self, instr: &ArmInstruction) -> InstrResult<'a> {
         let bd = self.builder;
         let rd = instr.get_reg_op(0);
         let (shifter, c) = self.shifter_operand(instr.get_shifter_op(1)?)?;
 
-        if instr.updates_flags {
+        Ok(if instr.updates_flags {
             let n = bd.build_int_compare(IntPredicate::SLT, shifter, imm!(self, 0), "n")?;
             let z = bd.build_int_compare(IntPredicate::EQ, shifter, imm!(self, 0), "z")?;
             let cpsr = self.set_flags(Some(n), Some(z), c, None)?;
-            Ok(DataProcResult {
-                action: DataProcAction::single(rd, shifter),
-                cpsr: Some(cpsr),
-            })
+            vec![RegUpdate::new(rd, shifter), RegUpdate::new(Reg::CPSR, cpsr)]
         } else {
-            Ok(DataProcResult {
-                action: DataProcAction::single(rd, shifter),
-                cpsr: None,
-            })
-        }
+            vec![RegUpdate::new(rd, shifter)]
+        })
     }
 
-    fn mvn(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn mvn(&self, instr: &ArmInstruction) -> InstrResult<'a> {
         let bd = self.builder;
         let rd = instr.get_reg_op(0);
         let (shifter, c) = self.shifter_operand(instr.get_shifter_op(1)?)?;
@@ -743,23 +593,19 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let res_val = bd.build_not(shifter, "mvn")?;
 
         if !instr.updates_flags {
-            return Ok(DataProcResult {
-                action: DataProcAction::single(rd, res_val),
-                cpsr: None,
-            });
+            let updates = vec![RegUpdate::new(rd, res_val)];
+            return Ok(updates);
         }
 
         let n = bd.build_int_compare(IntPredicate::SLT, res_val, imm!(self, 0), "n")?;
         let z = bd.build_int_compare(IntPredicate::EQ, res_val, imm!(self, 0), "z")?;
         let cpsr = self.set_flags(Some(n), Some(z), c, None)?;
 
-        Ok(DataProcResult {
-            action: DataProcAction::single(rd, res_val),
-            cpsr: Some(cpsr),
-        })
+        let updates = vec![RegUpdate::new(rd, res_val), RegUpdate::new(Reg::CPSR, cpsr)];
+        Ok(updates)
     }
 
-    fn orr(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn orr(&self, instr: &ArmInstruction) -> InstrResult<'a> {
         let bd = self.builder;
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
@@ -769,23 +615,19 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let res_val = bd.build_or(rn_val, shifter_op, "orr")?;
 
         if !instr.updates_flags {
-            return Ok(DataProcResult {
-                action: DataProcAction::single(rd, res_val),
-                cpsr: None,
-            });
+            let updates = vec![RegUpdate::new(rd, res_val)];
+            return Ok(updates);
         }
 
         let n = bd.build_int_compare(IntPredicate::SLT, res_val, imm!(self, 0), "n")?;
         let z = bd.build_int_compare(IntPredicate::EQ, res_val, imm!(self, 0), "z")?;
         let cpsr = self.set_flags(Some(n), Some(z), c, None)?;
 
-        Ok(DataProcResult {
-            action: DataProcAction::single(rd, res_val),
-            cpsr: Some(cpsr),
-        })
+        let updates = vec![RegUpdate::new(rd, res_val), RegUpdate::new(Reg::CPSR, cpsr)];
+        Ok(updates)
     }
 
-    fn rsb(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn rsb(&self, instr: &ArmInstruction) -> InstrResult<'a> {
         let bd = self.builder;
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
@@ -794,10 +636,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         if !instr.updates_flags {
             let res_val = bd.build_int_sub(shifter_op, rn_val, "rsb")?;
-            return Ok(DataProcResult {
-                action: DataProcAction::single(rd, res_val),
-                cpsr: None,
-            });
+            let updates = vec![RegUpdate::new(rd, res_val)];
+            return Ok(updates);
         }
 
         let ures =
@@ -816,13 +656,11 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let z = bd.build_int_compare(IntPredicate::EQ, res_val, imm!(self, 0), "z")?;
         let cpsr = self.set_flags(Some(n), Some(z), Some(c_flag), Some(v_flag))?;
 
-        Ok(DataProcResult {
-            action: DataProcAction::single(rd, res_val),
-            cpsr: Some(cpsr),
-        })
+        let updates = vec![RegUpdate::new(rd, res_val), RegUpdate::new(Reg::CPSR, cpsr)];
+        Ok(updates)
     }
 
-    fn rsc(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn rsc(&self, instr: &ArmInstruction) -> InstrResult<'a> {
         let bd = self.builder;
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
@@ -851,10 +689,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             .into_int_value();
 
         if !instr.updates_flags {
-            return Ok(DataProcResult {
-                action: DataProcAction::single(rd, s2),
-                cpsr: None,
-            });
+            let updates = vec![RegUpdate::new(rd, s2)];
+            return Ok(updates);
         }
 
         let usub_res_1 =
@@ -878,13 +714,11 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let v = bd.build_or(v1, v2, "v")?;
         let cpsr = self.set_flags(Some(n), Some(z), Some(c), Some(v))?;
 
-        Ok(DataProcResult {
-            action: DataProcAction::single(rd, s2),
-            cpsr: Some(cpsr),
-        })
+        let updates = vec![RegUpdate::new(rd, s2), RegUpdate::new(Reg::CPSR, cpsr)];
+        Ok(updates)
     }
 
-    fn sbc(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn sbc(&self, instr: &ArmInstruction) -> InstrResult<'a> {
         let bd = self.builder;
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
@@ -913,10 +747,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             .into_int_value();
 
         if !instr.updates_flags {
-            return Ok(DataProcResult {
-                action: DataProcAction::single(rd, s2),
-                cpsr: None,
-            });
+            let updates = vec![RegUpdate::new(rd, s2)];
+            return Ok(updates);
         }
 
         let usub_res_1 =
@@ -940,13 +772,11 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let v = bd.build_or(v1, v2, "v")?;
         let cpsr = self.set_flags(Some(n), Some(z), Some(c), Some(v))?;
 
-        Ok(DataProcResult {
-            action: DataProcAction::single(rd, s2),
-            cpsr: Some(cpsr),
-        })
+        let updates = vec![RegUpdate::new(rd, s2), RegUpdate::new(Reg::CPSR, cpsr)];
+        Ok(updates)
     }
 
-    fn sub(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn sub(&self, instr: &ArmInstruction) -> InstrResult<'a> {
         let bd = self.builder;
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
@@ -955,10 +785,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         if !instr.updates_flags {
             let sub_res = bd.build_int_sub(rn_val, shifter_op, "sub")?;
-            return Ok(DataProcResult {
-                action: DataProcAction::single(rd, sub_res),
-                cpsr: None,
-            });
+            let updates = vec![RegUpdate::new(rd, sub_res)];
+            return Ok(updates);
         }
         let ures =
             call_intrinsic!(bd, self.usub_with_overflow, rn_val, shifter_op).into_struct_value();
@@ -981,41 +809,42 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         let cpsr = self.set_flags(Some(n_flag), Some(z_flag), Some(c_flag), Some(v_flag))?;
 
-        Ok(DataProcResult {
-            action: DataProcAction::single(rd, sres_val),
-            cpsr: Some(cpsr),
-        })
+        let updates = vec![
+            RegUpdate::new(rd, sres_val),
+            RegUpdate::new(Reg::CPSR, cpsr),
+        ];
+        Ok(updates)
     }
 
-    fn teq(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn teq(&self, instr: &ArmInstruction) -> InstrResult<'a> {
         let mut instr = instr.clone();
         let rd_op = instr.operands[0].clone();
         let rm_op = instr.operands[1].clone();
         // Insert a dummy operand for d because eor expects it.
         instr.operands = vec![rd_op.clone(), rd_op, rm_op];
         instr.updates_flags = true;
-        let DataProcResult { action: _, cpsr } = self.eor(&instr)?;
-        Ok(DataProcResult {
-            action: DataProcAction::Ignored,
-            cpsr,
-        })
+        Ok(self
+            .eor(&instr)?
+            .into_iter()
+            .filter(|up| up.reg == Reg::CPSR)
+            .collect())
     }
 
-    fn tst(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn tst(&self, instr: &ArmInstruction) -> InstrResult<'a> {
         let mut instr = instr.clone();
         let rd_op = instr.operands[0].clone();
         let rm_op = instr.operands[1].clone();
         // Insert a dummy operand for rd because and expects it.
         instr.operands = vec![rd_op.clone(), rd_op, rm_op];
         instr.updates_flags = true;
-        let DataProcResult { action: _, cpsr } = self.and(&instr)?;
-        Ok(DataProcResult {
-            action: DataProcAction::Ignored,
-            cpsr,
-        })
+        Ok(self
+            .and(&instr)?
+            .into_iter()
+            .filter(|up| up.reg == Reg::CPSR)
+            .collect())
     }
 
-    fn mla(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn mla(&self, instr: &ArmInstruction) -> InstrResult<'a> {
         let bd = self.builder;
         let rd = instr.get_reg_op(0);
         let rm = instr.get_reg_op(1);
@@ -1028,23 +857,19 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let mla = bd.build_int_add(mul, rn_val, "mla")?;
 
         if !instr.updates_flags {
-            return Ok(DataProcResult {
-                action: DataProcAction::single(rd, mla),
-                cpsr: None,
-            });
+            let updates = vec![RegUpdate::new(rd, mla)];
+            return Ok(updates);
         }
 
         let n = bd.build_int_compare(IntPredicate::SLT, mla, imm!(self, 0), "n")?;
         let z = bd.build_int_compare(IntPredicate::EQ, mla, imm!(self, 0), "z")?;
         let cpsr = self.set_flags(Some(n), Some(z), None, None)?;
 
-        Ok(DataProcResult {
-            action: DataProcAction::single(rd, mla),
-            cpsr: Some(cpsr),
-        })
+        let updates = vec![RegUpdate::new(rd, mla), RegUpdate::new(Reg::CPSR, cpsr)];
+        Ok(updates)
     }
 
-    fn mul(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn mul(&self, instr: &ArmInstruction) -> InstrResult<'a> {
         let bd = self.builder;
         let rd = instr.get_reg_op(0);
         let rm = instr.get_reg_op(1);
@@ -1054,23 +879,19 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let mul = bd.build_int_mul(rm_val, rs_val, "mul")?;
 
         if !instr.updates_flags {
-            return Ok(DataProcResult {
-                action: DataProcAction::single(rd, mul),
-                cpsr: None,
-            });
+            let updates = vec![RegUpdate::new(rd, mul)];
+            return Ok(updates);
         }
 
         let n = bd.build_int_compare(IntPredicate::SLT, mul, imm!(self, 0), "n")?;
         let z = bd.build_int_compare(IntPredicate::EQ, mul, imm!(self, 0), "z")?;
         let cpsr = self.set_flags(Some(n), Some(z), None, None)?;
 
-        Ok(DataProcResult {
-            action: DataProcAction::single(rd, mul),
-            cpsr: Some(cpsr),
-        })
+        let updates = vec![RegUpdate::new(rd, mul), RegUpdate::new(Reg::CPSR, cpsr)];
+        Ok(updates)
     }
 
-    fn smlal(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn smlal(&self, instr: &ArmInstruction) -> InstrResult<'a> {
         let bd = self.builder;
         let rdlo = instr.get_reg_op(0);
         let rdhi = instr.get_reg_op(1);
@@ -1098,23 +919,23 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let hi_i32 = bd.build_int_truncate(hi, self.i32_t, "hi_i32")?;
 
         if !instr.updates_flags {
-            return Ok(DataProcResult {
-                action: DataProcAction::double(rdhi, hi_i32, rdlo, lo_i32),
-                cpsr: None,
-            });
+            let updates = vec![RegUpdate::new(rdhi, hi_i32), RegUpdate::new(rdlo, lo_i32)];
+            return Ok(updates);
         }
 
         let n = bd.build_int_compare(IntPredicate::SLT, mla_res, imm64!(self, 0), "n")?;
         let z = bd.build_int_compare(IntPredicate::EQ, mla_res, imm64!(self, 0), "z")?;
         let cpsr = self.set_flags(Some(n), Some(z), None, None)?;
 
-        Ok(DataProcResult {
-            action: DataProcAction::double(rdhi, hi_i32, rdlo, lo_i32),
-            cpsr: Some(cpsr),
-        })
+        let updates = vec![
+            RegUpdate::new(rdhi, hi_i32),
+            RegUpdate::new(rdlo, lo_i32),
+            RegUpdate::new(Reg::CPSR, cpsr),
+        ];
+        Ok(updates)
     }
 
-    fn smull(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn smull(&self, instr: &ArmInstruction) -> InstrResult<'a> {
         let bd = self.builder;
         let rdlo = instr.get_reg_op(0);
         let rdhi = instr.get_reg_op(1);
@@ -1134,23 +955,23 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let hi_i32 = bd.build_int_truncate(hi, self.i32_t, "hi_i32")?;
 
         if !instr.updates_flags {
-            return Ok(DataProcResult {
-                action: DataProcAction::double(rdlo, lo_i32, rdhi, hi_i32),
-                cpsr: None,
-            });
+            let updates = vec![RegUpdate::new(rdhi, hi_i32), RegUpdate::new(rdlo, lo_i32)];
+            return Ok(updates);
         }
 
         let n = bd.build_int_compare(IntPredicate::SLT, mul_res, imm64!(self, 0), "n")?;
         let z = bd.build_int_compare(IntPredicate::EQ, mul_res, imm64!(self, 0), "z")?;
         let cpsr = self.set_flags(Some(n), Some(z), None, None)?;
 
-        Ok(DataProcResult {
-            action: DataProcAction::double(rdlo, lo_i32, rdhi, hi_i32),
-            cpsr: Some(cpsr),
-        })
+        let updates = vec![
+            RegUpdate::new(rdhi, hi_i32),
+            RegUpdate::new(rdlo, lo_i32),
+            RegUpdate::new(Reg::CPSR, cpsr),
+        ];
+        Ok(updates)
     }
 
-    fn umlal(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn umlal(&self, instr: &ArmInstruction) -> InstrResult<'a> {
         let bd = self.builder;
         let rdlo = instr.get_reg_op(0);
         let rdhi = instr.get_reg_op(1);
@@ -1178,23 +999,23 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let hi_i32 = bd.build_int_truncate(hi, self.i32_t, "hi_i32")?;
 
         if !instr.updates_flags {
-            return Ok(DataProcResult {
-                action: DataProcAction::double(rdhi, hi_i32, rdlo, lo_i32),
-                cpsr: None,
-            });
+            let updates = vec![RegUpdate::new(rdhi, hi_i32), RegUpdate::new(rdlo, lo_i32)];
+            return Ok(updates);
         }
 
         let n = bd.build_int_compare(IntPredicate::SLT, mla_res, imm64!(self, 0), "n")?;
         let z = bd.build_int_compare(IntPredicate::EQ, mla_res, imm64!(self, 0), "z")?;
         let cpsr = self.set_flags(Some(n), Some(z), None, None)?;
 
-        Ok(DataProcResult {
-            action: DataProcAction::double(rdhi, hi_i32, rdlo, lo_i32),
-            cpsr: Some(cpsr),
-        })
+        let updates = vec![
+            RegUpdate::new(rdhi, hi_i32),
+            RegUpdate::new(rdlo, lo_i32),
+            RegUpdate::new(Reg::CPSR, cpsr),
+        ];
+        Ok(updates)
     }
 
-    fn umull(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn umull(&self, instr: &ArmInstruction) -> InstrResult<'a> {
         let bd = self.builder;
         let rdlo = instr.get_reg_op(0);
         let rdhi = instr.get_reg_op(1);
@@ -1214,32 +1035,30 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let hi_i32 = bd.build_int_truncate(hi, self.i32_t, "hi_i32")?;
 
         if !instr.updates_flags {
-            return Ok(DataProcResult {
-                action: DataProcAction::double(rdlo, lo_i32, rdhi, hi_i32),
-                cpsr: None,
-            });
+            let updates = vec![RegUpdate::new(rdhi, hi_i32), RegUpdate::new(rdlo, lo_i32)];
+            return Ok(updates);
         }
 
         let n = bd.build_int_compare(IntPredicate::SLT, mul_res, imm64!(self, 0), "n")?;
         let z = bd.build_int_compare(IntPredicate::EQ, mul_res, imm64!(self, 0), "z")?;
         let cpsr = self.set_flags(Some(n), Some(z), None, None)?;
 
-        Ok(DataProcResult {
-            action: DataProcAction::double(rdlo, lo_i32, rdhi, hi_i32),
-            cpsr: Some(cpsr),
-        })
+        let updates = vec![
+            RegUpdate::new(rdhi, hi_i32),
+            RegUpdate::new(rdlo, lo_i32),
+            RegUpdate::new(Reg::CPSR, cpsr),
+        ];
+        Ok(updates)
     }
 
-    fn mrs(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn mrs(&self, instr: &ArmInstruction) -> InstrResult<'a> {
         let rd = instr.get_reg_op(0);
         let cpsr = self.reg_map.get(Reg::CPSR);
-        Ok(DataProcResult {
-            action: DataProcAction::single(rd, cpsr),
-            cpsr: None,
-        })
+        let updates = vec![RegUpdate::new(rd, cpsr)];
+        Ok(updates)
     }
 
-    fn msr(&mut self, instr: &ArmInstruction) -> Result<DataProcResult<'a>> {
+    fn msr(&self, instr: &ArmInstruction) -> InstrResult<'a> {
         if instr.operands[0].op_type != ArmOperandType::SysReg(RegId(9)) {
             // SysReg(RegId(9)) seems to correspond to cpsr_fc/spsr_fc, which may be the only way
             // you can call this since in ARMv4 without user mode? I still don't quite understand
@@ -1256,10 +1075,9 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let cpsr = self.reg_map.get(Reg::CPSR);
         let masked = bd.build_and(update_val, imm!(self, 0xf00000ff), "msk")?;
         let keep = bd.build_and(cpsr, imm!(self, 0x0fffff00), "keep")?;
-        Ok(DataProcResult {
-            action: DataProcAction::single(Reg::CPSR, bd.build_or(masked, keep, "or")?),
-            cpsr: None,
-        })
+        let res_val = bd.build_or(masked, keep, "or")?;
+        let updates = vec![RegUpdate::new(Reg::CPSR, res_val)];
+        Ok(updates)
     }
 }
 

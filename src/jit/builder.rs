@@ -61,7 +61,7 @@ macro_rules! exec_instr {
     };
     ($self:ident, $wrapper:ident, $arg:ident, Self::$inner:ident::<$T:ty>) => {
         $self
-            .exec_load_store_conditional(&$arg, Self::$inner::<$T>)
+            .$wrapper(&$arg, Self::$inner::<$T>)
             .with_context(|| format!("{:?}", $arg))
             .expect("LLVM codegen failed")
     };
@@ -85,7 +85,7 @@ use inkwell::execution_engine::ExecutionEngine;
 use inkwell::intrinsics::Intrinsic;
 use inkwell::module::Module;
 use inkwell::types::{IntType, PointerType, StructType, VoidType};
-use inkwell::values::{BasicValueEnum, FunctionValue, PointerValue};
+use inkwell::values::{BasicValueEnum, FunctionValue, IntValue, PointerValue};
 
 use super::{CompiledFunction, FunctionCache};
 use crate::arm::disasm::code_block::CodeBlock;
@@ -163,6 +163,18 @@ pub fn get_intrinsic<'a>(name: &str, module: &Module<'a>) -> Result<FunctionValu
 }
 
 pub fn func_name(addr: usize) -> String { format!("fn_{:#010x}", addr) }
+
+// A register and the value to write to it
+struct RegUpdate<'a> {
+    pub reg: Reg,
+    pub value: IntValue<'a>,
+}
+
+impl<'a> RegUpdate<'a> {
+    pub fn new(reg: Reg, value: IntValue<'a>) -> Self { Self { reg, value } }
+}
+
+type InstrResult<'a> = Result<Vec<RegUpdate<'a>>>;
 
 impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     pub(super) fn new(
@@ -344,6 +356,41 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             }
             bd.build_store(r.state_ptr, r.current_value)?;
         }
+        Ok(())
+    }
+
+    /// Wrapper for all ARM instructions that evaluates cond, conditionally executes the instruction
+    /// and performs register updates as necessary.
+    fn exec_conditional<F>(&mut self, instr: &ArmInstruction, inner: F) -> Result<()>
+    where
+        F: Fn(&Self, &ArmInstruction) -> InstrResult<'a>,
+    {
+        let ctx = self.llvm_ctx;
+        let bd = self.builder;
+        let if_block = ctx.append_basic_block(self.func, "if");
+        let end_block = ctx.append_basic_block(self.func, "end");
+
+        let cond = self.eval_cond(instr.cond)?;
+        bd.build_conditional_branch(cond, if_block, end_block)?;
+        bd.position_at_end(if_block);
+
+        let updates = inner(self, instr)?;
+        bd.build_unconditional_branch(end_block)?;
+        bd.position_at_end(end_block);
+
+        // Inner doesn't touch reg_map so the values in it can be used to get the first option
+        // for the phi values
+        // TODO - jump when updating PC
+        for update in updates {
+            let r_init = self.reg_map.get(update.reg);
+            let r_new = update.value;
+            let phi = bd.build_phi(self.i32_t, "phi")?;
+            phi.add_incoming(&[(&r_init, self.current_block), (&r_new, if_block)]);
+            self.reg_map
+                .update(update.reg, phi.as_basic_value().into_int_value());
+        }
+        self.increment_pc(instr.mode);
+        self.current_block = end_block;
         Ok(())
     }
 

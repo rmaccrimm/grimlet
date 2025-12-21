@@ -4,7 +4,6 @@ use inkwell::values::IntValue;
 use crate::arm::disasm::instruction::ArmInstruction;
 use crate::arm::state::{ArmState, Reg};
 use crate::jit::FunctionBuilder;
-use crate::jit::builder::alu::RegUpdate;
 
 pub struct BranchAction<'a> {
     target: IntValue<'a>,

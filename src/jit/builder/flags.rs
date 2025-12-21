@@ -5,6 +5,7 @@ use capstone::arch::arm::ArmCC;
 use inkwell::IntPredicate;
 use inkwell::values::IntValue;
 
+use crate::arm::disasm::instruction::ArmInstruction;
 use crate::jit::FunctionBuilder;
 
 // A bitmask for a flag, and its name
