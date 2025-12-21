@@ -6,7 +6,7 @@ use crate::arm::disasm::instruction::{ArmInstruction, MemOffset, MemOperand, Wri
 use crate::arm::state::Reg;
 use crate::arm::state::memory::{MainMemory, MemReadable, MemWriteable};
 use crate::jit::builder::flags::C;
-use crate::jit::builder::{FunctionBuilder, RegUpdate};
+use crate::jit::builder::{FunctionBuilder, InstrResult, RegUpdate};
 
 /// Result of addressing mode calculation for single loads/stores
 struct AddrMode<'a> {
@@ -85,6 +85,12 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
     pub(super) fn arm_pop(&mut self, instr: ArmInstruction) {
         exec_instr!(self, exec_conditional, instr, Self::pop)
+    }
+
+    /// Not a real ARMv4 instruction, but Capstone decodes some instrutions like
+    /// `ldr r0, =label` to this
+    pub(super) fn arm_adr(&mut self, instr: ArmInstruction) {
+        exec_instr!(self, exec_conditional, instr, Self::adr)
     }
 
     fn addressing_mode(&self, mem_op: &MemOperand) -> Result<AddrMode<'a>> {
@@ -518,6 +524,15 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             reg: Reg::SP,
             value: addr,
         });
+        Ok(updates)
+    }
+
+    fn adr(&self, instr: &ArmInstruction) -> InstrResult<'a> {
+        let bd = self.builder;
+        let rd = instr.get_reg_op(0);
+        let pc_offset = instr.get_imm_op(1);
+        let addr = bd.build_int_add(self.reg_map.get(Reg::PC), imm!(self, pc_offset), "adr")?;
+        let updates = vec![RegUpdate::new(rd, addr)];
         Ok(updates)
     }
 }

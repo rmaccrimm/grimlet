@@ -91,7 +91,6 @@ use super::{CompiledFunction, FunctionCache};
 use crate::arm::disasm::code_block::CodeBlock;
 use crate::arm::disasm::instruction::ArmInstruction;
 use crate::arm::state::{ArmMode, NUM_REGS, Reg};
-use crate::jit::builder::branch::BranchAction;
 use crate::jit::builder::reg_map::{RegMap, RegMapItem};
 
 macro_rules! unimpl_instr {
@@ -417,6 +416,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         match instr.opcode {
             ArmInsn::ARM_INS_ADC => self.arm_adc(instr),
             ArmInsn::ARM_INS_ADD => self.arm_add(instr),
+            ArmInsn::ARM_INS_ADR => self.arm_adr(instr),
             ArmInsn::ARM_INS_AND => self.arm_and(instr),
             ArmInsn::ARM_INS_ASR => unimpl_instr!(instr, "ASR"),
             ArmInsn::ARM_INS_B => self.arm_b(instr),

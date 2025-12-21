@@ -4,12 +4,14 @@
     bx r0
 thumb:
     .thumb
-    mov r1, #1
-    ldr r0, =end
-    bx r0.
-end:
+    ldr r0, =exit
+    bx r0
+exit:
     .align 4
     .arm
+    mov r1, #1
+    b end
+end:
     nop
 .pool
 .end

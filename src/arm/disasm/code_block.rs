@@ -37,6 +37,7 @@ impl CodeBlock {
         let mut regs_accessed = HashSet::new();
 
         for instr in instr_iter {
+            println!("ITER {}", instr);
             instrs.push(instr);
             let instr = instrs.last().unwrap();
             for a in instr.operands.iter() {
