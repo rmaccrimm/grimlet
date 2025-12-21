@@ -55,3 +55,15 @@ fn test_basic_load_store() {
 
     assert_eq!(emulator.state.regs[Reg::SP], 0x4000 - (4 * num_asserts));
 }
+
+#[test]
+fn test_bx() {
+    let disasm = Disassembler::default();
+    let mut emulator = Emulator::new(disasm);
+    emulator
+        .load_rom("tests/programs/bx.gba", CART_START_ADDR)
+        .unwrap();
+    let exit = |st: &ArmState| -> bool { st.regs[Reg::R1] == 1 };
+    emulator.state.jump_to(CART_START_ADDR, false);
+    emulator.run(exit, Some(DebugOutput::Assembly));
+}

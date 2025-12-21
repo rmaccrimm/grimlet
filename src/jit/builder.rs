@@ -426,6 +426,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::sync::mpsc;
 
     use super::*;
     use crate::arm::state::{ArmState, REG_ITEMS, Reg};
@@ -443,7 +444,8 @@ mod tests {
     fn test_jump_to_external() {
         // End result is:
         // pc <- r15 + r9
-        let mut state = ArmState::default();
+        let (tx, _) = mpsc::channel();
+        let mut state = ArmState::new(tx);
         for i in 0..NUM_REGS {
             state.regs[i] = (i * i) as u32;
         }
@@ -491,7 +493,8 @@ mod tests {
         // f2:
         //   r0 <- 999
         //   f1()
-        let mut state = ArmState::default();
+        let (tx, _) = mpsc::channel();
+        let mut state = ArmState::new(tx);
         for i in 0..NUM_REGS {
             state.regs[i] = (i * i) as u32;
         }
@@ -572,7 +575,8 @@ mod tests {
 
     #[test]
     fn test_call_intrinsic() {
-        let mut state = ArmState::default();
+        let (tx, _) = mpsc::channel();
+        let mut state = ArmState::new(tx);
         let context = Context::create();
         let mut comp = Compiler::new(&context);
         let mut f = comp.new_function(0, None);

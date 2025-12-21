@@ -1,0 +1,15 @@
+.begin
+    .arm
+    ldr r0, =thumb
+    bx r0
+thumb:
+    .thumb
+    mov r1, #1
+    ldr r0, =end
+    bx r0
+end:
+    .align 4
+    .arm
+    nop
+.pool
+.end

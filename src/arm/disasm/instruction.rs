@@ -19,7 +19,6 @@ pub struct ArmInstruction {
     pub mode: ArmMode,
     pub updates_flags: bool,
     pub writeback: bool,
-    pub binary: u32,
 }
 
 pub enum ShifterOperand {
@@ -66,7 +65,6 @@ impl Default for ArmInstruction {
             mode: ArmMode::ARM,
             updates_flags: true,
             writeback: false,
-            binary: 0,
         }
     }
 }
@@ -107,7 +105,6 @@ impl ArmInstruction {
             mode,
             updates_flags: arm_detail.update_flags(),
             writeback: arm_detail.writeback(),
-            binary: u32::from_le_bytes(insn.bytes().try_into().expect("failed to read bytes")),
         }
     }
 

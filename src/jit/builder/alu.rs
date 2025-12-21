@@ -1265,6 +1265,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::mpsc;
 
     use capstone::RegId;
     use capstone::arch::arm::{ArmReg, ArmShift};
@@ -1298,9 +1299,10 @@ mod tests {
             f.write_state_out().unwrap();
             f.builder.build_return(None).unwrap();
             let f = f.compile().unwrap();
+            let (tx, _) = mpsc::channel();
             Self {
                 f,
-                state: ArmState::default(),
+                state: ArmState::new(tx),
             }
         }
 
@@ -1617,7 +1619,8 @@ mod tests {
                 f.builder.build_return(None).unwrap();
                 let f = f.compile().unwrap();
 
-                let mut state = ArmState::default();
+                let (tx, _) = mpsc::channel();
+                let mut state = ArmState::new(tx);
                 if c_set {
                     state.regs[Reg::CPSR] |= C.0;
                 }

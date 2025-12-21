@@ -1,10 +1,12 @@
 pub mod memory;
 
 use std::ops::{Index, IndexMut};
+use std::sync::mpsc::Sender;
 
 use capstone::arch::arm::ArmReg;
 
 use crate::arm::state::memory::MainMemory;
+use crate::emulator::SystemMessage;
 
 /// Emulated CPU state (and interpreter?)
 #[repr(C)]
@@ -12,6 +14,7 @@ pub struct ArmState {
     pub current_mode: ArmMode,
     pub regs: [u32; NUM_REGS],
     pub mem: MainMemory,
+    tx: Sender<SystemMessage>,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -109,19 +112,18 @@ impl ArmMode {
     }
 }
 
-impl Default for ArmState {
-    fn default() -> Self {
+impl ArmState {
+    pub fn new(tx: Sender<SystemMessage>) -> Self {
         let mut regs = [0; NUM_REGS];
         regs[Reg::PC] = 8; // 2 instructions ahead
         Self {
             current_mode: ArmMode::ARM,
             regs,
             mem: MainMemory::default(),
+            tx,
         }
     }
-}
 
-impl ArmState {
     pub fn curr_instr_addr(&self) -> usize {
         (self.regs[Reg::PC] - self.current_mode.pc_byte_offset()) as usize
     }
@@ -133,7 +135,10 @@ impl ArmState {
             self.current_mode = match self.current_mode {
                 ArmMode::ARM => ArmMode::THUMB,
                 ArmMode::THUMB => ArmMode::ARM,
-            }
+            };
+            self.tx
+                .send(SystemMessage::ChangeMode(self.current_mode))
+                .expect("channel was closed");
         }
     }
 }

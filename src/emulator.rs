@@ -1,17 +1,25 @@
 use std::fs::{self, File};
 use std::io::{BufReader, Read};
+use std::sync::mpsc::{self, Receiver, TryRecvError, channel};
 
 use anyhow::{Result, bail};
 use inkwell::context::Context;
 
 use crate::arm::disasm::Disasm;
-use crate::arm::state::ArmState;
+use crate::arm::state::{ArmMode, ArmState};
 use crate::jit::{Compiler, FunctionCache};
+
+/// Currently only signals a change from ARM to THUMB and vice-versa, but I'm thinking this will
+/// be useful in handling things like memory mapped IOa
+pub enum SystemMessage {
+    ChangeMode(ArmMode),
+}
 
 pub struct Emulator {
     pub state: ArmState,
     llvm_ctx: Context,
     disasm: Box<dyn Disasm>,
+    rx: Receiver<SystemMessage>,
 }
 
 /// Print codeblocks before running
@@ -22,12 +30,14 @@ pub enum DebugOutput {
 
 impl Emulator {
     pub fn new(disasm: impl Disasm + 'static) -> Self {
-        let state = ArmState::default();
+        let (tx, rx) = mpsc::channel();
+        let state = ArmState::new(tx);
         let llvm_ctx = Context::create();
         Self {
             state,
             disasm: Box::new(disasm),
             llvm_ctx,
+            rx,
         }
     }
 
@@ -57,6 +67,16 @@ impl Emulator {
                 // compiler.dump().unwrap();
                 break;
             }
+            match self.rx.try_recv() {
+                Ok(msg) => match msg {
+                    SystemMessage::ChangeMode(arm_mode) => {
+                        self.disasm.set_mode(arm_mode);
+                    }
+                },
+                Err(TryRecvError::Disconnected) => panic!("channel was disconnected"),
+                Err(TryRecvError::Empty) => (),
+            }
+
             let instr_addr = self.state.curr_instr_addr();
             let func = match func_cache.get(&instr_addr) {
                 Some(func) => func,
@@ -101,8 +121,8 @@ mod tests {
     use super::*;
     use crate::arm::disasm::code_block::CodeBlock;
     use crate::arm::disasm::instruction::ArmInstruction;
-    use crate::arm::state::Reg;
     use crate::arm::state::memory::MainMemory;
+    use crate::arm::state::{ArmMode, Reg};
     pub struct VecDisassembler {
         pub program: Vec<ArmInstruction>,
     }
@@ -123,6 +143,10 @@ mod tests {
                 self.program[ind..].iter().cloned(),
                 addr,
             ))
+        }
+
+        fn set_mode(&mut self, _mode: ArmMode) {
+            // Does nothing
         }
     }
 

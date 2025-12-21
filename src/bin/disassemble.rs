@@ -3,8 +3,8 @@ use std::process::{Command, Stdio};
 
 use anyhow::{Result, bail};
 use clap::Parser;
+use grimlet::arm::disasm::{Disasm as _, Disassembler};
 use grimlet::arm::state::ArmMode;
-use grimlet::arm::disasm::Disassembler;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about=None)]
@@ -52,7 +52,7 @@ fn main() -> Result<()> {
         let mut ds = Disassembler::default();
 
         let bytes = if args.thumb_mode {
-            ds.set_mode(ArmMode::THUMB).unwrap();
+            ds.set_mode(ArmMode::THUMB);
             println!(
                 "Binary: {:#04x}",
                 u16::from_le_bytes(bin[0..2].try_into().unwrap())

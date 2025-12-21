@@ -97,7 +97,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     fn bx(&self, instr: &ArmInstruction) -> Result<BranchAction<'a>> {
         // TODO reg
         Ok(BranchAction {
-            target: imm!(self, instr.get_imm_op(0)),
+            target: self.reg_map.get(instr.get_reg_op(0)),
             save_return: false,
             change_mode: true,
         })

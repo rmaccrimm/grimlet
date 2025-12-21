@@ -113,6 +113,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
+    use std::sync::mpsc;
 
     use anyhow::Result;
     use inkwell::context::Context;
@@ -131,7 +132,8 @@ mod tests {
 
     #[test]
     fn test_set_flags() -> Result<()> {
-        let mut state = ArmState::default();
+        let (tx, _) = mpsc::channel();
+        let mut state = ArmState::new(tx);
         for i in 0..8 {
             state.regs[i] = i as u32;
         }

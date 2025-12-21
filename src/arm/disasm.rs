@@ -14,6 +14,8 @@ use crate::arm::state::memory::MainMemory;
 /// an actual binary.
 pub trait Disasm {
     fn next_code_block(&self, mem: &MainMemory, addr: usize) -> Result<CodeBlock>;
+
+    fn set_mode(&mut self, mode: ArmMode);
 }
 
 // Produces CodeBlocks from in-memory program
@@ -34,15 +36,6 @@ impl Disassembler {
             .first()
             .expect("Capstone returned no instructions");
         ArmInstruction::from_cs_insn(&self.cs, i, self.current_mode)
-    }
-
-    pub fn set_mode(&mut self, mode: ArmMode) -> Result<()> {
-        self.current_mode = mode;
-        match mode {
-            ArmMode::ARM => self.cs.set_mode(capstone::Mode::Arm)?,
-            ArmMode::THUMB => self.cs.set_mode(capstone::Mode::Thumb)?,
-        }
-        Ok(())
     }
 }
 
@@ -72,5 +65,16 @@ impl Disasm for Disassembler {
                 self.disasm_single(ch, addr)
             });
         Ok(CodeBlock::from_instructions(instr_iter, start_addr))
+    }
+
+    fn set_mode(&mut self, mode: ArmMode) {
+        self.current_mode = mode;
+        let res = try {
+            match mode {
+                ArmMode::ARM => self.cs.set_mode(capstone::Mode::Arm)?,
+                ArmMode::THUMB => self.cs.set_mode(capstone::Mode::Thumb)?,
+            }
+        };
+        res.expect("error while updating capstone mode");
     }
 }
