@@ -75,11 +75,11 @@ mod reg_map;
 
 use std::collections::{HashMap, HashSet};
 
-use anyhow::{Result, anyhow};
+use anyhow::{Result as AnyResult, anyhow};
 use capstone::arch::arm::ArmInsn;
 use inkwell::AddressSpace;
 use inkwell::basic_block::BasicBlock;
-use inkwell::builder::Builder;
+use inkwell::builder::{Builder, BuilderError};
 use inkwell::context::Context;
 use inkwell::execution_engine::ExecutionEngine;
 use inkwell::intrinsics::Intrinsic;
@@ -145,7 +145,7 @@ where
     fshr: FunctionValue<'a>,
 }
 
-pub(super) fn get_ptr_param<'a>(func: &FunctionValue<'a>, i: usize) -> Result<PointerValue<'a>> {
+pub(super) fn get_ptr_param<'a>(func: &FunctionValue<'a>, i: usize) -> AnyResult<PointerValue<'a>> {
     func.get_nth_param(i as u32)
         .ok_or(anyhow!(
             "{} signature has no parameter {}",
@@ -155,7 +155,7 @@ pub(super) fn get_ptr_param<'a>(func: &FunctionValue<'a>, i: usize) -> Result<Po
         .map(BasicValueEnum::into_pointer_value)
 }
 
-pub fn get_intrinsic<'a>(name: &str, module: &Module<'a>) -> Result<FunctionValue<'a>> {
+pub fn get_intrinsic<'a>(name: &str, module: &Module<'a>) -> AnyResult<FunctionValue<'a>> {
     Intrinsic::find(name)
         .ok_or(anyhow!("could not find intrinsic '{}'", name))?
         .get_declaration(module, &[module.get_context().i32_type().into()])
@@ -174,7 +174,8 @@ impl<'a> RegUpdate<'a> {
     pub fn new(reg: Reg, value: IntValue<'a>) -> Self { Self { reg, value } }
 }
 
-type InstrResult<'a> = Result<Vec<RegUpdate<'a>>>;
+// Instructions return a list of register updates to (conditionally) perform
+type InstrResult<'a> = AnyResult<Vec<RegUpdate<'a>>>;
 
 impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     pub(super) fn new(
@@ -185,7 +186,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         execution_engine: &'a ExecutionEngine<'ctx>,
         func_cache: Option<&'a FunctionCache<'ctx>>,
     ) -> Self {
-        let build = || -> Result<Self> {
+        let build = || -> AnyResult<Self> {
             let bd = builder;
 
             let name = func_name(addr);
@@ -265,7 +266,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         self
     }
 
-    pub fn compile(self) -> Result<CompiledFunction<'ctx>> {
+    pub fn compile(self) -> AnyResult<CompiledFunction<'ctx>> {
         if self.func.verify(true) {
             unsafe { Ok(self.execution_engine.get_function(&self.name)?) }
         } else {
@@ -273,7 +274,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         }
     }
 
-    fn load_initial_reg_values(&mut self, regs_read: &HashSet<Reg>) -> Result<()> {
+    fn load_initial_reg_values(&mut self, regs_read: &HashSet<Reg>) -> AnyResult<()> {
         let bd = self.builder;
         for &r in regs_read.iter() {
             let i = r as usize;
@@ -306,7 +307,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         );
     }
 
-    fn get_external_func_pointer(&self, func_addr: usize) -> Result<PointerValue<'a>> {
+    fn get_external_func_pointer(&self, func_addr: usize) -> AnyResult<PointerValue<'a>> {
         let ee = &self.execution_engine;
         let func_ptr = self.builder.build_int_to_ptr(
             self.llvm_ctx
@@ -318,7 +319,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         Ok(func_ptr)
     }
 
-    fn get_compiled_func_pointer(&self, key: usize) -> Result<Option<PointerValue<'a>>> {
+    fn get_compiled_func_pointer(&self, key: usize) -> AnyResult<Option<PointerValue<'a>>> {
         // TODO sort out which int type to use where
         match self.func_cache {
             None => Ok(None),
@@ -347,7 +348,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     /// When context switching, write out the latest values in reg_map to the guest state
-    fn write_state_out(&self) -> Result<()> {
+    fn write_state_out(&self) -> AnyResult<()> {
         let bd = &self.builder;
         let items: Vec<RegMapItem> = self.reg_map.items.iter().flatten().cloned().collect();
         for r in items {
@@ -361,7 +362,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
     /// Wrapper for all ARM instructions that evaluates cond, conditionally executes the instruction
     /// and performs register updates as necessary.
-    fn exec_conditional<F>(&mut self, instr: &ArmInstruction, inner: F) -> Result<()>
+    fn exec_conditional<F>(&mut self, instr: &ArmInstruction, inner: F) -> AnyResult<()>
     where
         F: Fn(&Self, &ArmInstruction) -> InstrResult<'a>,
     {

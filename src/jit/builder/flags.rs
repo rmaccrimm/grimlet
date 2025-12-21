@@ -1,11 +1,10 @@
 use std::iter::zip;
 
-use anyhow::{Result, bail};
+use anyhow::{Result as AnyResult, bail};
 use capstone::arch::arm::ArmCC;
 use inkwell::IntPredicate;
 use inkwell::values::IntValue;
 
-use crate::arm::disasm::instruction::ArmInstruction;
 use crate::jit::FunctionBuilder;
 
 // A bitmask for a flag, and its name
@@ -18,7 +17,7 @@ pub(super) const Z: Flag = Flag(1 << 30, "z");
 pub(super) const N: Flag = Flag(1 << 31, "n");
 
 impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
-    pub(super) fn eval_cond(&mut self, cond: ArmCC) -> Result<IntValue<'a>> {
+    pub(super) fn eval_cond(&mut self, cond: ArmCC) -> AnyResult<IntValue<'a>> {
         let bd = self.builder;
         let cond = match cond {
             ArmCC::ARM_CC_AL => self.llvm_ctx.bool_type().const_int(1, false),
@@ -54,7 +53,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     /// Returns i1 IntValue
-    pub(super) fn get_flag(&self, flag: Flag) -> Result<IntValue<'a>> {
+    pub(super) fn get_flag(&self, flag: Flag) -> AnyResult<IntValue<'a>> {
         let masked = self.builder.build_and(
             self.reg_map.cpsr(),
             self.i32_t.const_int(flag.0 as u64, false),
@@ -69,7 +68,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     /// Returns i1 IntValue
-    pub(super) fn get_neg_flag(&self, flag: Flag) -> Result<IntValue<'a>> {
+    pub(super) fn get_neg_flag(&self, flag: Flag) -> AnyResult<IntValue<'a>> {
         let f = self.get_flag(flag)?;
         let nf = self.builder.build_not(f, &format!("not_{}", flag.1))?;
         Ok(nf)
@@ -80,7 +79,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         flag: Flag,
         initial: IntValue<'a>,
         cond: IntValue<'a>,
-    ) -> Result<IntValue<'a>> {
+    ) -> AnyResult<IntValue<'a>> {
         // From Stanford's bithacks page - conditionally set or clear bits without branching
         let bd = self.builder;
         let f = bd.build_int_cast_sign_flag(cond, self.i32_t, false, "f")?;
@@ -100,7 +99,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         z: Option<IntValue<'a>>,
         c: Option<IntValue<'a>>,
         v: Option<IntValue<'a>>,
-    ) -> Result<IntValue<'a>> {
+    ) -> AnyResult<IntValue<'a>> {
         let mut cpsr = self.reg_map.cpsr();
         for (flag, cond) in zip([N, Z, C, V], [n, z, c, v]) {
             if let Some(v) = cond {
@@ -116,7 +115,6 @@ mod tests {
     use std::collections::HashSet;
     use std::sync::mpsc;
 
-    use anyhow::Result;
     use inkwell::context::Context;
 
     use super::*;
@@ -132,7 +130,7 @@ mod tests {
     }
 
     #[test]
-    fn test_set_flags() -> Result<()> {
+    fn test_set_flags() -> AnyResult<()> {
         let (tx, _) = mpsc::channel();
         let mut state = ArmState::new(tx);
         for i in 0..8 {

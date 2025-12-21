@@ -1,4 +1,4 @@
-use anyhow::{Context as _, Result, anyhow};
+use anyhow::{Context as _, Result as AnyResult, anyhow};
 use capstone::RegId;
 use capstone::arch::arm::{ArmOperandType, ArmShift};
 use inkwell::IntPredicate;
@@ -112,7 +112,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     fn shifter_operand(
         &self,
         operand: ShifterOperand,
-    ) -> Result<(IntValue<'a>, Option<IntValue<'a>>)> {
+    ) -> AnyResult<(IntValue<'a>, Option<IntValue<'a>>)> {
         let bd = self.builder;
         let one = imm!(self, 1);
         let zero = self.i32_t.const_zero();

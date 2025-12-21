@@ -1,11 +1,11 @@
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result as AnyResult};
 use inkwell::values::IntValue;
 
 use crate::arm::disasm::instruction::ArmInstruction;
 use crate::arm::state::{ArmState, Reg};
 use crate::jit::FunctionBuilder;
 
-pub struct BranchAction<'a> {
+pub(super) struct BranchAction<'a> {
     target: IntValue<'a>,
     save_return: bool,
     change_mode: bool,
@@ -13,9 +13,9 @@ pub struct BranchAction<'a> {
 
 impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     // Either executes the branch built by `inner`, or increments the PC and exits the function
-    fn exec_branch_conditional<F>(&mut self, instr: &ArmInstruction, inner: F) -> Result<()>
+    fn exec_branch_conditional<F>(&mut self, instr: &ArmInstruction, inner: F) -> AnyResult<()>
     where
-        F: Fn(&Self, &ArmInstruction) -> Result<BranchAction<'a>>,
+        F: Fn(&Self, &ArmInstruction) -> AnyResult<BranchAction<'a>>,
     {
         let mode = instr.mode;
         let ctx = self.llvm_ctx;
@@ -77,7 +77,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         exec_instr!(self, exec_branch_conditional, instr, Self::bx);
     }
 
-    fn b(&self, instr: &ArmInstruction) -> Result<BranchAction<'a>> {
+    fn b(&self, instr: &ArmInstruction) -> AnyResult<BranchAction<'a>> {
         Ok(BranchAction {
             target: imm!(self, instr.get_imm_op(0)),
             save_return: false,
@@ -85,7 +85,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         })
     }
 
-    fn bl(&self, instr: &ArmInstruction) -> Result<BranchAction<'a>> {
+    fn bl(&self, instr: &ArmInstruction) -> AnyResult<BranchAction<'a>> {
         Ok(BranchAction {
             target: imm!(self, instr.get_imm_op(0)),
             save_return: true,
@@ -93,7 +93,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         })
     }
 
-    fn bx(&self, instr: &ArmInstruction) -> Result<BranchAction<'a>> {
+    fn bx(&self, instr: &ArmInstruction) -> AnyResult<BranchAction<'a>> {
         // TODO reg
         Ok(BranchAction {
             target: self.reg_map.get(instr.get_reg_op(0)),

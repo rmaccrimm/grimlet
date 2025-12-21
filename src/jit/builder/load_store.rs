@@ -1,4 +1,4 @@
-use anyhow::{Context as _, Result, anyhow, bail};
+use anyhow::{Context as _, Result as AnyResult, anyhow, bail};
 use capstone::arch::arm::ArmShift;
 use inkwell::values::IntValue;
 
@@ -87,7 +87,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         exec_instr!(self, exec_conditional, instr, Self::pop)
     }
 
-    fn addressing_mode(&self, mem_op: &MemOperand) -> Result<AddrMode<'a>> {
+    fn addressing_mode(&self, mem_op: &MemOperand) -> AnyResult<AddrMode<'a>> {
         let bd = self.builder;
         let base_val = self.reg_map.get(mem_op.base);
 
@@ -134,7 +134,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         Ok(addr_mode)
     }
 
-    fn imm_shift(&self, value: IntValue<'a>, shift: ArmShift) -> Result<IntValue<'a>> {
+    fn imm_shift(&self, value: IntValue<'a>, shift: ArmShift) -> AnyResult<IntValue<'a>> {
         let bd = self.builder;
         let shifted = match shift {
             ArmShift::Invalid => Ok(value),
@@ -171,7 +171,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         Ok(shifted)
     }
 
-    fn ldr<T>(&self, instr: &ArmInstruction) -> Result<Vec<RegUpdate<'a>>>
+    fn ldr<T>(&self, instr: &ArmInstruction) -> AnyResult<Vec<RegUpdate<'a>>>
     where
         T: MemReadable,
     {
@@ -198,7 +198,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         Ok(updates)
     }
 
-    fn ldmia(&self, instr: &ArmInstruction) -> Result<Vec<RegUpdate<'a>>> {
+    fn ldmia(&self, instr: &ArmInstruction) -> AnyResult<Vec<RegUpdate<'a>>> {
         let bd = self.builder;
         let rn = instr.get_reg_op(0);
         let base_addr = self.reg_map.get(rn);
@@ -227,7 +227,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         Ok(updates)
     }
 
-    fn ldmib(&self, instr: &ArmInstruction) -> Result<Vec<RegUpdate<'a>>> {
+    fn ldmib(&self, instr: &ArmInstruction) -> AnyResult<Vec<RegUpdate<'a>>> {
         let bd = self.builder;
         let rn = instr.get_reg_op(0);
         let base_addr = self.reg_map.get(rn);
@@ -256,7 +256,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         Ok(updates)
     }
 
-    fn ldmda(&self, instr: &ArmInstruction) -> Result<Vec<RegUpdate<'a>>> {
+    fn ldmda(&self, instr: &ArmInstruction) -> AnyResult<Vec<RegUpdate<'a>>> {
         let bd = self.builder;
         let rn = instr.get_reg_op(0);
         let base_addr = self.reg_map.get(rn);
@@ -286,7 +286,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         Ok(updates)
     }
 
-    fn ldmdb(&self, instr: &ArmInstruction) -> Result<Vec<RegUpdate<'a>>> {
+    fn ldmdb(&self, instr: &ArmInstruction) -> AnyResult<Vec<RegUpdate<'a>>> {
         let bd = self.builder;
         let rn = instr.get_reg_op(0);
         let base_addr = self.reg_map.get(rn);
@@ -315,7 +315,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         Ok(updates)
     }
 
-    fn str<T>(&self, instr: &ArmInstruction) -> Result<Vec<RegUpdate<'a>>>
+    fn str<T>(&self, instr: &ArmInstruction) -> AnyResult<Vec<RegUpdate<'a>>>
     where
         T: MemWriteable,
     {
@@ -345,7 +345,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         })
     }
 
-    fn stmia(&self, instr: &ArmInstruction) -> Result<Vec<RegUpdate<'a>>> {
+    fn stmia(&self, instr: &ArmInstruction) -> AnyResult<Vec<RegUpdate<'a>>> {
         let bd = self.builder;
         let rn = instr.get_reg_op(0);
         let base_addr = self.reg_map.get(rn);
@@ -375,7 +375,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         Ok(updates)
     }
 
-    fn stmib(&self, instr: &ArmInstruction) -> Result<Vec<RegUpdate<'a>>> {
+    fn stmib(&self, instr: &ArmInstruction) -> AnyResult<Vec<RegUpdate<'a>>> {
         let bd = self.builder;
         let rn = instr.get_reg_op(0);
         let base_addr = self.reg_map.get(rn);
@@ -405,7 +405,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         Ok(updates)
     }
 
-    fn stmda(&self, instr: &ArmInstruction) -> Result<Vec<RegUpdate<'a>>> {
+    fn stmda(&self, instr: &ArmInstruction) -> AnyResult<Vec<RegUpdate<'a>>> {
         let bd = self.builder;
         let rn = instr.get_reg_op(0);
         let base_addr = self.reg_map.get(rn);
@@ -436,7 +436,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         Ok(updates)
     }
 
-    fn stmdb(&self, instr: &ArmInstruction) -> Result<Vec<RegUpdate<'a>>> {
+    fn stmdb(&self, instr: &ArmInstruction) -> AnyResult<Vec<RegUpdate<'a>>> {
         let bd = self.builder;
         let rn = instr.get_reg_op(0);
         let base_addr = self.reg_map.get(rn);
@@ -467,7 +467,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     // Identical to stmdb but first SP operand and writeback flag are excluded by disassembler
-    fn push(&self, instr: &ArmInstruction) -> Result<Vec<RegUpdate<'a>>> {
+    fn push(&self, instr: &ArmInstruction) -> AnyResult<Vec<RegUpdate<'a>>> {
         let bd = self.builder;
         let base_addr = self.reg_map.get(Reg::SP);
         let reg_list = instr.get_reg_list(0)?;
@@ -495,7 +495,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     // Identical to ldmia but first SP operand and writeback flag are excluded by disassembler
-    fn pop(&self, instr: &ArmInstruction) -> Result<Vec<RegUpdate<'a>>> {
+    fn pop(&self, instr: &ArmInstruction) -> AnyResult<Vec<RegUpdate<'a>>> {
         let bd = self.builder;
         let base_addr = self.reg_map.get(Reg::SP);
         let reg_list = instr.get_reg_list(0)?;
