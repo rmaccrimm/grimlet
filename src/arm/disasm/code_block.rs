@@ -21,8 +21,9 @@ impl CodeBlock {
     ) -> Self {
         let mut instrs = Vec::new();
         let mut regs_accessed = HashSet::new();
-        // always need the pc
+        // always need the pc, and usually need cpsr
         regs_accessed.insert(Reg::PC);
+        regs_accessed.insert(Reg::CPSR);
 
         for instr in instr_iter {
             instrs.push(instr);

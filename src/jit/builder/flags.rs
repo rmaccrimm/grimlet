@@ -5,6 +5,7 @@ use capstone::arch::arm::ArmCC;
 use inkwell::IntPredicate;
 use inkwell::values::IntValue;
 
+use crate::arm::state::Reg;
 use crate::jit::FunctionBuilder;
 
 // A bitmask for a flag, and its name
@@ -55,7 +56,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     /// Returns i1 IntValue
     pub(super) fn get_flag(&self, flag: Flag) -> Result<IntValue<'a>> {
         let masked = self.builder.build_and(
-            self.reg_map.cpsr(),
+            self.reg_map.get(Reg::CPSR),
             self.i32_t.const_int(flag.0 as u64, false),
             "flag",
         )?;
@@ -100,7 +101,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         c: Option<IntValue<'a>>,
         v: Option<IntValue<'a>>,
     ) -> Result<IntValue<'a>> {
-        let mut cpsr = self.reg_map.cpsr();
+        let mut cpsr = self.reg_map.get(Reg::CPSR);
         for (flag, cond) in zip([N, Z, C, V], [n, z, c, v]) {
             if let Some(v) = cond {
                 cpsr = self.set_flag(flag, cpsr, v)?;
@@ -152,21 +153,21 @@ mod tests {
         let f = bool_t.const_zero();
         let t = bool_t.const_int(1, false);
         func.reg_map
-            .update(Reg::R0, func.set_flag(V, func.reg_map.r0(), t)?);
+            .update(Reg::R0, func.set_flag(V, func.reg_map.get(Reg::R0), t)?);
         func.reg_map
-            .update(Reg::R1, func.set_flag(V, func.reg_map.r1(), f)?);
+            .update(Reg::R1, func.set_flag(V, func.reg_map.get(Reg::R1), f)?);
         func.reg_map
-            .update(Reg::R2, func.set_flag(V, func.reg_map.r2(), t)?);
+            .update(Reg::R2, func.set_flag(V, func.reg_map.get(Reg::R2), t)?);
         func.reg_map
-            .update(Reg::R3, func.set_flag(V, func.reg_map.r3(), f)?);
+            .update(Reg::R3, func.set_flag(V, func.reg_map.get(Reg::R3), f)?);
         func.reg_map
-            .update(Reg::R4, func.set_flag(N, func.reg_map.r4(), t)?);
+            .update(Reg::R4, func.set_flag(N, func.reg_map.get(Reg::R4), t)?);
         func.reg_map
-            .update(Reg::R5, func.set_flag(N, func.reg_map.r5(), f)?);
+            .update(Reg::R5, func.set_flag(N, func.reg_map.get(Reg::R5), f)?);
         func.reg_map
-            .update(Reg::R6, func.set_flag(N, func.reg_map.r6(), t)?);
+            .update(Reg::R6, func.set_flag(N, func.reg_map.get(Reg::R6), t)?);
         func.reg_map
-            .update(Reg::R7, func.set_flag(N, func.reg_map.r7(), f)?);
+            .update(Reg::R7, func.set_flag(N, func.reg_map.get(Reg::R7), f)?);
         func.write_state_out(&func.reg_map).unwrap();
         func.builder.build_return(None).unwrap();
         compile_and_run!(comp, func, state);

@@ -87,7 +87,7 @@ use inkwell::module::Module;
 use inkwell::types::{IntType, PointerType, StructType, VoidType};
 use inkwell::values::{BasicValueEnum, FunctionValue, IntValue, PointerValue};
 
-use super::{CompiledFunction, FunctionCache};
+use super::CompiledFunction;
 use crate::arm::disasm::code_block::CodeBlock;
 use crate::arm::disasm::instruction::ArmInstruction;
 use crate::arm::state::{ArmMode, NUM_REGS, Reg};
@@ -222,10 +222,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         build().expect("Function initialization failed")
     }
 
-    pub fn build_body(mut self, mut code_block: CodeBlock) -> Self {
-        // slightly hacky, just always load these 2 for simplicity
-        code_block.regs_accessed.insert(Reg::CPSR);
-        code_block.regs_accessed.insert(Reg::PC);
+    pub fn build_body(mut self, code_block: CodeBlock) -> Self {
         self.load_initial_reg_values(&code_block.regs_accessed)
             .expect("initial register load failed");
         for instr in code_block.instrs {
@@ -262,7 +259,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     fn increment_pc(&mut self, mode: ArmMode) {
-        let curr_pc = self.reg_map.pc();
+        let curr_pc = self.reg_map.get(Reg::PC);
         let step = mode.instr_size();
         self.reg_map.update(
             Reg::PC,
@@ -389,9 +386,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             ArmInsn::ARM_INS_MUL => self.arm_mul(instr),
             ArmInsn::ARM_INS_MVN => self.arm_mvn(instr),
             ArmInsn::ARM_INS_ORR => self.arm_orr(instr),
-            // ldmia sp! gets decoded with POP mnemonic
             ArmInsn::ARM_INS_POP => self.arm_pop(instr),
-            // stmdb sp! gets decoded with PUSH mnemonic
             ArmInsn::ARM_INS_PUSH => self.arm_push(instr),
             ArmInsn::ARM_INS_ROR => unimpl_instr!(instr, "ROR"),
             ArmInsn::ARM_INS_RRX => unimpl_instr!(instr, "RRX"),
@@ -404,14 +399,10 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             ArmInsn::ARM_INS_STM => self.arm_stmia(instr),
             ArmInsn::ARM_INS_STMIB => self.arm_stmib(instr),
             ArmInsn::ARM_INS_STMDA => self.arm_stmda(instr),
-            // Possibly decoded as a PUSH? When writeback enabled
             ArmInsn::ARM_INS_STMDB => self.arm_stmdb(instr),
-
             ArmInsn::ARM_INS_STR => self.arm_str(instr),
             ArmInsn::ARM_INS_STRB => self.arm_strb(instr),
-
             ArmInsn::ARM_INS_STRH => self.arm_strh(instr),
-
             ArmInsn::ARM_INS_SUB => self.arm_sub(instr),
             // SWI?
             ArmInsn::ARM_INS_SWP => unimpl_instr!(instr, "SWP"),

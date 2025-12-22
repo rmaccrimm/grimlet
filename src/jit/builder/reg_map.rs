@@ -20,7 +20,6 @@ pub struct RegMap<'a> {
     pub items: Vec<Option<RegMapItem<'a>>>,
 }
 
-#[allow(dead_code)]
 impl<'a> RegMap<'a> {
     pub fn new() -> Self {
         Self {
@@ -51,38 +50,4 @@ impl<'a> RegMap<'a> {
             .unwrap_or_else(|| panic!("reg {:?} has not been loaded", reg))
             .current_value
     }
-
-    pub fn r0(&self) -> IntValue<'a> { self.get(Reg::R0) }
-
-    pub fn r1(&self) -> IntValue<'a> { self.get(Reg::R1) }
-
-    pub fn r2(&self) -> IntValue<'a> { self.get(Reg::R2) }
-
-    pub fn r3(&self) -> IntValue<'a> { self.get(Reg::R3) }
-
-    pub fn r4(&self) -> IntValue<'a> { self.get(Reg::R4) }
-
-    pub fn r5(&self) -> IntValue<'a> { self.get(Reg::R5) }
-
-    pub fn r6(&self) -> IntValue<'a> { self.get(Reg::R6) }
-
-    pub fn r7(&self) -> IntValue<'a> { self.get(Reg::R7) }
-
-    pub fn r8(&self) -> IntValue<'a> { self.get(Reg::R8) }
-
-    pub fn r9(&self) -> IntValue<'a> { self.get(Reg::R9) }
-
-    pub fn r10(&self) -> IntValue<'a> { self.get(Reg::R10) }
-
-    pub fn r11(&self) -> IntValue<'a> { self.get(Reg::R11) }
-
-    pub fn ip(&self) -> IntValue<'a> { self.get(Reg::R12) }
-
-    pub fn sp(&self) -> IntValue<'a> { self.get(Reg::SP) }
-
-    pub fn lr(&self) -> IntValue<'a> { self.get(Reg::LR) }
-
-    pub fn pc(&self) -> IntValue<'a> { self.get(Reg::PC) }
-
-    pub fn cpsr(&self) -> IntValue<'a> { self.get(Reg::CPSR) }
 }
