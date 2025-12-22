@@ -1,20 +1,88 @@
 // Computes the factorial of r0 and stores the result in r1
 .begin main
-  .arm
-  cmp r0, #1
-  ble base_case
-  mov r1, r0
-  mov r0, #1
+    .arm
+    // number of assertions
+    mov r8, #7
+    // stack
+    mov sp, #0x4000
+    // test success, pushed onto stack
+    mov r9, #1 
+
+    mov r0, #0
+    bl factorial
+    mov r0, #1
+    cmp r0, r1
+    bne fail
+    push {r9}
+
+    mov r0, #1
+    bl factorial
+    mov r0, #1
+    cmp r0, r1
+    bne fail
+    push {r9}
+
+    mov r0, #2 
+    bl factorial
+    mov r0, #2
+    cmp r0, r1
+    bne fail
+    push {r9}
+
+    mov r0, #3
+    bl factorial
+    mov r0, #6
+    cmp r0, r1
+    bne fail
+    push {r9}
+
+    mov r0, #4
+    bl factorial
+    mov r0, #24
+    cmp r0, r1
+    bne fail
+    push {r9}
+
+    mov r0, #5
+    bl factorial
+    mov r0, #120
+    cmp r0, r1
+    bne fail
+    push {r9}
+
+    mov r0, #12
+    bl factorial
+    ldr r0, =479001600
+    cmp r0, r1
+    bne fail
+    push {r9}
+
+    b exit
+
+// subroutine: r1 <- factorial(r0)
+factorial:
+    cmp r0, #1
+    ble base_case
+    mov r1, r0
+    mov r0, #1
 loop:
-  mul r0, r0, r1  
-  subs r1, r1, #1
-  bgt loop
-  mov r1, r0
-  b end
+    mul r0, r0, r1  
+    subs r1, r1, #1
+    bgt loop
+    mov r1, r0
+    mov pc, lr
 base_case:
-  mov r1, #1
-  b end
+    mov r1, #1
+    mov pc, lr
+
+fail:
+    ldr r9, =-1
+    push {r9}
+exit: 
+    // emulator test exit condition
+    mov r11, #25344
+    b end
 end:
-  // exit when pc >= 48
-  nop
+    nop
+.pool
 .end
