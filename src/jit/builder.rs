@@ -148,14 +148,7 @@ where
 type InstrResult<'a> = Result<Vec<RegUpdate<'a>>>;
 
 // A register and the value to write to it
-struct RegUpdate<'a> {
-    pub reg: Reg,
-    pub value: IntValue<'a>,
-}
-
-impl<'a> RegUpdate<'a> {
-    pub fn new(reg: Reg, value: IntValue<'a>) -> Self { Self { reg, value } }
-}
+struct RegUpdate<'a>(Reg, IntValue<'a>);
 
 impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     pub(super) fn new(
@@ -355,12 +348,11 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let updates = inner(self, instr)?;
 
         // If an instruction wrote to PC, we need to perform a branch
-        let branch_target: Option<IntValue> =
-            updates.iter().find(|r| r.reg == Reg::PC).map(|r| r.value);
+        let branch_target: Option<IntValue> = updates.iter().find(|r| r.0 == Reg::PC).map(|r| r.1);
 
         if let Some(target) = branch_target {
             let mut tmp_reg_map = self.reg_map.clone();
-            for RegUpdate { reg, value } in updates {
+            for RegUpdate(reg, value) in updates {
                 tmp_reg_map.update(reg, value);
             }
             self.write_state_out(&tmp_reg_map)?;
@@ -379,15 +371,15 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         bd.position_at_end(end_block);
 
         // Otherwise, select correct reg values and continue
-        for update in updates {
+        for RegUpdate(reg, value) in updates {
             // Inner doesn't mutate self so the values in reg_map can be used to get the first
             // option for the phi values
-            let r_init = self.reg_map.get(update.reg);
-            let r_new = update.value;
+            let r_init = self.reg_map.get(reg);
+            let r_new = value;
             let phi = bd.build_phi(self.i32_t, "phi")?;
             phi.add_incoming(&[(&r_init, self.current_block), (&r_new, if_block)]);
             self.reg_map
-                .update(update.reg, phi.as_basic_value().into_int_value());
+                .update(reg, phi.as_basic_value().into_int_value());
         }
         self.increment_pc(instr.mode);
         self.current_block = end_block;

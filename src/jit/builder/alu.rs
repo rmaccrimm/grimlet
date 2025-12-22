@@ -397,7 +397,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         if !instr.updates_flags {
             let add_1 = bd.build_int_add(rn_val, shifter_op, "add_1")?;
             let add_2 = bd.build_int_add(add_1, c_in, "add_2")?;
-            let updates = vec![RegUpdate::new(rd, add_2)];
+            let updates = vec![RegUpdate(rd, add_2)];
             return Ok(updates);
         };
 
@@ -438,7 +438,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let v = bd.build_or(v1, v2, "v")?;
         let cpsr = self.set_flags(Some(n), Some(z), Some(c), Some(v))?;
 
-        let updates = vec![RegUpdate::new(rd, s2), RegUpdate::new(Reg::CPSR, cpsr)];
+        let updates = vec![RegUpdate(rd, s2), RegUpdate(Reg::CPSR, cpsr)];
         Ok(updates)
     }
 
@@ -452,7 +452,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         if !instr.updates_flags {
             let res = bd.build_int_add(rn_val, shifter_op, "add_res")?;
-            let updates = vec![RegUpdate::new(rd, res)];
+            let updates = vec![RegUpdate(rd, res)];
             return Ok(updates);
         }
 
@@ -471,7 +471,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let z = bd.build_int_compare(IntPredicate::EQ, res_val, imm!(self, 0), "z")?;
         let cpsr = self.set_flags(Some(n), Some(z), Some(c), Some(v))?;
 
-        let updates = vec![RegUpdate::new(rd, res_val), RegUpdate::new(Reg::CPSR, cpsr)];
+        let updates = vec![RegUpdate(rd, res_val), RegUpdate(Reg::CPSR, cpsr)];
         Ok(updates)
     }
 
@@ -484,14 +484,14 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         let res_val = bd.build_and(rn_val, shifter_op, "and")?;
         if !instr.updates_flags {
-            let updates = vec![RegUpdate::new(rd, res_val)];
+            let updates = vec![RegUpdate(rd, res_val)];
             return Ok(updates);
         }
         let n = bd.build_int_compare(IntPredicate::SLT, res_val, imm!(self, 0), "n")?;
         let z = bd.build_int_compare(IntPredicate::EQ, res_val, imm!(self, 0), "z")?;
         let cpsr = self.set_flags(Some(n), Some(z), c_flag, None)?;
 
-        let updates = vec![RegUpdate::new(rd, res_val), RegUpdate::new(Reg::CPSR, cpsr)];
+        let updates = vec![RegUpdate(rd, res_val), RegUpdate(Reg::CPSR, cpsr)];
         Ok(updates)
     }
 
@@ -506,7 +506,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let res_val = bd.build_and(rn_val, not_shifter, "bic")?;
 
         if !instr.updates_flags {
-            let updates = vec![RegUpdate::new(rd, res_val)];
+            let updates = vec![RegUpdate(rd, res_val)];
             return Ok(updates);
         }
 
@@ -514,7 +514,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let z = bd.build_int_compare(IntPredicate::EQ, res_val, imm!(self, 0), "z")?;
         let cpsr = self.set_flags(Some(n), Some(z), c_flag, None)?;
 
-        let updates = vec![RegUpdate::new(rd, res_val), RegUpdate::new(Reg::CPSR, cpsr)];
+        let updates = vec![RegUpdate(rd, res_val), RegUpdate(Reg::CPSR, cpsr)];
         Ok(updates)
     }
 
@@ -529,7 +529,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         Ok(self
             .add(&instr)?
             .into_iter()
-            .filter(|up| up.reg == Reg::CPSR)
+            .filter(|up| up.0 == Reg::CPSR)
             .collect())
     }
 
@@ -544,7 +544,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         Ok(self
             .sub(&instr)?
             .into_iter()
-            .filter(|up| up.reg == Reg::CPSR)
+            .filter(|up| up.0 == Reg::CPSR)
             .collect())
     }
 
@@ -558,7 +558,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let res_val = bd.build_xor(rn_val, shifter_op, "eor")?;
 
         if !instr.updates_flags {
-            let updates = vec![RegUpdate::new(rd, res_val)];
+            let updates = vec![RegUpdate(rd, res_val)];
             return Ok(updates);
         }
 
@@ -566,7 +566,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let z = bd.build_int_compare(IntPredicate::EQ, res_val, imm!(self, 0), "z")?;
         let cpsr = self.set_flags(Some(n), Some(z), c_flag, None)?;
 
-        let updates = vec![RegUpdate::new(rd, res_val), RegUpdate::new(Reg::CPSR, cpsr)];
+        let updates = vec![RegUpdate(rd, res_val), RegUpdate(Reg::CPSR, cpsr)];
         Ok(updates)
     }
 
@@ -579,9 +579,9 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             let n = bd.build_int_compare(IntPredicate::SLT, shifter, imm!(self, 0), "n")?;
             let z = bd.build_int_compare(IntPredicate::EQ, shifter, imm!(self, 0), "z")?;
             let cpsr = self.set_flags(Some(n), Some(z), c, None)?;
-            vec![RegUpdate::new(rd, shifter), RegUpdate::new(Reg::CPSR, cpsr)]
+            vec![RegUpdate(rd, shifter), RegUpdate(Reg::CPSR, cpsr)]
         } else {
-            vec![RegUpdate::new(rd, shifter)]
+            vec![RegUpdate(rd, shifter)]
         })
     }
 
@@ -593,7 +593,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let res_val = bd.build_not(shifter, "mvn")?;
 
         if !instr.updates_flags {
-            let updates = vec![RegUpdate::new(rd, res_val)];
+            let updates = vec![RegUpdate(rd, res_val)];
             return Ok(updates);
         }
 
@@ -601,7 +601,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let z = bd.build_int_compare(IntPredicate::EQ, res_val, imm!(self, 0), "z")?;
         let cpsr = self.set_flags(Some(n), Some(z), c, None)?;
 
-        let updates = vec![RegUpdate::new(rd, res_val), RegUpdate::new(Reg::CPSR, cpsr)];
+        let updates = vec![RegUpdate(rd, res_val), RegUpdate(Reg::CPSR, cpsr)];
         Ok(updates)
     }
 
@@ -615,7 +615,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let res_val = bd.build_or(rn_val, shifter_op, "orr")?;
 
         if !instr.updates_flags {
-            let updates = vec![RegUpdate::new(rd, res_val)];
+            let updates = vec![RegUpdate(rd, res_val)];
             return Ok(updates);
         }
 
@@ -623,7 +623,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let z = bd.build_int_compare(IntPredicate::EQ, res_val, imm!(self, 0), "z")?;
         let cpsr = self.set_flags(Some(n), Some(z), c, None)?;
 
-        let updates = vec![RegUpdate::new(rd, res_val), RegUpdate::new(Reg::CPSR, cpsr)];
+        let updates = vec![RegUpdate(rd, res_val), RegUpdate(Reg::CPSR, cpsr)];
         Ok(updates)
     }
 
@@ -636,7 +636,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         if !instr.updates_flags {
             let res_val = bd.build_int_sub(shifter_op, rn_val, "rsb")?;
-            let updates = vec![RegUpdate::new(rd, res_val)];
+            let updates = vec![RegUpdate(rd, res_val)];
             return Ok(updates);
         }
 
@@ -656,7 +656,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let z = bd.build_int_compare(IntPredicate::EQ, res_val, imm!(self, 0), "z")?;
         let cpsr = self.set_flags(Some(n), Some(z), Some(c_flag), Some(v_flag))?;
 
-        let updates = vec![RegUpdate::new(rd, res_val), RegUpdate::new(Reg::CPSR, cpsr)];
+        let updates = vec![RegUpdate(rd, res_val), RegUpdate(Reg::CPSR, cpsr)];
         Ok(updates)
     }
 
@@ -689,7 +689,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             .into_int_value();
 
         if !instr.updates_flags {
-            let updates = vec![RegUpdate::new(rd, s2)];
+            let updates = vec![RegUpdate(rd, s2)];
             return Ok(updates);
         }
 
@@ -714,7 +714,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let v = bd.build_or(v1, v2, "v")?;
         let cpsr = self.set_flags(Some(n), Some(z), Some(c), Some(v))?;
 
-        let updates = vec![RegUpdate::new(rd, s2), RegUpdate::new(Reg::CPSR, cpsr)];
+        let updates = vec![RegUpdate(rd, s2), RegUpdate(Reg::CPSR, cpsr)];
         Ok(updates)
     }
 
@@ -747,7 +747,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             .into_int_value();
 
         if !instr.updates_flags {
-            let updates = vec![RegUpdate::new(rd, s2)];
+            let updates = vec![RegUpdate(rd, s2)];
             return Ok(updates);
         }
 
@@ -772,7 +772,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let v = bd.build_or(v1, v2, "v")?;
         let cpsr = self.set_flags(Some(n), Some(z), Some(c), Some(v))?;
 
-        let updates = vec![RegUpdate::new(rd, s2), RegUpdate::new(Reg::CPSR, cpsr)];
+        let updates = vec![RegUpdate(rd, s2), RegUpdate(Reg::CPSR, cpsr)];
         Ok(updates)
     }
 
@@ -785,7 +785,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         if !instr.updates_flags {
             let sub_res = bd.build_int_sub(rn_val, shifter_op, "sub")?;
-            let updates = vec![RegUpdate::new(rd, sub_res)];
+            let updates = vec![RegUpdate(rd, sub_res)];
             return Ok(updates);
         }
         let ures =
@@ -809,10 +809,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         let cpsr = self.set_flags(Some(n_flag), Some(z_flag), Some(c_flag), Some(v_flag))?;
 
-        let updates = vec![
-            RegUpdate::new(rd, sres_val),
-            RegUpdate::new(Reg::CPSR, cpsr),
-        ];
+        let updates = vec![RegUpdate(rd, sres_val), RegUpdate(Reg::CPSR, cpsr)];
         Ok(updates)
     }
 
@@ -826,7 +823,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         Ok(self
             .eor(&instr)?
             .into_iter()
-            .filter(|up| up.reg == Reg::CPSR)
+            .filter(|up| up.0 == Reg::CPSR)
             .collect())
     }
 
@@ -840,7 +837,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         Ok(self
             .and(&instr)?
             .into_iter()
-            .filter(|up| up.reg == Reg::CPSR)
+            .filter(|up| up.0 == Reg::CPSR)
             .collect())
     }
 
@@ -857,7 +854,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let mla = bd.build_int_add(mul, rn_val, "mla")?;
 
         if !instr.updates_flags {
-            let updates = vec![RegUpdate::new(rd, mla)];
+            let updates = vec![RegUpdate(rd, mla)];
             return Ok(updates);
         }
 
@@ -865,7 +862,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let z = bd.build_int_compare(IntPredicate::EQ, mla, imm!(self, 0), "z")?;
         let cpsr = self.set_flags(Some(n), Some(z), None, None)?;
 
-        let updates = vec![RegUpdate::new(rd, mla), RegUpdate::new(Reg::CPSR, cpsr)];
+        let updates = vec![RegUpdate(rd, mla), RegUpdate(Reg::CPSR, cpsr)];
         Ok(updates)
     }
 
@@ -879,7 +876,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let mul = bd.build_int_mul(rm_val, rs_val, "mul")?;
 
         if !instr.updates_flags {
-            let updates = vec![RegUpdate::new(rd, mul)];
+            let updates = vec![RegUpdate(rd, mul)];
             return Ok(updates);
         }
 
@@ -887,7 +884,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let z = bd.build_int_compare(IntPredicate::EQ, mul, imm!(self, 0), "z")?;
         let cpsr = self.set_flags(Some(n), Some(z), None, None)?;
 
-        let updates = vec![RegUpdate::new(rd, mul), RegUpdate::new(Reg::CPSR, cpsr)];
+        let updates = vec![RegUpdate(rd, mul), RegUpdate(Reg::CPSR, cpsr)];
         Ok(updates)
     }
 
@@ -919,7 +916,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let hi_i32 = bd.build_int_truncate(hi, self.i32_t, "hi_i32")?;
 
         if !instr.updates_flags {
-            let updates = vec![RegUpdate::new(rdhi, hi_i32), RegUpdate::new(rdlo, lo_i32)];
+            let updates = vec![RegUpdate(rdhi, hi_i32), RegUpdate(rdlo, lo_i32)];
             return Ok(updates);
         }
 
@@ -928,9 +925,9 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let cpsr = self.set_flags(Some(n), Some(z), None, None)?;
 
         let updates = vec![
-            RegUpdate::new(rdhi, hi_i32),
-            RegUpdate::new(rdlo, lo_i32),
-            RegUpdate::new(Reg::CPSR, cpsr),
+            RegUpdate(rdhi, hi_i32),
+            RegUpdate(rdlo, lo_i32),
+            RegUpdate(Reg::CPSR, cpsr),
         ];
         Ok(updates)
     }
@@ -955,7 +952,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let hi_i32 = bd.build_int_truncate(hi, self.i32_t, "hi_i32")?;
 
         if !instr.updates_flags {
-            let updates = vec![RegUpdate::new(rdhi, hi_i32), RegUpdate::new(rdlo, lo_i32)];
+            let updates = vec![RegUpdate(rdhi, hi_i32), RegUpdate(rdlo, lo_i32)];
             return Ok(updates);
         }
 
@@ -964,9 +961,9 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let cpsr = self.set_flags(Some(n), Some(z), None, None)?;
 
         let updates = vec![
-            RegUpdate::new(rdhi, hi_i32),
-            RegUpdate::new(rdlo, lo_i32),
-            RegUpdate::new(Reg::CPSR, cpsr),
+            RegUpdate(rdhi, hi_i32),
+            RegUpdate(rdlo, lo_i32),
+            RegUpdate(Reg::CPSR, cpsr),
         ];
         Ok(updates)
     }
@@ -999,7 +996,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let hi_i32 = bd.build_int_truncate(hi, self.i32_t, "hi_i32")?;
 
         if !instr.updates_flags {
-            let updates = vec![RegUpdate::new(rdhi, hi_i32), RegUpdate::new(rdlo, lo_i32)];
+            let updates = vec![RegUpdate(rdhi, hi_i32), RegUpdate(rdlo, lo_i32)];
             return Ok(updates);
         }
 
@@ -1008,9 +1005,9 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let cpsr = self.set_flags(Some(n), Some(z), None, None)?;
 
         let updates = vec![
-            RegUpdate::new(rdhi, hi_i32),
-            RegUpdate::new(rdlo, lo_i32),
-            RegUpdate::new(Reg::CPSR, cpsr),
+            RegUpdate(rdhi, hi_i32),
+            RegUpdate(rdlo, lo_i32),
+            RegUpdate(Reg::CPSR, cpsr),
         ];
         Ok(updates)
     }
@@ -1035,7 +1032,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let hi_i32 = bd.build_int_truncate(hi, self.i32_t, "hi_i32")?;
 
         if !instr.updates_flags {
-            let updates = vec![RegUpdate::new(rdhi, hi_i32), RegUpdate::new(rdlo, lo_i32)];
+            let updates = vec![RegUpdate(rdhi, hi_i32), RegUpdate(rdlo, lo_i32)];
             return Ok(updates);
         }
 
@@ -1044,9 +1041,9 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let cpsr = self.set_flags(Some(n), Some(z), None, None)?;
 
         let updates = vec![
-            RegUpdate::new(rdhi, hi_i32),
-            RegUpdate::new(rdlo, lo_i32),
-            RegUpdate::new(Reg::CPSR, cpsr),
+            RegUpdate(rdhi, hi_i32),
+            RegUpdate(rdlo, lo_i32),
+            RegUpdate(Reg::CPSR, cpsr),
         ];
         Ok(updates)
     }
@@ -1054,7 +1051,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     fn mrs(&self, instr: &ArmInstruction) -> InstrResult<'a> {
         let rd = instr.get_reg_op(0);
         let cpsr = self.reg_map.get(Reg::CPSR);
-        let updates = vec![RegUpdate::new(rd, cpsr)];
+        let updates = vec![RegUpdate(rd, cpsr)];
         Ok(updates)
     }
 
@@ -1075,7 +1072,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let masked = bd.build_and(update_val, imm!(self, 0xf00000ff), "msk")?;
         let keep = bd.build_and(cpsr, imm!(self, 0x0fffff00), "keep")?;
         let res_val = bd.build_or(masked, keep, "or")?;
-        let updates = vec![RegUpdate::new(Reg::CPSR, res_val)];
+        let updates = vec![RegUpdate(Reg::CPSR, res_val)];
         Ok(updates)
     }
 }

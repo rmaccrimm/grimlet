@@ -120,19 +120,13 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                 addr: calc_addr,
             },
             Some(WritebackMode::PreIndex) => AddrMode {
-                writeback: Some(RegUpdate {
-                    reg: mem_op.base,
-                    value: calc_addr,
-                }),
+                writeback: Some(RegUpdate(mem_op.base, calc_addr)),
                 addr: calc_addr,
             },
             Some(WritebackMode::PostIndex) => {
                 // Write back calc address, but use base as load/store
                 AddrMode {
-                    writeback: Some(RegUpdate {
-                        reg: mem_op.base,
-                        value: calc_addr,
-                    }),
+                    writeback: Some(RegUpdate(mem_op.base, calc_addr)),
                     addr: base_val,
                 }
             }
@@ -194,10 +188,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let load_val =
             call_indirect_with_return!(bd, read_fn_t, read_fn_ptr, self.mem_ptr, addr_mode.addr);
 
-        let mut updates = vec![RegUpdate {
-            reg: rd,
-            value: load_val,
-        }];
+        let mut updates = vec![RegUpdate(rd, load_val)];
         if let Some(wb) = addr_mode.writeback {
             updates.push(wb);
         }
@@ -221,14 +212,11 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let mut addr = base_addr;
         for &reg in reg_list.iter() {
             let value = call_indirect_with_return!(bd, read_fn_t, read_fn_ptr, self.mem_ptr, addr);
-            updates.push(RegUpdate { reg, value });
+            updates.push(RegUpdate(reg, value));
             addr = bd.build_int_add(addr, imm!(self, 4), "addr")?;
         }
         if instr.writeback {
-            updates.push(RegUpdate {
-                reg: rn,
-                value: addr,
-            })
+            updates.push(RegUpdate(rn, addr))
         }
         Ok(updates)
     }
@@ -251,13 +239,10 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         for &reg in reg_list.iter() {
             addr = bd.build_int_add(addr, imm!(self, 4), "ib")?;
             let value = call_indirect_with_return!(bd, read_fn_t, read_fn_ptr, self.mem_ptr, addr);
-            updates.push(RegUpdate { reg, value });
+            updates.push(RegUpdate(reg, value));
         }
         if instr.writeback {
-            updates.push(RegUpdate {
-                reg: rn,
-                value: addr,
-            })
+            updates.push(RegUpdate(rn, addr))
         }
         Ok(updates)
     }
@@ -280,14 +265,14 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             bd.build_int_sub(base_addr, imm!(self, 4 * (reg_list.len() - 1)), "start")?;
         for &reg in reg_list.iter() {
             let value = call_indirect_with_return!(bd, read_fn_t, read_fn_ptr, self.mem_ptr, addr);
-            updates.push(RegUpdate { reg, value });
+            updates.push(RegUpdate(reg, value));
             addr = bd.build_int_add(addr, imm!(self, 4), "da")?;
         }
         if instr.writeback {
-            updates.push(RegUpdate {
-                reg: rn,
-                value: bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "wb")?,
-            })
+            updates.push(RegUpdate(
+                rn,
+                bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "wb")?,
+            ))
         }
         Ok(updates)
     }
@@ -309,14 +294,14 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let mut addr = bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "start")?;
         for &reg in reg_list.iter() {
             let value = call_indirect_with_return!(bd, read_fn_t, read_fn_ptr, self.mem_ptr, addr);
-            updates.push(RegUpdate { reg, value });
+            updates.push(RegUpdate(reg, value));
             addr = bd.build_int_add(addr, imm!(self, 4), "da")?;
         }
         if instr.writeback {
-            updates.push(RegUpdate {
-                reg: rn,
-                value: bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "wb")?,
-            })
+            updates.push(RegUpdate(
+                rn,
+                bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "wb")?,
+            ))
         }
         Ok(updates)
     }
@@ -373,10 +358,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             addr = bd.build_int_add(addr, imm!(self, 4), "addr")?;
         }
         if instr.writeback {
-            updates.push(RegUpdate {
-                reg: rn,
-                value: addr,
-            })
+            updates.push(RegUpdate(rn, addr))
         }
         Ok(updates)
     }
@@ -403,10 +385,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             call_indirect!(bd, write_fn_t, write_fn_ptr, self.mem_ptr, addr, value);
         }
         if instr.writeback {
-            updates.push(RegUpdate {
-                reg: rn,
-                value: addr,
-            })
+            updates.push(RegUpdate(rn, addr))
         }
         Ok(updates)
     }
@@ -434,10 +413,10 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             addr = bd.build_int_add(addr, imm!(self, 4), "da")?;
         }
         if instr.writeback {
-            updates.push(RegUpdate {
-                reg: rn,
-                value: bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "wb")?,
-            })
+            updates.push(RegUpdate(
+                rn,
+                bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "wb")?,
+            ))
         }
         Ok(updates)
     }
@@ -464,10 +443,10 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             addr = bd.build_int_add(addr, imm!(self, 4), "da")?;
         }
         if instr.writeback {
-            updates.push(RegUpdate {
-                reg: rn,
-                value: bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "wb")?,
-            })
+            updates.push(RegUpdate(
+                rn,
+                bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "wb")?,
+            ))
         }
         Ok(updates)
     }
@@ -493,10 +472,10 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             call_indirect!(bd, write_fn_t, write_fn_ptr, self.mem_ptr, addr, value);
             addr = bd.build_int_add(addr, imm!(self, 4), "da")?;
         }
-        updates.push(RegUpdate {
-            reg: Reg::SP,
-            value: bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "wb")?,
-        });
+        updates.push(RegUpdate(
+            Reg::SP,
+            bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "wb")?,
+        ));
         Ok(updates)
     }
 
@@ -517,13 +496,10 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let mut addr = base_addr;
         for &reg in reg_list.iter() {
             let value = call_indirect_with_return!(bd, read_fn_t, read_fn_ptr, self.mem_ptr, addr);
-            updates.push(RegUpdate { reg, value });
+            updates.push(RegUpdate(reg, value));
             addr = bd.build_int_add(addr, imm!(self, 4), "addr")?;
         }
-        updates.push(RegUpdate {
-            reg: Reg::SP,
-            value: addr,
-        });
+        updates.push(RegUpdate(Reg::SP, addr));
         Ok(updates)
     }
 
@@ -532,7 +508,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let rd = instr.get_reg_op(0);
         let pc_offset = instr.get_imm_op(1);
         let addr = bd.build_int_add(self.reg_map.get(Reg::PC), imm!(self, pc_offset), "adr")?;
-        let updates = vec![RegUpdate::new(rd, addr)];
+        let updates = vec![RegUpdate(rd, addr)];
         Ok(updates)
     }
 }
@@ -719,8 +695,8 @@ mod tests {
             .unwrap();
 
             let addr_mode = f.addressing_mode(mem_op).unwrap();
-            if let Some(wb) = addr_mode.writeback {
-                f.reg_map.update(wb.reg, wb.value);
+            if let Some(RegUpdate(r, v)) = addr_mode.writeback {
+                f.reg_map.update(r, v);
             }
             f.reg_map.update(Reg::R9, addr_mode.addr);
 
