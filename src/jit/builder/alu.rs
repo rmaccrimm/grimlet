@@ -1,4 +1,4 @@
-use anyhow::{Context as _, Result, anyhow};
+use anyhow::{Context as _, Result, anyhow, bail};
 use capstone::RegId;
 use capstone::arch::arm::{ArmOperandType, ArmShift};
 use inkwell::IntPredicate;
@@ -1063,8 +1063,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             // SysReg(RegId(9)) seems to correspond to cpsr_fc/spsr_fc, which may be the only way
             // you can call this since in ARMv4 without user mode? I still don't quite understand
             // how cpsr instructions get decoded by capstone.
-            println!("{:#?}", instr);
-            panic!("Unexpected operand");
+            bail!("Unexpected operand");
         }
         let bd = self.builder;
         let update_val = match instr.operands[1].op_type {

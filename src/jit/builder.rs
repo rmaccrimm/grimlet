@@ -145,24 +145,7 @@ where
     fshr: FunctionValue<'a>,
 }
 
-pub(super) fn get_ptr_param<'a>(func: &FunctionValue<'a>, i: usize) -> Result<PointerValue<'a>> {
-    func.get_nth_param(i as u32)
-        .ok_or(anyhow!(
-            "{} signature has no parameter {}",
-            func.get_name().to_str().unwrap(),
-            i
-        ))
-        .map(BasicValueEnum::into_pointer_value)
-}
-
-pub fn get_intrinsic<'a>(name: &str, module: &Module<'a>) -> Result<FunctionValue<'a>> {
-    Intrinsic::find(name)
-        .ok_or(anyhow!("could not find intrinsic '{}'", name))?
-        .get_declaration(module, &[module.get_context().i32_type().into()])
-        .ok_or(anyhow!("failed to insert declaration for '{}'", name))
-}
-
-pub fn func_name(addr: usize) -> String { format!("fn_{:#010x}", addr) }
+type InstrResult<'a> = Result<Vec<RegUpdate<'a>>>;
 
 // A register and the value to write to it
 struct RegUpdate<'a> {
@@ -173,8 +156,6 @@ struct RegUpdate<'a> {
 impl<'a> RegUpdate<'a> {
     pub fn new(reg: Reg, value: IntValue<'a>) -> Self { Self { reg, value } }
 }
-
-type InstrResult<'a> = Result<Vec<RegUpdate<'a>>>;
 
 impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     pub(super) fn new(
@@ -294,14 +275,11 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
     fn increment_pc(&mut self, mode: ArmMode) {
         let curr_pc = self.reg_map.pc();
-        let step = match mode {
-            ArmMode::ARM => 4,
-            ArmMode::THUMB => 2,
-        };
+        let step = mode.instr_size();
         self.reg_map.update(
             Reg::PC,
             self.builder
-                .build_int_add(curr_pc, self.i32_t.const_int(step, false), "pc")
+                .build_int_add(curr_pc, imm!(self, step), "pc")
                 .expect("LLVM codegen failed"),
         );
     }
@@ -492,6 +470,25 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         }
     }
 }
+
+fn get_ptr_param<'a>(func: &FunctionValue<'a>, i: usize) -> Result<PointerValue<'a>> {
+    func.get_nth_param(i as u32)
+        .ok_or(anyhow!(
+            "{} signature has no parameter {}",
+            func.get_name().to_str().unwrap(),
+            i
+        ))
+        .map(BasicValueEnum::into_pointer_value)
+}
+
+fn get_intrinsic<'a>(name: &str, module: &Module<'a>) -> Result<FunctionValue<'a>> {
+    Intrinsic::find(name)
+        .ok_or(anyhow!("could not find intrinsic '{}'", name))?
+        .get_declaration(module, &[module.get_context().i32_type().into()])
+        .ok_or(anyhow!("failed to insert declaration for '{}'", name))
+}
+
+fn func_name(addr: usize) -> String { format!("fn_{:#010x}", addr) }
 
 #[cfg(test)]
 mod tests {

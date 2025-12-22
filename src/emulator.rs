@@ -3,6 +3,7 @@ use std::io::{BufReader, Read};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 
 use anyhow::{Result, bail};
+use clap::ValueEnum;
 use inkwell::context::Context;
 
 use crate::arm::disasm::Disasm;
@@ -23,6 +24,7 @@ pub struct Emulator {
 }
 
 /// Print codeblocks before running
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
 pub enum DebugOutput {
     Assembly,
     Struct,
@@ -108,6 +110,9 @@ impl Emulator {
             };
             unsafe {
                 func.call(&mut self.state);
+            }
+            if print.is_some() {
+                println!("{}", self.state);
             }
         }
     }

@@ -1,5 +1,6 @@
 pub mod memory;
 
+use std::fmt::{self, Display};
 use std::ops::{Index, IndexMut};
 use std::sync::mpsc::Sender;
 
@@ -23,9 +24,7 @@ pub enum ArmMode {
     THUMB,
 }
 
-pub const NUM_REGS: usize = 18;
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Reg {
     R0 = 0,
     R1 = 1,
@@ -39,13 +38,15 @@ pub enum Reg {
     R9 = 9,
     R10 = 10,
     R11 = 11,
-    IP = 12,
+    R12 = 12,
     SP = 13,
     LR = 14,
     PC = 15,
     CPSR = 16,
     SPSR = 17,
 }
+
+pub const NUM_REGS: usize = 18;
 
 pub const REG_ITEMS: [Reg; NUM_REGS] = [
     Reg::R0,
@@ -60,13 +61,24 @@ pub const REG_ITEMS: [Reg; NUM_REGS] = [
     Reg::R9,
     Reg::R10,
     Reg::R11,
-    Reg::IP,
+    Reg::R12,
     Reg::SP,
     Reg::LR,
     Reg::PC,
     Reg::CPSR,
     Reg::SPSR,
 ];
+
+impl ArmMode {
+    pub fn instr_size(&self) -> usize {
+        match self {
+            ArmMode::ARM => 4,
+            ArmMode::THUMB => 2,
+        }
+    }
+
+    pub fn pc_byte_offset(&self) -> u32 { 2 * self.instr_size() as u32 }
+}
 
 // Need ability to pass mode as an i8 when calling from LLVM code
 impl From<i8> for ArmMode {
@@ -79,12 +91,16 @@ impl From<i8> for ArmMode {
     }
 }
 
-impl ArmMode {
-    pub fn instr_size(&self) -> usize {
-        match self {
-            ArmMode::ARM => 4,
-            ArmMode::THUMB => 2,
-        }
+impl Display for ArmMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(
+            f,
+            "{}",
+            match &self {
+                ArmMode::ARM => "arm",
+                ArmMode::THUMB => "thumb",
+            }
+        )
     }
 }
 
@@ -103,7 +119,7 @@ impl From<capstone::RegId> for Reg {
             ArmReg::ARM_REG_R9 => Reg::R9,
             ArmReg::ARM_REG_R10 => Reg::R10,
             ArmReg::ARM_REG_R11 => Reg::R11,
-            ArmReg::ARM_REG_R12 => Reg::IP,
+            ArmReg::ARM_REG_R12 => Reg::R12,
             ArmReg::ARM_REG_SP => Reg::SP,
             ArmReg::ARM_REG_LR => Reg::LR,
             ArmReg::ARM_REG_PC => Reg::PC,
@@ -124,13 +140,37 @@ impl IndexMut<Reg> for [u32] {
     fn index_mut(&mut self, index: Reg) -> &mut Self::Output { &mut self[index as usize] }
 }
 
-impl ArmMode {
-    pub fn pc_byte_offset(&self) -> u32 {
-        match self {
-            ArmMode::ARM => 8,
-            ArmMode::THUMB => 4,
-        }
+impl Display for Reg {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match *self {
+                Reg::R0 => "r0",
+                Reg::R1 => "r1",
+                Reg::R2 => "r2",
+                Reg::R3 => "r3",
+                Reg::R4 => "r4",
+                Reg::R5 => "r5",
+                Reg::R6 => "r6",
+                Reg::R7 => "r7",
+                Reg::R8 => "r8",
+                Reg::R9 => "r9",
+                Reg::R10 => "r10",
+                Reg::R11 => "r11",
+                Reg::R12 => "r12",
+                Reg::SP => "sp",
+                Reg::LR => "lr",
+                Reg::PC => "pc",
+                Reg::CPSR => "cpsr",
+                Reg::SPSR => "spsr",
+            }
+        )
     }
+}
+
+impl fmt::Debug for Reg {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "{}", self) }
 }
 
 impl ArmState {
@@ -158,5 +198,16 @@ impl ArmState {
                 .expect("channel was closed");
         }
         self.regs[Reg::PC] = addr + self.current_mode.pc_byte_offset();
+    }
+}
+
+impl Display for ArmState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for r in REG_ITEMS {
+            let rs = format!("{}", r);
+            let padding: String = vec![" "; 5 - rs.len()].concat();
+            writeln!(f, "{}:{}0x{:08x}", rs, padding, self.regs[r])?;
+        }
+        writeln!(f, "mode: {}", self.current_mode)
     }
 }

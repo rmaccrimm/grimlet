@@ -16,16 +16,6 @@ pub trait MemReadable =
 
 pub trait MemWriteable = ToBytes<Bytes: IntoIterator<Item = u8>>;
 
-impl Default for MainMemory {
-    fn default() -> Self {
-        Self {
-            bios: vec![0; 16 << 10],
-            cart_rom: vec![0; 1 << 10], // TODO actual size
-            io_registers: vec![0; 0x3ff],
-        }
-    }
-}
-
 impl MainMemory {
     pub fn iter_word(&self, start_addr: u32) -> Result<Chunks<'_, u8>> {
         if !start_addr.is_multiple_of(4) {
@@ -105,6 +95,16 @@ impl MainMemory {
             0x08000000 => &mut self.cart_rom[index..],
             _ => bail!("unused area of memory (addr: {:#08x})", addr),
         })
+    }
+}
+
+impl Default for MainMemory {
+    fn default() -> Self {
+        Self {
+            bios: vec![0; 16 << 10],
+            cart_rom: vec![0; 1 << 10], // TODO actual size
+            io_registers: vec![0; 0x3ff],
+        }
     }
 }
 

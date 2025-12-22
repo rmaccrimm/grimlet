@@ -14,20 +14,6 @@ pub struct CodeBlock {
     pub start_addr: usize,
 }
 
-impl Display for CodeBlock {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "---------------")?;
-        for instr in self.instrs.iter() {
-            match instr.repr {
-                Some(_) => writeln!(f, "{}", instr)?,
-                None => writeln!(f, "{:?}", instr)?,
-            }
-        }
-        writeln!(f, "regs accessed: {:?}", self.regs_accessed)?;
-        writeln!(f, "---------------")
-    }
-}
-
 impl CodeBlock {
     pub fn from_instructions(
         instr_iter: impl Iterator<Item = ArmInstruction>,
@@ -78,6 +64,20 @@ impl CodeBlock {
             start_addr,
             regs_accessed,
         }
+    }
+}
+
+impl Display for CodeBlock {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "---------------")?;
+        for instr in self.instrs.iter() {
+            match instr.repr {
+                Some(_) => writeln!(f, "{}", instr)?,
+                None => writeln!(f, "{:?}", instr)?,
+            }
+        }
+        writeln!(f, "regs accessed: {:?}", self.regs_accessed)?;
+        writeln!(f, "---------------")
     }
 }
 

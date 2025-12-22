@@ -56,21 +56,6 @@ pub enum WritebackMode {
     PreIndex,
 }
 
-impl Default for ArmInstruction {
-    fn default() -> Self {
-        Self {
-            opcode: ArmInsn::ARM_INS_NOP,
-            cond: ArmCC::ARM_CC_AL,
-            operands: Default::default(),
-            addr: Default::default(),
-            repr: None,
-            mode: ArmMode::ARM,
-            updates_flags: true,
-            writeback: false,
-        }
-    }
-}
-
 impl ArmInstruction {
     pub fn from_cs_insn(cs: &Capstone, insn: &Insn, mode: ArmMode) -> Self {
         let detail = cs
@@ -245,6 +230,21 @@ impl ArmInstruction {
     }
 }
 
+impl Default for ArmInstruction {
+    fn default() -> Self {
+        Self {
+            opcode: ArmInsn::ARM_INS_NOP,
+            cond: ArmCC::ARM_CC_AL,
+            operands: Default::default(),
+            addr: Default::default(),
+            repr: None,
+            mode: ArmMode::ARM,
+            updates_flags: true,
+            writeback: false,
+        }
+    }
+}
+
 impl Display for ArmInstruction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.repr {
@@ -350,7 +350,7 @@ mod tests {
         assert_eq!(
             get_mem_op_from_assembled(0xe5aca000),
             MemOperand {
-                base: Reg::IP,
+                base: Reg::R12,
                 offset: MemOffset::Imm(0),
                 writeback: Some(WritebackMode::PreIndex)
             }
