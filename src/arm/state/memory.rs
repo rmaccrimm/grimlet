@@ -7,8 +7,13 @@ use num::traits::{AsPrimitive, FromBytes, ToBytes};
 #[repr(C)]
 pub struct MainMemory {
     bios: Vec<u8>,
-    cart_rom: Vec<u8>,
+    slow_wram: Vec<u8>,
+    fast_wram: Vec<u8>,
     io_registers: Vec<u8>,
+    palette_ram: Vec<u8>,
+    vram: Vec<u8>,
+    obj_attrs: Vec<u8>,
+    cartridge_rom: Vec<u8>,
 }
 
 pub trait MemReadable =
@@ -77,24 +82,36 @@ impl MainMemory {
     pub fn mem_map_lookup(&self, addr: u32) -> Result<&[u8]> {
         let base = addr & 0x0f000000;
         let index = (addr - base) as usize;
-        Ok(match base {
-            0x00000000 => &self.bios[index..],
-            0x04000000 => &self.io_registers[index..],
-            0x08000000 => &self.cart_rom[index..],
+        let region = match base {
+            0x00000000 => &self.bios,
+            0x02000000 => &self.slow_wram,
+            0x03000000 => &self.fast_wram,
+            0x04000000 => &self.io_registers,
+            0x05000000 => &self.palette_ram,
+            0x06000000 => &self.vram,
+            0x07000000 => &self.obj_attrs,
+            0x08000000 => &self.cartridge_rom,
             _ => bail!("unused area of memory (addr: {:#08x})", addr),
-        })
+        };
+        Ok(&region[index..])
     }
 
     // Would be nice if these could be combined somehow
     pub fn mem_map_lookup_mut(&mut self, addr: u32) -> Result<&mut [u8]> {
         let base = addr & 0x0f000000;
         let index = (addr - base) as usize;
-        Ok(match base {
-            0x00000000 => &mut self.bios[index..],
-            0x04000000 => &mut self.io_registers[index..],
-            0x08000000 => &mut self.cart_rom[index..],
+        let region = match base {
+            0x00000000 => &mut self.bios,
+            0x02000000 => &mut self.slow_wram,
+            0x03000000 => &mut self.fast_wram,
+            0x04000000 => &mut self.io_registers,
+            0x05000000 => &mut self.palette_ram,
+            0x06000000 => &mut self.vram,
+            0x07000000 => &mut self.obj_attrs,
+            0x08000000 => &mut self.cartridge_rom,
             _ => bail!("unused area of memory (addr: {:#08x})", addr),
-        })
+        };
+        Ok(&mut region[index..])
     }
 }
 
@@ -102,8 +119,13 @@ impl Default for MainMemory {
     fn default() -> Self {
         Self {
             bios: vec![0; 16 << 10],
-            cart_rom: vec![0; 1 << 10], // TODO actual size
+            slow_wram: vec![0; 256 << 10],
+            fast_wram: vec![0; 32 << 10],
             io_registers: vec![0; 0x3ff],
+            palette_ram: vec![0; 1 << 10],
+            vram: vec![0; 96 << 10],
+            obj_attrs: vec![0; 1 << 10],
+            cartridge_rom: vec![0; 32 << 20],
         }
     }
 }
@@ -119,11 +141,8 @@ mod tests {
                 fn $name() {
                     let (read_addr, expected) = $data;
 
-                    let mem = MainMemory {
-                        bios: $bytes,
-                        io_registers: vec![],
-                        cart_rom: vec![],
-                    };
+                    let mut mem = MainMemory::default();
+                    mem.bios = $bytes;
                     assert_eq!(mem.read::<$T>(read_addr), expected);
                 }
             )*
@@ -157,8 +176,7 @@ mod tests {
     fn test_read_past_end_of_bytes_panics() {
         let mem = MainMemory {
             bios: vec![0x34, 0xff, 0xbe, 0x70],
-            io_registers: vec![],
-            cart_rom: vec![],
+            ..Default::default()
         };
         mem.read::<u32>(1);
     }
@@ -167,8 +185,7 @@ mod tests {
     fn test_write() {
         let mut mem = MainMemory {
             bios: vec![0; 4],
-            io_registers: vec![],
-            cart_rom: vec![],
+            ..Default::default()
         };
         mem.write(0, 0x12345678u32);
         assert_eq!(mem.bios, vec![0x78, 0x56, 0x34, 0x12]);
