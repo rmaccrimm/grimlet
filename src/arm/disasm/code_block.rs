@@ -35,6 +35,8 @@ impl CodeBlock {
     ) -> Self {
         let mut instrs = Vec::new();
         let mut regs_accessed = HashSet::new();
+        // always need the pc
+        regs_accessed.insert(Reg::PC);
 
         for instr in instr_iter {
             instrs.push(instr);
@@ -56,6 +58,16 @@ impl CodeBlock {
                     }
                     _ => (),
                 }
+            }
+            // instructions with implicit operands
+            match instr.opcode {
+                ArmInsn::ARM_INS_PUSH | ArmInsn::ARM_INS_POP => {
+                    regs_accessed.insert(Reg::SP);
+                }
+                ArmInsn::ARM_INS_BL => {
+                    regs_accessed.insert(Reg::LR);
+                }
+                _ => {}
             }
             if is_terminator(instr) {
                 break;

@@ -45,11 +45,12 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         } = inner(self, instr)?;
 
         if save_return {
-            let return_addr = bd.build_int_sub(self.reg_map.get(Reg::PC), imm!(self, 1), "ret")?;
+            let pc_offset = imm!(self, instr.mode.pc_byte_offset() / 2);
+            let return_addr = bd.build_int_sub(self.reg_map.get(Reg::PC), pc_offset, "ret")?;
             // Update lr temporarily, and restore it after the context switch so that
             // the unaltered value is used if we skip the end block
-            let tmp_reg_map = self.reg_map.clone();
-            self.reg_map.update(Reg::LR, return_addr);
+            let mut tmp_reg_map = self.reg_map.clone();
+            tmp_reg_map.update(Reg::LR, return_addr);
             self.write_state_out(&tmp_reg_map)?;
         } else {
             self.write_state_out(&self.reg_map)?;
