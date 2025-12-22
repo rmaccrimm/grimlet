@@ -123,9 +123,6 @@ where
     execution_engine: &'a ExecutionEngine<'ctx>,
     current_block: BasicBlock<'a>,
 
-    // Read only ref to already-compiled functions
-    func_cache: Option<&'a FunctionCache<'ctx>>,
-
     // Pointers to emulated state
     arm_state_ptr: PointerValue<'a>,
     mem_ptr: PointerValue<'a>,
@@ -157,7 +154,6 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         builder: &'a Builder<'ctx>,
         module: &'a Module<'ctx>,
         execution_engine: &'a ExecutionEngine<'ctx>,
-        func_cache: Option<&'a FunctionCache<'ctx>>,
     ) -> Self {
         let build = || -> Result<Self> {
             let bd = builder;
@@ -211,7 +207,6 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                 builder,
                 execution_engine,
                 current_block: basic_block,
-                func_cache,
                 arm_state_t,
                 i8_t,
                 i32_t,
@@ -287,34 +282,6 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             "extern_ptr",
         )?;
         Ok(func_ptr)
-    }
-
-    fn get_compiled_func_pointer(&self, key: usize) -> Result<Option<PointerValue<'a>>> {
-        // TODO sort out which int type to use where
-        match self.func_cache {
-            None => Ok(None),
-            Some(cache) => {
-                match cache.get(&key) {
-                    Some(f) => {
-                        // pretty sure it doesn't matter which we look at
-                        let ee = &self.execution_engine;
-                        let func_ptr = unsafe {
-                            self.builder.build_int_to_ptr(
-                                self.llvm_ctx
-                                    .ptr_sized_int_type(ee.get_target_data(), None)
-                                    // Double cast since usize ensures correct pointer size but inkwell
-                                    // expects u64
-                                    .const_int((f.as_raw() as usize) as u64, false),
-                                self.ptr_t,
-                                &format!("{}_ptr", func_name(key)),
-                            )?
-                        };
-                        Ok(Some(func_ptr))
-                    }
-                    None => Ok(None),
-                }
-            }
-        }
     }
 
     /// When context switching, write out the latest values in reg_map to the guest state
@@ -408,14 +375,9 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             ArmInsn::ARM_INS_LDMIB => self.arm_ldmib(instr),
             ArmInsn::ARM_INS_LDR => self.arm_ldr(instr),
             ArmInsn::ARM_INS_LDRB => self.arm_ldrb(instr),
-            ArmInsn::ARM_INS_LDRBT => unimpl_instr!(instr, "LDRBT"),
             ArmInsn::ARM_INS_LDRH => self.arm_ldrh(instr),
-            ArmInsn::ARM_INS_LDRHT => unimpl_instr!(instr, "LDRHT"),
             ArmInsn::ARM_INS_LDRSB => self.arm_ldrsb(instr),
-            ArmInsn::ARM_INS_LDRSBT => unimpl_instr!(instr, "LDRSBT"),
             ArmInsn::ARM_INS_LDRSH => self.arm_ldrsh(instr),
-            ArmInsn::ARM_INS_LDRSHT => unimpl_instr!(instr, "LDRSHT"),
-            ArmInsn::ARM_INS_LDRT => unimpl_instr!(instr, "LDRT"),
             ArmInsn::ARM_INS_LSL => unimpl_instr!(instr, "LSL"),
             ArmInsn::ARM_INS_LSR => unimpl_instr!(instr, "LSR"),
             ArmInsn::ARM_INS_MCR => unimpl_instr!(instr, "MCR"),
@@ -447,9 +409,9 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
             ArmInsn::ARM_INS_STR => self.arm_str(instr),
             ArmInsn::ARM_INS_STRB => self.arm_strb(instr),
-            ArmInsn::ARM_INS_STRBT => unimpl_instr!(instr, "STRBT"),
+
             ArmInsn::ARM_INS_STRH => self.arm_strh(instr),
-            ArmInsn::ARM_INS_STRT => unimpl_instr!(instr, "STRT"),
+
             ArmInsn::ARM_INS_SUB => self.arm_sub(instr),
             // SWI?
             ArmInsn::ARM_INS_SWP => unimpl_instr!(instr, "SWP"),
@@ -511,7 +473,7 @@ mod tests {
 
         let context = Context::create();
         let mut comp = Compiler::new(&context);
-        let mut f = comp.new_function(0, None);
+        let mut f = comp.new_function(0);
 
         let all_regs: HashSet<Reg> = REG_ITEMS.into_iter().collect();
         f.load_initial_reg_values(&all_regs).unwrap();
@@ -569,7 +531,7 @@ mod tests {
         let mut cache = HashMap::new();
 
         let all_regs: HashSet<Reg> = REG_ITEMS.into_iter().collect();
-        let mut f1 = comp.new_function(0, Some(&cache));
+        let mut f1 = comp.new_function(0);
         f1.load_initial_reg_values(&all_regs).unwrap();
 
         let r0 = f1.reg_map.get(Reg::R0);
@@ -607,13 +569,25 @@ mod tests {
         let compiled1 = f1.compile().unwrap();
         cache.insert(0, compiled1);
 
-        let mut f2 = comp.new_function(1, Some(&cache));
+        let mut f2 = comp.new_function(1);
         f2.load_initial_reg_values(&all_regs).unwrap();
         f2.reg_map.update(Reg::R0, f2.i32_t.const_int(999, false));
         f2.write_state_out(&f2.reg_map).unwrap();
 
         // Construct the function pointer using raw pointer obtained from function cache
-        let func_ptr_param = f2.get_compiled_func_pointer(0).unwrap().unwrap();
+        let func_ptr_param = unsafe {
+            f2.builder
+                .build_int_to_ptr(
+                    f2.llvm_ctx
+                        .ptr_sized_int_type(f2.execution_engine.get_target_data(), None)
+                        // Double cast since usize ensures correct pointer size but inkwell
+                        // expects u64
+                        .const_int((cache.get(&0).unwrap().as_raw() as usize) as u64, false),
+                    f2.ptr_t,
+                    "f1_ptr",
+                )
+                .unwrap()
+        };
 
         // Perform indirect call through pointer
         let fn_t = f2.void_t.fn_type(&[f2.ptr_t.into()], false);
@@ -648,7 +622,7 @@ mod tests {
         let mut state = ArmState::new(tx);
         let context = Context::create();
         let mut comp = Compiler::new(&context);
-        let mut f = comp.new_function(0, None);
+        let mut f = comp.new_function(0);
 
         let all_regs: HashSet<Reg> = REG_ITEMS.into_iter().collect();
         f.load_initial_reg_values(&all_regs).unwrap();

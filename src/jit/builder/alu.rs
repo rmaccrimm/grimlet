@@ -1102,7 +1102,7 @@ mod tests {
                 shift,
             };
             let mut compiler = Compiler::new(context);
-            let mut f = compiler.new_function(0, None);
+            let mut f = compiler.new_function(0);
             f.load_initial_reg_values(&vec![Reg::R0, Reg::R1, Reg::CPSR].into_iter().collect())
                 .unwrap();
 
@@ -1421,7 +1421,7 @@ mod tests {
 
                 let context = Context::create();
                 let mut compiler = Compiler::new(&context);
-                let mut f = compiler.new_function(0, None);
+                let mut f = compiler.new_function(0);
                 f.load_initial_reg_values(&vec![Reg::R0, Reg::R1, Reg::CPSR].into_iter().collect())
                     .unwrap();
 

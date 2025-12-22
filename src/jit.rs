@@ -41,11 +41,7 @@ impl<'ctx> Compiler<'ctx> {
         }
     }
 
-    pub fn new_function<'a>(
-        &'a mut self,
-        addr: usize,
-        func_cache: Option<&'a FunctionCache<'ctx>>,
-    ) -> FunctionBuilder<'ctx, 'a>
+    pub fn new_function<'a>(&'a mut self, addr: usize) -> FunctionBuilder<'ctx, 'a>
     where
         'ctx: 'a,
     {
@@ -56,7 +52,6 @@ impl<'ctx> Compiler<'ctx> {
             &self.builder,
             &self.modules[i],
             &self.engines[i],
-            func_cache,
         )
     }
 

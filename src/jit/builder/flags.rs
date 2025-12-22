@@ -143,7 +143,7 @@ mod tests {
 
         let context = Context::create();
         let mut comp = Compiler::new(&context);
-        let mut func = comp.new_function(0, None);
+        let mut func = comp.new_function(0);
 
         let all_regs: HashSet<Reg> = REG_ITEMS.into_iter().collect();
         func.load_initial_reg_values(&all_regs).unwrap();

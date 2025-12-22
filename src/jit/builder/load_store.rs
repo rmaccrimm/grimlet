@@ -526,7 +526,7 @@ mod tests {
     /// Apply the given shift to R0
     fn shift_test_case(context: &Context, init: u32, shift: ArmShift, c_flag: Option<bool>) -> u32 {
         let mut compiler = Compiler::new(context);
-        let mut f = compiler.new_function(0, None);
+        let mut f = compiler.new_function(0);
 
         let init_regs = &vec![Reg::R0, Reg::CPSR].into_iter().collect();
 
@@ -685,7 +685,7 @@ mod tests {
         /// r9: stores calculated address
         fn new(context: &'ctx Context, mem_op: &MemOperand) -> Self {
             let mut compiler = Compiler::new(context);
-            let mut f = compiler.new_function(0, None);
+            let mut f = compiler.new_function(0);
 
             f.load_initial_reg_values(
                 &vec![Reg::R7, Reg::R8, Reg::R9, Reg::CPSR]

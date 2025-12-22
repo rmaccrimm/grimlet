@@ -93,7 +93,7 @@ impl Emulator {
                         None => (),
                     }
                     match compiler
-                        .new_function(instr_addr, Some(&func_cache))
+                        .new_function(instr_addr)
                         .build_body(code_block)
                         .compile()
                     {

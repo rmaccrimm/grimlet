@@ -39,21 +39,6 @@ impl Disassembler {
     }
 }
 
-impl Default for Disassembler {
-    fn default() -> Self {
-        let cs = Capstone::new()
-            .arm()
-            .mode(capstone::arch::arm::ArchMode::Arm)
-            .detail(true)
-            .build()
-            .expect("failed to build capstone instance");
-        Self {
-            cs,
-            current_mode: ArmMode::ARM,
-        }
-    }
-}
-
 impl Disasm for Disassembler {
     fn next_code_block(&self, mem: &MainMemory, start_addr: usize) -> Result<CodeBlock> {
         // TODO what's the appropriate type for addresses?
@@ -77,5 +62,20 @@ impl Disasm for Disassembler {
             }
         };
         res.expect("error while updating capstone mode");
+    }
+}
+
+impl Default for Disassembler {
+    fn default() -> Self {
+        let cs = Capstone::new()
+            .arm()
+            .mode(capstone::arch::arm::ArchMode::Arm)
+            .detail(true)
+            .build()
+            .expect("failed to build capstone instance");
+        Self {
+            cs,
+            current_mode: ArmMode::ARM,
+        }
     }
 }
