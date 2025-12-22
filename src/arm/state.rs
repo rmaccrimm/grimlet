@@ -79,6 +79,15 @@ impl From<i8> for ArmMode {
     }
 }
 
+impl ArmMode {
+    pub fn instr_size(&self) -> usize {
+        match self {
+            ArmMode::ARM => 4,
+            ArmMode::THUMB => 2,
+        }
+    }
+}
+
 impl From<capstone::RegId> for Reg {
     fn from(value: capstone::RegId) -> Self {
         match value.0 as u32 {

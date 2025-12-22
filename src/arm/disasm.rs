@@ -62,7 +62,7 @@ impl Disasm for Disassembler {
             ArmMode::THUMB => mem.iter_halfword(start_addr as u32),
         }?;
         let instr_iter = mem_iter.enumerate().map(move |(i, ch)| {
-            let addr = start_addr + 4 * i;
+            let addr = start_addr + self.current_mode.instr_size() * i;
             self.disasm_single(ch, addr)
         });
         Ok(CodeBlock::from_instructions(instr_iter, start_addr))
