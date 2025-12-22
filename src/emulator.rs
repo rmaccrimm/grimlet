@@ -294,7 +294,7 @@ mod tests {
         let cpsr = Reg::CPSR as usize;
 
         let mut test_case = |n: u32| -> u32 {
-            em.state.jump_to(0, false);
+            em.state.jump_to(0, ArmMode::ARM as i8);
             em.state.regs[r0] = n;
             em.state.regs[cpsr] = 0;
             em.run(exit, Some(DebugOutput::Assembly));

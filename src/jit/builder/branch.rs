@@ -8,7 +8,7 @@ use crate::jit::FunctionBuilder;
 pub(super) struct BranchAction<'a> {
     pub(super) target: IntValue<'a>,
     pub(super) save_return: bool,
-    pub(super) change_mode: bool,
+    pub(super) change_mode: Option<IntValue<'a>>,
 }
 
 impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
@@ -44,6 +44,14 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             change_mode,
         } = inner(self, instr)?;
 
+        let mode_param = match change_mode {
+            Some(mode) => mode,
+            None => {
+                // Keep mode the same as current
+                imm8!(self, instr.mode as i8)
+            }
+        };
+
         if save_return {
             let pc_offset = imm!(self, instr.mode.pc_byte_offset() / 2);
             let return_addr = bd.build_int_sub(self.reg_map.get(Reg::PC), pc_offset, "ret")?;
@@ -55,7 +63,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         } else {
             self.write_state_out(&self.reg_map)?;
         }
-        self.branch_and_return(target, change_mode)?;
+        self.branch_and_return(target, mode_param)?;
 
         // No need to branch to end block, since we have returned already
         bd.position_at_end(end_block);
@@ -66,23 +74,16 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     // self.write_state_out should be called before calling this
-    pub(super) fn branch_and_return(&self, target: IntValue<'a>, change_mode: bool) -> Result<()> {
+    pub(super) fn branch_and_return(&self, target: IntValue<'a>, mode: IntValue<'a>) -> Result<()> {
         let bd = self.builder;
         let func_t = self.void_t.fn_type(
             &[self.ptr_t.into(), self.i32_t.into(), self.i8_t.into()],
             false,
         );
-        let func_ptr = self.get_external_func_pointer(
-            ArmState::jump_to as fn(&mut ArmState, u32, bool) as usize,
-        )?;
-        let call = call_indirect!(
-            bd,
-            func_t,
-            func_ptr,
-            self.arm_state_ptr,
-            target,
-            imm8!(self, change_mode)
-        );
+        let func_ptr = self
+            .get_external_func_pointer(ArmState::jump_to as fn(&mut ArmState, u32, i8) as usize)?;
+
+        let call = call_indirect!(bd, func_t, func_ptr, self.arm_state_ptr, target, mode);
         call.set_tail_call(true);
         bd.build_return(None)?;
         Ok(())
@@ -92,7 +93,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         Ok(BranchAction {
             target: imm!(self, instr.get_imm_op(0)),
             save_return: false,
-            change_mode: false,
+            change_mode: None,
         })
     }
 
@@ -100,16 +101,23 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         Ok(BranchAction {
             target: imm!(self, instr.get_imm_op(0)),
             save_return: true,
-            change_mode: false,
+            change_mode: None,
         })
     }
 
     fn bx(&self, instr: &ArmInstruction) -> Result<BranchAction<'a>> {
-        // TODO reg
+        let bd = self.builder;
+        let rm_val = self.reg_map.get(instr.get_reg_op(0));
+        let lsb = bd.build_and(rm_val, imm!(self, 1), "lsb")?;
+        let mode = bd.build_int_cast_sign_flag(lsb, self.i8_t, false, "mode")?;
+
+        let mask = bd.build_not(imm!(self, 1), "mask")?;
+        let target = bd.build_and(rm_val, mask, "target")?;
+
         Ok(BranchAction {
-            target: self.reg_map.get(instr.get_reg_op(0)),
+            target,
             save_return: false,
-            change_mode: true,
+            change_mode: Some(mode),
         })
     }
 }

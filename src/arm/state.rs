@@ -22,6 +22,7 @@ pub enum ArmMode {
     ARM,
     THUMB,
 }
+
 pub const NUM_REGS: usize = 18;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -66,6 +67,17 @@ pub const REG_ITEMS: [Reg; NUM_REGS] = [
     Reg::CPSR,
     Reg::SPSR,
 ];
+
+// Need ability to pass mode as an i8 when calling from LLVM code
+impl From<i8> for ArmMode {
+    fn from(value: i8) -> Self {
+        match value {
+            0 => Self::ARM,
+            1 => Self::THUMB,
+            _ => panic!("invalid value for ArmMode: {}", value),
+        }
+    }
+}
 
 impl From<capstone::RegId> for Reg {
     fn from(value: capstone::RegId) -> Self {
@@ -128,15 +140,12 @@ impl ArmState {
         (self.regs[Reg::PC] - self.current_mode.pc_byte_offset()) as usize
     }
 
-    pub fn jump_to(&mut self, addr: u32, change_mode: bool) {
-        println!("JUMPING TO: {:#08x}", addr);
-        if change_mode {
-            self.current_mode = match self.current_mode {
-                ArmMode::ARM => ArmMode::THUMB,
-                ArmMode::THUMB => ArmMode::ARM,
-            };
+    pub fn jump_to(&mut self, addr: u32, mode: i8) {
+        let new_mode = ArmMode::from(mode);
+        if new_mode != self.current_mode {
+            self.current_mode = new_mode;
             self.tx
-                .send(SystemMessage::ChangeMode(self.current_mode))
+                .send(SystemMessage::ChangeMode(new_mode))
                 .expect("channel was closed");
         }
         self.regs[Reg::PC] = addr + self.current_mode.pc_byte_offset();

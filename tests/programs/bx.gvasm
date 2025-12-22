@@ -1,21 +1,23 @@
 .begin
     .arm
     // number of assertions
-    mov r8, #1
+    mov r8, #2
     // stack
     mov sp, #0x4000
-    
+
     ldr r0, =thumb
+    add r0, r0, #1
     bx r0
 thumb:
     .thumb
-    mov r0, #1
-    push {r0}
+    mov r1, #1
+    push {r1}
     ldr r0, =exit
     bx r0
 exit:
     .align 4
     .arm
+    push {r1}
     mov r11, #25344
     b end
 end:

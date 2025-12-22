@@ -1,5 +1,5 @@
 use grimlet::arm::disasm::Disassembler;
-use grimlet::arm::state::{ArmState, Reg};
+use grimlet::arm::state::{ArmMode, ArmState, Reg};
 use grimlet::emulator::{DebugOutput, Emulator};
 
 /// Labels produced by gvasm assume it's loaded into cartridge ROM
@@ -18,7 +18,7 @@ macro_rules! assembly_test {
             let mut emulator = Emulator::new(disasm);
             emulator.load_rom(path, CART_START_ADDR).unwrap();
             let exit = |st: &ArmState| -> bool { st.regs[Reg::R11] == 25344 };
-            emulator.state.jump_to(CART_START_ADDR, false);
+            emulator.state.jump_to(CART_START_ADDR, ArmMode::ARM as i8);
             emulator.run(exit, Some(DebugOutput::Assembly));
             println!("{:08x?}", emulator.state.regs);
 

@@ -1,4 +1,3 @@
-// Computes the factorial of r0 and stores the result in r1
 .begin main
     .arm
     // number of assertions

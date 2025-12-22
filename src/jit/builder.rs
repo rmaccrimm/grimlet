@@ -386,7 +386,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                 tmp_reg_map.update(reg, value);
             }
             self.write_state_out(&tmp_reg_map)?;
-            self.branch_and_return(target, false)?;
+            // TODO - can we change mode here? Possibly an ARMv5 thing
+            self.branch_and_return(target, imm8!(self, instr.mode as i8))?;
 
             bd.position_at_end(end_block);
             self.increment_pc(instr.mode);
@@ -451,8 +452,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             ArmInsn::ARM_INS_MLA => self.arm_mla(instr),
             ArmInsn::ARM_INS_MOV => self.arm_mov(instr),
             ArmInsn::ARM_INS_MRC => unimpl_instr!(instr, "MRC"),
-            ArmInsn::ARM_INS_MRS => self.arm_msr(instr),
-            ArmInsn::ARM_INS_MSR => self.arm_mrs(instr),
+            ArmInsn::ARM_INS_MRS => self.arm_mrs(instr),
+            ArmInsn::ARM_INS_MSR => self.arm_msr(instr),
             ArmInsn::ARM_INS_MUL => self.arm_mul(instr),
             ArmInsn::ARM_INS_MVN => self.arm_mvn(instr),
             ArmInsn::ARM_INS_ORR => self.arm_orr(instr),
@@ -531,10 +532,12 @@ mod tests {
             .build_int_add(f.reg_map.get(Reg::PC), f.reg_map.get(Reg::R9), "add_res")
             .unwrap();
 
-        let interp_fn_type = f.void_t.fn_type(&[f.ptr_t.into(), f.i32_t.into()], false);
+        let interp_fn_type = f
+            .void_t
+            .fn_type(&[f.ptr_t.into(), f.i32_t.into(), f.i8_t.into()], false);
 
         let interp_fn_ptr = f
-            .get_external_func_pointer(ArmState::jump_to as *const fn(&mut ArmState, u32) as usize)
+            .get_external_func_pointer(ArmState::jump_to as fn(&mut ArmState, u32, i8) as usize)
             .unwrap();
 
         let call = f
@@ -542,7 +545,11 @@ mod tests {
             .build_indirect_call(
                 interp_fn_type,
                 interp_fn_ptr,
-                &[f.arm_state_ptr.into(), add_res.into()],
+                &[
+                    f.arm_state_ptr.into(),
+                    add_res.into(),
+                    imm8!(f, ArmMode::ARM as i8).into(),
+                ],
                 "fn_result",
             )
             .unwrap();
@@ -586,19 +593,23 @@ mod tests {
         f1.write_state_out(&f1.reg_map).unwrap();
 
         let func_ptr_param = f1
-            .get_external_func_pointer(ArmState::jump_to as fn(&mut ArmState, u32, bool) as usize)
+            .get_external_func_pointer(ArmState::jump_to as fn(&mut ArmState, u32, i8) as usize)
             .unwrap();
 
         let interp_fn_t = f1
             .void_t
-            .fn_type(&[f1.ptr_t.into(), f1.i32_t.into()], false);
+            .fn_type(&[f1.ptr_t.into(), f1.i32_t.into(), f1.i8_t.into()], false);
 
         let call = f1
             .builder
             .build_indirect_call(
                 interp_fn_t,
                 func_ptr_param,
-                &[f1.arm_state_ptr.into(), v1.into()],
+                &[
+                    f1.arm_state_ptr.into(),
+                    v1.into(),
+                    imm8!(f1, ArmMode::ARM as i8).into(),
+                ],
                 "fn_result",
             )
             .unwrap();

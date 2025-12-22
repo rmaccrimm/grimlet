@@ -8,6 +8,7 @@ use num::traits::{AsPrimitive, FromBytes, ToBytes};
 pub struct MainMemory {
     bios: Vec<u8>,
     cart_rom: Vec<u8>,
+    io_registers: Vec<u8>,
 }
 
 pub trait MemReadable =
@@ -17,10 +18,10 @@ pub trait MemWriteable = ToBytes<Bytes: IntoIterator<Item = u8>>;
 
 impl Default for MainMemory {
     fn default() -> Self {
-        // Not yet the actual proper amounts
         Self {
             bios: vec![0; 16 << 10],
-            cart_rom: vec![0; 1 << 10],
+            cart_rom: vec![0; 1 << 10], // TODO actual size
+            io_registers: vec![0; 0x3ff],
         }
     }
 }
@@ -88,6 +89,7 @@ impl MainMemory {
         let index = (addr - base) as usize;
         Ok(match base {
             0x00000000 => &self.bios[index..],
+            0x04000000 => &self.io_registers[index..],
             0x08000000 => &self.cart_rom[index..],
             _ => bail!("unused area of memory (addr: {:#08x})", addr),
         })
@@ -99,6 +101,7 @@ impl MainMemory {
         let index = (addr - base) as usize;
         Ok(match base {
             0x00000000 => &mut self.bios[index..],
+            0x04000000 => &mut self.io_registers[index..],
             0x08000000 => &mut self.cart_rom[index..],
             _ => bail!("unused area of memory (addr: {:#08x})", addr),
         })
@@ -118,6 +121,7 @@ mod tests {
 
                     let mem = MainMemory {
                         bios: $bytes,
+                        io_registers: vec![],
                         cart_rom: vec![],
                     };
                     assert_eq!(mem.read::<$T>(read_addr), expected);
@@ -153,6 +157,7 @@ mod tests {
     fn test_read_past_end_of_bytes_panics() {
         let mem = MainMemory {
             bios: vec![0x34, 0xff, 0xbe, 0x70],
+            io_registers: vec![],
             cart_rom: vec![],
         };
         mem.read::<u32>(1);
@@ -162,6 +167,7 @@ mod tests {
     fn test_write() {
         let mut mem = MainMemory {
             bios: vec![0; 4],
+            io_registers: vec![],
             cart_rom: vec![],
         };
         mem.write(0, 0x12345678u32);

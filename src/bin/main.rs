@@ -3,7 +3,7 @@ use std::env;
 use anyhow::Result;
 use grimlet::arm::disasm::Disassembler;
 use grimlet::arm::state::ArmState;
-use grimlet::emulator::Emulator;
+use grimlet::emulator::{DebugOutput, Emulator};
 
 fn main() -> Result<()> {
     let bios_path = env::args().nth(1).unwrap();
@@ -11,6 +11,6 @@ fn main() -> Result<()> {
     let mut emulator = Emulator::new(disasm);
     emulator.load_rom(bios_path, 0)?;
     let exit = |_: &ArmState| -> bool { false };
-    emulator.run(exit, None);
+    emulator.run(exit, Some(DebugOutput::Assembly));
     Ok(())
 }
