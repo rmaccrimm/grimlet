@@ -69,6 +69,45 @@ pub const REG_ITEMS: [Reg; NUM_REGS] = [
     Reg::SPSR,
 ];
 
+impl ArmState {
+    pub fn new(tx: Sender<SystemMessage>) -> Self {
+        let mut regs = [0; NUM_REGS];
+        regs[Reg::PC] = 8; // 2 instructions ahead
+        Self {
+            current_mode: ArmMode::ARM,
+            regs,
+            mem: MainMemory::default(),
+            tx,
+        }
+    }
+
+    pub fn curr_instr_addr(&self) -> usize {
+        (self.regs[Reg::PC] - self.current_mode.pc_byte_offset()) as usize
+    }
+
+    pub fn jump_to(&mut self, addr: u32, mode: i8) {
+        let new_mode = ArmMode::from(mode);
+        if new_mode != self.current_mode {
+            self.current_mode = new_mode;
+            self.tx
+                .send(SystemMessage::ChangeMode(new_mode))
+                .expect("channel was closed");
+        }
+        self.regs[Reg::PC] = addr + self.current_mode.pc_byte_offset();
+    }
+}
+
+impl Display for ArmState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for r in REG_ITEMS {
+            let rs = format!("{}", r);
+            let padding: String = vec![" "; 5 - rs.len()].concat();
+            writeln!(f, "{}:{}0x{:08x}", rs, padding, self.regs[r])?;
+        }
+        writeln!(f, "mode: {}", self.current_mode)
+    }
+}
+
 impl ArmMode {
     pub fn instr_size(&self) -> usize {
         match self {
@@ -171,43 +210,4 @@ impl Display for Reg {
 
 impl fmt::Debug for Reg {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "{}", self) }
-}
-
-impl ArmState {
-    pub fn new(tx: Sender<SystemMessage>) -> Self {
-        let mut regs = [0; NUM_REGS];
-        regs[Reg::PC] = 8; // 2 instructions ahead
-        Self {
-            current_mode: ArmMode::ARM,
-            regs,
-            mem: MainMemory::default(),
-            tx,
-        }
-    }
-
-    pub fn curr_instr_addr(&self) -> usize {
-        (self.regs[Reg::PC] - self.current_mode.pc_byte_offset()) as usize
-    }
-
-    pub fn jump_to(&mut self, addr: u32, mode: i8) {
-        let new_mode = ArmMode::from(mode);
-        if new_mode != self.current_mode {
-            self.current_mode = new_mode;
-            self.tx
-                .send(SystemMessage::ChangeMode(new_mode))
-                .expect("channel was closed");
-        }
-        self.regs[Reg::PC] = addr + self.current_mode.pc_byte_offset();
-    }
-}
-
-impl Display for ArmState {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for r in REG_ITEMS {
-            let rs = format!("{}", r);
-            let padding: String = vec![" "; 5 - rs.len()].concat();
-            writeln!(f, "{}:{}0x{:08x}", rs, padding, self.regs[r])?;
-        }
-        writeln!(f, "mode: {}", self.current_mode)
-    }
 }
