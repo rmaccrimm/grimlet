@@ -19,6 +19,7 @@ pub struct ArmInstruction {
     pub mode: ArmMode,
     pub updates_flags: bool,
     pub writeback: bool,
+    pub binary: u32,
 }
 
 /// <shifter_operand> operands for data processing instructions. Parsed out ahead of time since it
@@ -56,6 +57,9 @@ pub enum WritebackMode {
     PreIndex,
 }
 
+/// one of CPSR/SPSR and a mask for bits being changed
+pub struct ProgramStatusReg(pub Reg, pub u32);
+
 impl ArmInstruction {
     pub fn from_cs_insn(cs: &Capstone, insn: &Insn, mode: ArmMode) -> Self {
         let detail = cs
@@ -75,6 +79,14 @@ impl ArmInstruction {
             }
         }
         let cond = arm_detail.cc();
+        let b = match mode {
+            ArmMode::ARM => {
+                u32::from_le_bytes(insn.bytes().try_into().expect("failed to parse bytes"))
+            }
+            ArmMode::THUMB => {
+                u16::from_le_bytes(insn.bytes().try_into().expect("failed to parse bytes")) as u32
+            }
+        };
 
         Self {
             opcode: ArmInsn::from(insn.id().0),
@@ -92,6 +104,7 @@ impl ArmInstruction {
             mode,
             updates_flags: arm_detail.update_flags(),
             writeback: arm_detail.writeback(),
+            binary: b,
         }
     }
 
@@ -228,6 +241,29 @@ impl ArmInstruction {
             _ => bail!("Invalid shifter operand type"),
         })
     }
+
+    /// This is largely based on trial and error by compiling instructions with gvasm and seeing
+    /// what capstone spits out. It seems like _fc and _f and are the only possible options
+    pub fn get_sys_reg_op(&self, ind: usize) -> Result<ProgramStatusReg> {
+        let op = self
+            .operands
+            .get(ind)
+            .ok_or(anyhow!("unexecpted op type"))?;
+        if let ArmOperandType::SysReg(reg_id) = op.op_type {
+            // Pulled from capstone.rs, not clear how you're really meant to use these
+            Ok(match reg_id.0 {
+                // spsr_flg / spsr_f -> ARM_SYSREG_SPSR_F
+                8 => ProgramStatusReg(Reg::SPSR, 0xf0000000),
+                // cpsr / cpsr_fc / spsr / spsr_fc -> ? are these supposed to be the same?
+                9 => ProgramStatusReg(Reg::SPSR, 0xf00000ff),
+                // cpsr_flg / aspr_nzcvq -> ARM_SYSREG_APSR_NZCVQ
+                258 => ProgramStatusReg(Reg::CPSR, 0xf0000ff),
+                _ => bail!("unknown sysreg id: {:?}", op),
+            })
+        } else {
+            bail!("operand is not a sysreg: {:?}", op);
+        }
+    }
 }
 
 impl Default for ArmInstruction {
@@ -241,6 +277,7 @@ impl Default for ArmInstruction {
             mode: ArmMode::ARM,
             updates_flags: true,
             writeback: false,
+            binary: 0,
         }
     }
 }

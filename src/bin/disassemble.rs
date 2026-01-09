@@ -53,16 +53,8 @@ fn main() -> Result<()> {
 
         let bytes = if args.thumb_mode {
             ds.set_mode(ArmMode::THUMB);
-            println!(
-                "Binary: {:#04x}",
-                u16::from_le_bytes(bin[0..2].try_into().unwrap())
-            );
             &bin[0..2]
         } else {
-            println!(
-                "Binary: {:#08x}",
-                u32::from_le_bytes(bin[0..4].try_into().unwrap())
-            );
             &bin[0..4]
         };
 

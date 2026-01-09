@@ -4,7 +4,7 @@ use capstone::arch::arm::{ArmOperandType, ArmShift};
 use inkwell::IntPredicate;
 use inkwell::values::IntValue;
 
-use crate::arm::disasm::instruction::{ArmInstruction, ShifterOperand};
+use crate::arm::disasm::instruction::{ArmInstruction, ProgramStatusReg, ShifterOperand};
 use crate::arm::state::Reg;
 use crate::jit::FunctionBuilder;
 use crate::jit::builder::flags::C;
@@ -1056,11 +1056,19 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     fn msr(&self, instr: &ArmInstruction) -> InstrResult<'a> {
-        if instr.operands[0].op_type != ArmOperandType::SysReg(RegId(9)) {
-            // SysReg(RegId(9)) seems to correspond to cpsr_fc/spsr_fc, which may be the only way
-            // you can call this since in ARMv4 without user mode? I still don't quite understand
-            // how cpsr instructions get decoded by capstone.
-            bail!("Unexpected operand");
+        // SysReg parsing through capstone-rs seems to be incomplete. Just manually parse the
+        // rest of the instruction here.
+        let r = ((instr.binary >> 22) & 1) == 1;
+        let reg = if r { Reg::SPSR } else { Reg::CPSR };
+        let mut mask = 0u32;
+        let f = (instr.binary >> 19) & 1 == 1;
+        // Assuming f and c are the only 2 useable field specifiersa
+        if f {
+            mask |= 0xf0000000;
+        }
+        let c = (instr.binary >> 16) & 1 == 1;
+        if c {
+            mask |= 0xff;
         }
         let bd = self.builder;
         let update_val = match instr.operands[1].op_type {
@@ -1068,11 +1076,11 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             ArmOperandType::Imm(imm) => imm!(self, imm),
             _ => panic!("unhandled operand type"),
         };
-        let cpsr = self.reg_map.get(Reg::CPSR);
-        let masked = bd.build_and(update_val, imm!(self, 0xf00000ff), "msk")?;
-        let keep = bd.build_and(cpsr, imm!(self, 0x0fffff00), "keep")?;
+        let curr_status = self.reg_map.get(reg);
+        let masked = bd.build_and(update_val, imm!(self, mask), "msk")?;
+        let keep = bd.build_and(curr_status, imm!(self, 0x0fffff00), "keep")?;
         let res_val = bd.build_or(masked, keep, "or")?;
-        let updates = vec![RegUpdate(Reg::CPSR, res_val)];
+        let updates = vec![RegUpdate(reg, res_val)];
         Ok(updates)
     }
 }

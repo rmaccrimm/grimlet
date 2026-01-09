@@ -95,6 +95,7 @@ impl Emulator {
                     match compiler
                         .new_function(instr_addr)
                         .build_body(code_block)
+                        .expect("failed to build function")
                         .compile()
                     {
                         Ok(compiled) => {

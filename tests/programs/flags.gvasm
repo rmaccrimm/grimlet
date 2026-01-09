@@ -1,0 +1,77 @@
+// include standard library for useful constants
+.stdlib
+
+// GBA header
+.begin header
+    .arm
+    b main
+    .logo
+    .title "GAME"
+    .str "CUNE77"
+    .i16 150, 0, 0, 0, 0
+    .i8 0            // version
+    .crc
+    .i16 0
+    b header         // ensure ROM isn't interpreted as multi-boot
+    .str "SRAM_Vnnn" // tell emulators to reserve 32K of SRAM
+    .align 4
+.end
+
+// eq: z set
+// ne: z clear
+// mi: n set
+// pl: n clear
+// cs: c set
+// cc: c clear
+// vs: v set
+// vc: v clear 
+
+.begin main
+    .arm
+    // number of assertions
+    mov r8, #3
+    // stack
+    ldr sp, =0x03008000
+    // flag mask
+    ldr r7, =0xf0000000
+    // test result, pushed onto stack
+    mov r9, #1
+
+    eor r0, r0
+    msr cpsr_flg, r0
+
+    movs r1, #1
+    beq fail
+    bmi fail
+    bcs fail
+    bvs fail
+    push {r9}
+
+    msr cpsr_flg, r0    
+    movs r1, #0
+    bne fail
+    bmi fail
+    bcs fail
+    bvs fail
+    push {r9}
+
+    msr cpsr_flg, r0
+    movs r1, #-16777216
+    beq fail
+    bpl fail
+    bcs fail
+    bvs fail
+    push {r9}
+
+    b exit
+fail:
+    ldr r9, =-1
+    push {r9}
+exit: 
+    mov r11, #0x6300
+    b end
+end:
+    b end
+
+    .pool
+.end

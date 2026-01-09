@@ -222,13 +222,13 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         build().expect("Function initialization failed")
     }
 
-    pub fn build_body(mut self, code_block: CodeBlock) -> Self {
+    pub fn build_body(mut self, code_block: CodeBlock) -> Result<Self> {
         self.load_initial_reg_values(&code_block.regs_accessed)
             .expect("initial register load failed");
         for instr in code_block.instrs {
             self.build(instr);
         }
-        self
+        Ok(self)
     }
 
     pub fn compile(self) -> Result<CompiledFunction<'ctx>> {
