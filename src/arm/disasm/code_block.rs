@@ -114,11 +114,11 @@ fn is_terminator(instr: &ArmInstruction) -> bool {
             // At the moment this is done twice for every instruction, probably best to replace
             // the capstone operands alltogether on first load. This would also allow for some
             // separation of error types (builder can just return BuilderErrors)
-            let op = instr.get_mem_op().expect("failed to get mem op");
+            let op = instr.get_mem_op(1).expect("failed to get mem op");
             rd == Reg::PC || (instr.writeback && op.base == Reg::PC)
         }
         ArmInsn::ARM_INS_STR | ArmInsn::ARM_INS_STRB | ArmInsn::ARM_INS_STRH => {
-            let op = instr.get_mem_op().expect("failed to get mem op");
+            let op = instr.get_mem_op(1).expect("failed to get mem op");
             instr.writeback && op.base == Reg::PC
         }
         ArmInsn::ARM_INS_LDM

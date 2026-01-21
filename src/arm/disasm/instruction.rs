@@ -134,8 +134,8 @@ impl ArmInstruction {
         }
     }
 
-    pub fn get_mem_op(&self) -> Result<MemOperand> {
-        let mut op_iter = self.operands.iter().skip(1);
+    pub fn get_mem_op(&self, index: usize) -> Result<MemOperand> {
+        let mut op_iter = self.operands.iter().skip(index);
         let mem_op = op_iter
             .next()
             .unwrap_or_else(|| panic!("\"{}\" missing mem operand", self));
@@ -242,6 +242,21 @@ impl ArmInstruction {
         })
     }
 
+    /// This is used by both thumb ASR, LSL, LSR, and ROR as well as arm 
+    /// MOV rd, rn, <shifter_op> instructions which capstone converts to one of these shift ops
+    pub fn get_thumb_shifter_op(&self, shift: ArmShift) -> Result<ShifterOperand> {
+        match 
+        // match self.operands.len() {
+        //     2 => {
+        //         let rd = self.get_reg_op(0);
+        //         let rs = self.get_reg_op(1);
+        //         Ok(ShifterOperand::Reg { reg, shift })
+        //     }
+        //     3 => {}
+        //     l => anyhow!("unexpected number of operands: {}", l),
+        // }
+    }
+
     /// This is largely based on trial and error by compiling instructions with gvasm and seeing
     /// what capstone spits out. It seems like _fc and _f and are the only possible options
     pub fn get_sys_reg_op(&self, ind: usize) -> Result<ProgramStatusReg> {
@@ -299,7 +314,7 @@ mod tests {
     // Using assembled bytes to test as we cannot construct a capstone::ArmMemOp
     fn get_mem_op_from_assembled(bin: u32) -> MemOperand {
         let instr = Disassembler::default().disasm_single(&bin.to_le_bytes(), 0);
-        instr.get_mem_op().unwrap()
+        instr.get_mem_op(1).unwrap()
     }
 
     #[test]

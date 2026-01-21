@@ -43,7 +43,7 @@ macro_rules! call_indirect {
 }
 
 macro_rules! call_indirect_with_return {
-    ($builder:ident, $func_t:expr, $func_ptr:ident, $($args:expr),+) => {
+    ($builder:expr, $func_t:expr, $func_ptr:ident, $($args:expr),+) => {
         call_indirect!($builder, $func_t, $func_ptr, $($args),+)
             .try_as_basic_value()
             .left()
@@ -144,6 +144,7 @@ where
 
 type InstrResult<'a> = Result<Vec<RegUpdate<'a>>>;
 
+#[derive(Copy, Clone)]
 // A register and the value to write to it
 struct RegUpdate<'a>(Reg, IntValue<'a>);
 
@@ -356,16 +357,14 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             ArmInsn::ARM_INS_ADD => self.arm_add(instr),
             ArmInsn::ARM_INS_ADR => self.arm_adr(instr),
             ArmInsn::ARM_INS_AND => self.arm_and(instr),
-            ArmInsn::ARM_INS_ASR => unimpl_instr!(instr, "ASR"),
+            ArmInsn::ARM_INS_ASR => self.arm_asr(instr),
             ArmInsn::ARM_INS_B => self.arm_b(instr),
             ArmInsn::ARM_INS_BIC => self.arm_bic(instr),
             ArmInsn::ARM_INS_BL => self.arm_bl(instr),
             ArmInsn::ARM_INS_BX => self.arm_bx(instr),
-            ArmInsn::ARM_INS_CDP => unimpl_instr!(instr, "CDP"),
             ArmInsn::ARM_INS_CMN => self.arm_cmn(instr),
             ArmInsn::ARM_INS_CMP => self.arm_cmp(instr),
             ArmInsn::ARM_INS_EOR => self.arm_eor(instr),
-            ArmInsn::ARM_INS_LDC => unimpl_instr!(instr, "LDC"),
             ArmInsn::ARM_INS_LDM => self.arm_ldmia(instr),
             ArmInsn::ARM_INS_LDMDA => self.arm_ldmda(instr),
             ArmInsn::ARM_INS_LDMDB => self.arm_ldmdb(instr),
@@ -375,12 +374,10 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             ArmInsn::ARM_INS_LDRH => self.arm_ldrh(instr),
             ArmInsn::ARM_INS_LDRSB => self.arm_ldrsb(instr),
             ArmInsn::ARM_INS_LDRSH => self.arm_ldrsh(instr),
-            ArmInsn::ARM_INS_LSL => unimpl_instr!(instr, "LSL"),
-            ArmInsn::ARM_INS_LSR => unimpl_instr!(instr, "LSR"),
-            ArmInsn::ARM_INS_MCR => unimpl_instr!(instr, "MCR"),
+            ArmInsn::ARM_INS_LSL => self.arm_lsl(instr),
+            ArmInsn::ARM_INS_LSR => self.arm_lsr(instr),
             ArmInsn::ARM_INS_MLA => self.arm_mla(instr),
             ArmInsn::ARM_INS_MOV => self.arm_mov(instr),
-            ArmInsn::ARM_INS_MRC => unimpl_instr!(instr, "MRC"),
             ArmInsn::ARM_INS_MRS => self.arm_mrs(instr),
             ArmInsn::ARM_INS_MSR => self.arm_msr(instr),
             ArmInsn::ARM_INS_MUL => self.arm_mul(instr),
@@ -388,14 +385,12 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             ArmInsn::ARM_INS_ORR => self.arm_orr(instr),
             ArmInsn::ARM_INS_POP => self.arm_pop(instr),
             ArmInsn::ARM_INS_PUSH => self.arm_push(instr),
-            ArmInsn::ARM_INS_ROR => unimpl_instr!(instr, "ROR"),
-            ArmInsn::ARM_INS_RRX => unimpl_instr!(instr, "RRX"),
+            ArmInsn::ARM_INS_ROR => self.arm_ror(instr),
             ArmInsn::ARM_INS_RSB => self.arm_rsb(instr),
             ArmInsn::ARM_INS_RSC => self.arm_rsc(instr),
             ArmInsn::ARM_INS_SBC => self.arm_sbc(instr),
             ArmInsn::ARM_INS_SMLAL => self.arm_smlal(instr),
             ArmInsn::ARM_INS_SMULL => self.arm_smull(instr),
-            ArmInsn::ARM_INS_STC => unimpl_instr!(instr, "STC"),
             ArmInsn::ARM_INS_STM => self.arm_stmia(instr),
             ArmInsn::ARM_INS_STMIB => self.arm_stmib(instr),
             ArmInsn::ARM_INS_STMDA => self.arm_stmda(instr),
@@ -405,8 +400,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             ArmInsn::ARM_INS_STRH => self.arm_strh(instr),
             ArmInsn::ARM_INS_SUB => self.arm_sub(instr),
             // SWI?
-            ArmInsn::ARM_INS_SWP => unimpl_instr!(instr, "SWP"),
-            ArmInsn::ARM_INS_SWPB => unimpl_instr!(instr, "SWPB"),
+            ArmInsn::ARM_INS_SWP => self.arm_swp(instr),
+            ArmInsn::ARM_INS_SWPB => self.arm_swpb(instr),
             ArmInsn::ARM_INS_TEQ => self.arm_teq(instr),
             ArmInsn::ARM_INS_TST => self.arm_tst(instr),
             ArmInsn::ARM_INS_UMLAL => self.arm_umlal(instr),

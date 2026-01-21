@@ -23,6 +23,10 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         exec_instr!(self, exec_conditional, instr, Self::and)
     }
 
+    pub(super) fn arm_asr(&mut self, instr: ArmInstruction) {
+        exec_instr!(self, exec_conditional, instr, Self::asr)
+    }
+
     pub(super) fn arm_bic(&mut self, instr: ArmInstruction) {
         exec_instr!(self, exec_conditional, instr, Self::bic)
     }
@@ -39,6 +43,14 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         exec_instr!(self, exec_conditional, instr, Self::eor)
     }
 
+    pub(super) fn arm_lsl(&mut self, instr: ArmInstruction) {
+        exec_instr!(self, exec_conditional, instr, Self::lsl)
+    }
+
+    pub(super) fn arm_lsr(&mut self, instr: ArmInstruction) {
+        exec_instr!(self, exec_conditional, instr, Self::lsr)
+    }
+
     pub(super) fn arm_mla(&mut self, instr: ArmInstruction) {
         exec_instr!(self, exec_conditional, instr, Self::mla)
     }
@@ -53,6 +65,10 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
     pub(super) fn arm_orr(&mut self, instr: ArmInstruction) {
         exec_instr!(self, exec_conditional, instr, Self::orr)
+    }
+
+    pub(super) fn arm_ror(&mut self, instr: ArmInstruction) {
+        exec_instr!(self, exec_conditional, instr, Self::ror)
     }
 
     pub(super) fn arm_rsb(&mut self, instr: ArmInstruction) {
@@ -495,6 +511,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         Ok(updates)
     }
 
+    fn asr(&self, instr: &ArmInstruction) -> InstrResult<'a> { ShifterOperand }
+
     fn bic(&self, instr: &ArmInstruction) -> InstrResult<'a> {
         let bd = self.builder;
         let rd = instr.get_reg_op(0);
@@ -570,6 +588,10 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         Ok(updates)
     }
 
+    fn lsl(&self, instr: &ArmInstruction) -> InstrResult<'a> { todo!() }
+
+    fn lsr(&self, instr: &ArmInstruction) -> InstrResult<'a> { todo!() }
+
     fn mov(&self, instr: &ArmInstruction) -> InstrResult<'a> {
         let bd = self.builder;
         let rd = instr.get_reg_op(0);
@@ -626,6 +648,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let updates = vec![RegUpdate(rd, res_val), RegUpdate(Reg::CPSR, cpsr)];
         Ok(updates)
     }
+
+    fn ror(&self, instr: &ArmInstruction) -> InstrResult<'a> { todo!() }
 
     fn rsb(&self, instr: &ArmInstruction) -> InstrResult<'a> {
         let bd = self.builder;

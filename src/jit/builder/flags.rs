@@ -12,7 +12,10 @@ use crate::jit::FunctionBuilder;
 #[derive(Copy, Clone, Debug)]
 pub(super) struct Flag(pub u32, pub &'static str);
 
+// Carry-from or unsined overflow (result > 2^32 - 1 )
 pub(super) const V: Flag = Flag(1 << 28, "v");
+
+// Carry-from or unsigned overflow (result > 2^32 - 1)
 pub(super) const C: Flag = Flag(1 << 29, "c");
 pub(super) const Z: Flag = Flag(1 << 30, "z");
 pub(super) const N: Flag = Flag(1 << 31, "n");
