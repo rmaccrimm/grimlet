@@ -1,8 +1,9 @@
 use anyhow::{Context as _, Result, anyhow, bail};
-use capstone::arch::arm::ArmShift;
 use inkwell::values::IntValue;
 
-use crate::arm::disasm::instruction::{ArmInstruction, MemOffset, MemOperand, WritebackMode};
+use crate::arm::disasm::instruction::{
+    ArmInstruction, ArmShift, MemOffset, MemOperand, WritebackMode,
+};
 use crate::arm::state::Reg;
 use crate::arm::state::memory::{MainMemory, MemReadable, MemWriteable};
 use crate::jit::builder::flags::C;
@@ -146,8 +147,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     fn imm_shift(&self, value: IntValue<'a>, shift: ArmShift) -> Result<IntValue<'a>> {
         let bd = self.builder;
         let shifted = match shift {
-            ArmShift::Invalid => Ok(value),
-            ArmShift::Asr(imm) => {
+            ArmShift::NoShift => Ok(value),
+            ArmShift::AsrImm(imm) => {
                 debug_assert!(imm > 0 && imm <= 32);
                 if imm == 32 {
                     bd.build_right_shift(value, imm!(self, 31), true, "asr")
@@ -155,11 +156,11 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                     bd.build_right_shift(value, imm!(self, imm), true, "asr")
                 }
             }
-            ArmShift::Lsl(imm) => {
+            ArmShift::LslImm(imm) => {
                 debug_assert!(imm < 32);
                 bd.build_left_shift(value, imm!(self, imm), "lsl")
             }
-            ArmShift::Lsr(imm) => {
+            ArmShift::LsrImm(imm) => {
                 debug_assert!(imm > 0 && imm <= 32);
                 if imm == 32 {
                     Ok(imm!(self, 0))
@@ -167,11 +168,11 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                     bd.build_right_shift(value, imm!(self, imm), false, "lsr")
                 }
             }
-            ArmShift::Ror(imm) => {
+            ArmShift::RorImm(imm) => {
                 debug_assert!(imm > 0 && imm < 32);
                 Ok(call_intrinsic!(bd, self.fshr, value, value, imm!(self, imm)).into_int_value())
             }
-            ArmShift::Rrx(_) => {
+            ArmShift::Rrx => {
                 let c = bd.build_int_cast_sign_flag(self.get_flag(C)?, self.i32_t, false, "c")?;
                 Ok(call_intrinsic!(bd, self.fshr, c, value, imm!(self, 1)).into_int_value())
             }
@@ -602,7 +603,10 @@ mod tests {
             ((0x70f00000, 32), 0),
         ];
         for ((r0, sh), expected) in cases {
-            assert_eq!(shift_test_case(&ctx, r0, ArmShift::Asr(sh), None), expected);
+            assert_eq!(
+                shift_test_case(&ctx, r0, ArmShift::AsrImm(sh), None),
+                expected
+            );
         }
     }
 
@@ -610,14 +614,14 @@ mod tests {
     #[should_panic]
     fn test_imm_shift_asr_0_panics() {
         let ctx = Context::create();
-        shift_test_case(&ctx, 0xf0f0, ArmShift::Asr(0), None);
+        shift_test_case(&ctx, 0xf0f0, ArmShift::AsrImm(0), None);
     }
 
     #[test]
     #[should_panic]
     fn test_imm_shift_asr_33_panics() {
         let ctx = Context::create();
-        shift_test_case(&ctx, 0xf0f0, ArmShift::Asr(33), None);
+        shift_test_case(&ctx, 0xf0f0, ArmShift::AsrImm(33), None);
     }
 
     #[test]
@@ -629,7 +633,10 @@ mod tests {
             ((0xf0f00000, 32), 0),
         ];
         for ((r0, sh), expected) in cases {
-            assert_eq!(shift_test_case(&ctx, r0, ArmShift::Lsr(sh), None), expected);
+            assert_eq!(
+                shift_test_case(&ctx, r0, ArmShift::LsrImm(sh), None),
+                expected
+            );
         }
     }
 
@@ -637,14 +644,14 @@ mod tests {
     #[should_panic]
     fn test_imm_shift_lsr_0_panics() {
         let ctx = Context::create();
-        shift_test_case(&ctx, 0xf0f0, ArmShift::Lsr(0), None);
+        shift_test_case(&ctx, 0xf0f0, ArmShift::LsrImm(0), None);
     }
 
     #[test]
     #[should_panic]
     fn test_imm_shift_lsr_33_panics() {
         let ctx = Context::create();
-        shift_test_case(&ctx, 0xf0f0, ArmShift::Lsr(33), None);
+        shift_test_case(&ctx, 0xf0f0, ArmShift::LsrImm(33), None);
     }
 
     #[test]
@@ -657,7 +664,10 @@ mod tests {
             ((0xf0f00000, 31), 0),
         ];
         for ((r0, sh), expected) in cases {
-            assert_eq!(shift_test_case(&ctx, r0, ArmShift::Lsl(sh), None), expected);
+            assert_eq!(
+                shift_test_case(&ctx, r0, ArmShift::LslImm(sh), None),
+                expected
+            );
         }
     }
 
@@ -665,7 +675,7 @@ mod tests {
     #[should_panic]
     fn test_imm_shift_lsl_32_panics() {
         let ctx = Context::create();
-        shift_test_case(&ctx, 0, ArmShift::Lsl(32), None);
+        shift_test_case(&ctx, 0, ArmShift::LslImm(32), None);
     }
 
     #[test]
@@ -676,7 +686,10 @@ mod tests {
             ((0xf0f000e7, 31), 0xe1e001cf),
         ];
         for ((r0, sh), expected) in cases {
-            assert_eq!(shift_test_case(&ctx, r0, ArmShift::Ror(sh), None), expected);
+            assert_eq!(
+                shift_test_case(&ctx, r0, ArmShift::RorImm(sh), None),
+                expected
+            );
         }
     }
 
@@ -684,33 +697,33 @@ mod tests {
     #[should_panic]
     fn test_imm_shift_ror_0_panics() {
         let ctx = Context::create();
-        shift_test_case(&ctx, 0, ArmShift::Ror(0), None);
+        shift_test_case(&ctx, 0, ArmShift::RorImm(0), None);
     }
 
     #[test]
     #[should_panic]
     fn test_imm_shift_ror_32_panics() {
         let ctx = Context::create();
-        shift_test_case(&ctx, 0, ArmShift::Ror(32), None);
+        shift_test_case(&ctx, 0, ArmShift::RorImm(32), None);
     }
 
     #[test]
     fn test_imm_shift_rrx() {
         let ctx = Context::create();
         assert_eq!(
-            shift_test_case(&ctx, 0x80b30011, ArmShift::Rrx(0), Some(true)),
+            shift_test_case(&ctx, 0x80b30011, ArmShift::Rrx, Some(true)),
             0xc0598008
         );
         assert_eq!(
-            shift_test_case(&ctx, 0x80b30011, ArmShift::Rrx(1), Some(true)),
+            shift_test_case(&ctx, 0x80b30011, ArmShift::Rrx, Some(true)),
             0xc0598008
         );
         assert_eq!(
-            shift_test_case(&ctx, 0x80b30011, ArmShift::Rrx(0), Some(false)),
+            shift_test_case(&ctx, 0x80b30011, ArmShift::Rrx, Some(false)),
             0x40598008
         );
         assert_eq!(
-            shift_test_case(&ctx, 0x80b30011, ArmShift::Rrx(99), Some(false)),
+            shift_test_case(&ctx, 0x80b30011, ArmShift::Rrx, Some(false)),
             0x40598008
         );
     }
@@ -770,7 +783,7 @@ mod tests {
             index: Reg::R8,
             shift: match shift {
                 Some(s) => s,
-                None => ArmShift::Invalid,
+                None => ArmShift::NoShift,
             },
             subtract,
         }
@@ -823,18 +836,18 @@ mod tests {
         let ctx = Context::create();
         let mut mem_op = MemOperand {
             base: Reg::R7,
-            offset: reg_offset(false, Some(ArmShift::Lsr(3))),
+            offset: reg_offset(false, Some(ArmShift::LsrImm(3))),
             writeback: None,
         };
         let mut tst = AddrModeTestCase::new(&ctx, &mem_op);
         assert_eq!(tst.run(200, 240), (200, 230)); //  240/8 = 30
         assert_eq!(tst.run(200, 0b111), (200, 200));
 
-        mem_op.offset = reg_offset(true, Some(ArmShift::Lsl(4)));
+        mem_op.offset = reg_offset(true, Some(ArmShift::LslImm(4)));
         let mut tst = AddrModeTestCase::new(&ctx, &mem_op);
         assert_eq!(tst.run(200, 2), (200, 168));
 
-        mem_op.offset = reg_offset(false, Some(ArmShift::Asr(2)));
+        mem_op.offset = reg_offset(false, Some(ArmShift::AsrImm(2)));
         let mut tst = AddrModeTestCase::new(&ctx, &mem_op);
         assert_eq!(tst.run(200, 0x80000000), (200, 0xe00000c8));
     }
@@ -867,14 +880,14 @@ mod tests {
         let mut tst = AddrModeTestCase::new(&ctx, &mem_op);
         assert_eq!(tst.run(200, 199), (1, 1));
 
-        mem_op.offset = reg_offset(false, Some(ArmShift::Rrx(0)));
+        mem_op.offset = reg_offset(false, Some(ArmShift::Rrx));
         let mut tst = AddrModeTestCase::new(&ctx, &mem_op);
         tst.state.regs[Reg::CPSR] = C.0;
         assert_eq!(tst.run(200, 0xf), (0x800000cf, 0x800000cf));
         tst.state.regs[Reg::CPSR] = 0;
         assert_eq!(tst.run(200, 0xf), (207, 207));
 
-        mem_op.offset = reg_offset(true, Some(ArmShift::Lsr(2)));
+        mem_op.offset = reg_offset(true, Some(ArmShift::LsrImm(2)));
         let mut tst = AddrModeTestCase::new(&ctx, &mem_op);
         assert_eq!(tst.run(200, 0x324), (0xffffffff, 0xffffffff));
     }
@@ -908,7 +921,7 @@ mod tests {
         let mut tst = AddrModeTestCase::new(&ctx, &mem_op);
         assert_eq!(tst.run(200, 199), (1, 200));
 
-        mem_op.offset = reg_offset(false, Some(ArmShift::Ror(2)));
+        mem_op.offset = reg_offset(false, Some(ArmShift::RorImm(2)));
         let mut tst = AddrModeTestCase::new(&ctx, &mem_op);
         assert_eq!(tst.run(0, 0x3), (0xc0000000, 0));
     }

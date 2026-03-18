@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use anyhow::{Result, anyhow, bail};
 use capstone::arch::ArchOperand;
-use capstone::arch::arm::{ArmCC, ArmInsn, ArmOperand, ArmOperandType, ArmShift};
+use capstone::arch::arm::{ArmCC, ArmInsn, ArmOperand, ArmOperandType, ArmShift as CsArmShift};
 use capstone::{Capstone, Insn};
 
 use crate::arm::state::{ArmMode, Reg};
@@ -20,6 +20,20 @@ pub struct ArmInstruction {
     pub updates_flags: bool,
     pub writeback: bool,
     pub binary: u32,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum ArmShift {
+    AsrImm(u32),
+    LslImm(u32),
+    LsrImm(u32),
+    RorImm(u32),
+    AsrReg(Reg),
+    LslReg(Reg),
+    LsrReg(Reg),
+    RorReg(Reg),
+    Rrx,
+    NoShift,
 }
 
 /// <shifter_operand> operands for data processing instructions. Parsed out ahead of time since it
@@ -158,7 +172,7 @@ impl ArmInstruction {
                 let offset = match post_op.op_type {
                     ArmOperandType::Reg(reg_id) => MemOffset::Reg {
                         index: Reg::from(reg_id),
-                        shift: post_op.shift,
+                        shift: ArmShift::from(post_op.shift),
                         subtract: post_op.subtracted,
                     },
                     ArmOperandType::Imm(i) => {
@@ -185,7 +199,7 @@ impl ArmInstruction {
                         debug_assert_eq!(inner_mem_op.disp(), 0);
                         MemOffset::Reg {
                             index: Reg::from(index),
-                            shift: mem_op.shift,
+                            shift: ArmShift::from(mem_op.shift),
                             subtract: mem_op.subtracted,
                         }
                     }
@@ -223,7 +237,7 @@ impl ArmInstruction {
         Ok(match first.op_type {
             ArmOperandType::Reg(reg_id) => ShifterOperand::Reg {
                 reg: Reg::from(reg_id),
-                shift: first.shift,
+                shift: ArmShift::from(first.shift),
             },
             ArmOperandType::Imm(imm) => match op_iter.next() {
                 Some(snd_op) => {
@@ -242,10 +256,10 @@ impl ArmInstruction {
         })
     }
 
-    /// This is used by both thumb ASR, LSL, LSR, and ROR as well as arm 
+    /// This is used by both thumb ASR, LSL, LSR, and ROR as well as arm
     /// MOV rd, rn, <shifter_op> instructions which capstone converts to one of these shift ops
     pub fn get_thumb_shifter_op(&self, shift: ArmShift) -> Result<ShifterOperand> {
-        match 
+        todo!()
         // match self.operands.len() {
         //     2 => {
         //         let rd = self.get_reg_op(0);
@@ -306,6 +320,24 @@ impl Display for ArmInstruction {
     }
 }
 
+impl From<CsArmShift> for ArmShift {
+    fn from(cs_shift: CsArmShift) -> Self {
+        match cs_shift {
+            CsArmShift::Invalid => ArmShift::NoShift,
+            CsArmShift::Asr(imm) => ArmShift::AsrImm(imm),
+            CsArmShift::Lsl(imm) => ArmShift::LslImm(imm),
+            CsArmShift::Lsr(imm) => ArmShift::LsrImm(imm),
+            CsArmShift::Ror(imm) => ArmShift::RorImm(imm),
+            CsArmShift::Rrx(_) => ArmShift::Rrx,
+            CsArmShift::AsrReg(reg_id) => ArmShift::AsrReg(Reg::from(reg_id)),
+            CsArmShift::LslReg(reg_id) => ArmShift::LslReg(Reg::from(reg_id)),
+            CsArmShift::LsrReg(reg_id) => ArmShift::LsrReg(Reg::from(reg_id)),
+            CsArmShift::RorReg(reg_id) => ArmShift::RorReg(Reg::from(reg_id)),
+            CsArmShift::RrxReg(_) => ArmShift::Rrx,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -353,7 +385,7 @@ mod tests {
                 base: Reg::PC,
                 offset: MemOffset::Reg {
                     index: Reg::R0,
-                    shift: ArmShift::Invalid,
+                    shift: ArmShift::NoShift,
                     subtract: false
                 },
                 writeback: None
@@ -366,7 +398,7 @@ mod tests {
                 base: Reg::SP,
                 offset: MemOffset::Reg {
                     index: Reg::LR,
-                    shift: ArmShift::Invalid,
+                    shift: ArmShift::NoShift,
                     subtract: true
                 },
                 writeback: None
@@ -379,7 +411,7 @@ mod tests {
                 base: Reg::SP,
                 offset: MemOffset::Reg {
                     index: Reg::LR,
-                    shift: ArmShift::Asr(1),
+                    shift: ArmShift::AsrImm(1),
                     subtract: true
                 },
                 writeback: None
@@ -392,7 +424,7 @@ mod tests {
                 base: Reg::SP,
                 offset: MemOffset::Reg {
                     index: Reg::LR,
-                    shift: ArmShift::Lsr(3),
+                    shift: ArmShift::LsrImm(3),
                     subtract: false
                 },
                 writeback: None
@@ -423,7 +455,7 @@ mod tests {
                 base: Reg::R9,
                 offset: MemOffset::Reg {
                     index: Reg::R10,
-                    shift: ArmShift::Invalid,
+                    shift: ArmShift::NoShift,
                     subtract: false
                 },
                 writeback: Some(WritebackMode::PreIndex)
@@ -436,7 +468,7 @@ mod tests {
                 base: Reg::R1,
                 offset: MemOffset::Reg {
                     index: Reg::R2,
-                    shift: ArmShift::Lsl(31),
+                    shift: ArmShift::LslImm(31),
                     subtract: false
                 },
                 writeback: Some(WritebackMode::PreIndex)
@@ -449,7 +481,7 @@ mod tests {
                 base: Reg::R0,
                 offset: MemOffset::Reg {
                     index: Reg::R0,
-                    shift: ArmShift::Invalid,
+                    shift: ArmShift::NoShift,
                     subtract: true
                 },
                 writeback: Some(WritebackMode::PostIndex)
@@ -462,7 +494,7 @@ mod tests {
                 base: Reg::SP,
                 offset: MemOffset::Reg {
                     index: Reg::PC,
-                    shift: ArmShift::Invalid,
+                    shift: ArmShift::NoShift,
                     subtract: false
                 },
                 writeback: Some(WritebackMode::PostIndex)
@@ -493,7 +525,7 @@ mod tests {
                 base: Reg::PC,
                 offset: MemOffset::Reg {
                     index: Reg::PC,
-                    shift: ArmShift::Ror(20),
+                    shift: ArmShift::RorImm(20),
                     subtract: false
                 },
                 writeback: Some(WritebackMode::PostIndex)
@@ -506,7 +538,7 @@ mod tests {
                 base: Reg::R1,
                 offset: MemOffset::Reg {
                     index: Reg::R2,
-                    shift: ArmShift::Rrx(0),
+                    shift: ArmShift::Rrx,
                     subtract: true
                 },
                 writeback: Some(WritebackMode::PostIndex)
