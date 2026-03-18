@@ -152,8 +152,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                 let base = self.reg_map.get(reg);
 
                 match shift {
-                    ArmShift::NoShift => Ok((base, None)),
-                    ArmShift::LslImm(imm) => {
+                    None => Ok((base, None)),
+                    Some(ArmShift::LslImm(imm)) => {
                         debug_assert!(imm < 32);
                         if imm == 0 {
                             Ok((base, None))
@@ -167,8 +167,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                             Ok((shifted, Some(c)))
                         }
                     }
-                    ArmShift::LslReg(reg_id) => {
-                        let shift_reg = self.reg_map.get(Reg::from(reg_id));
+                    Some(ArmShift::LslReg(reg_id)) => {
+                        let shift_reg = self.reg_map.get(reg_id);
                         let curr_c =
                             bd.build_int_cast_sign_flag(self.get_flag(C)?, self.i32_t, false, "c")?;
 
@@ -214,7 +214,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                         let c = bd.build_int_compare(IntPredicate::EQ, last_bit, one, "cf")?;
                         Ok((shift, Some(c)))
                     }
-                    ArmShift::LsrImm(imm) => {
+                    Some(ArmShift::LsrImm(imm)) => {
                         debug_assert!(imm > 0 && imm <= 32);
                         if imm == 32 {
                             let shift = bd.build_right_shift(base, imm!(self, 31), false, "sh")?;
@@ -230,8 +230,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                             Ok((shift, Some(c)))
                         }
                     }
-                    ArmShift::LsrReg(reg_id) => {
-                        let shift_reg = self.reg_map.get(Reg::from(reg_id));
+                    Some(ArmShift::LsrReg(reg_id)) => {
+                        let shift_reg = self.reg_map.get(reg_id);
                         let curr_c =
                             bd.build_int_cast_sign_flag(self.get_flag(C)?, self.i32_t, false, "c")?;
 
@@ -277,7 +277,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                         let c = bd.build_int_compare(IntPredicate::EQ, last_bit, one, "cf")?;
                         Ok((shift, Some(c)))
                     }
-                    ArmShift::AsrImm(imm) => {
+                    Some(ArmShift::AsrImm(imm)) => {
                         debug_assert!(imm > 0 && imm <= 32);
                         if imm == 32 {
                             let shift = bd.build_right_shift(base, imm!(self, 31), true, "sh")?;
@@ -293,8 +293,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                             Ok((shift, Some(c)))
                         }
                     }
-                    ArmShift::AsrReg(reg_id) => {
-                        let shift_reg = self.reg_map.get(Reg::from(reg_id));
+                    Some(ArmShift::AsrReg(reg_id)) => {
+                        let shift_reg = self.reg_map.get(reg_id);
                         let curr_c = self.get_flag(C)?;
 
                         // Only use 1st byte of shift reg
@@ -339,7 +339,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
                         Ok((shift, Some(c)))
                     }
-                    ArmShift::RorImm(imm) => {
+                    Some(ArmShift::RorImm(imm)) => {
                         debug_assert!(imm > 0 && imm < 32);
                         let rot = call_intrinsic!(bd, self.fshr, base, base, imm!(self, imm))
                             .into_int_value();
@@ -350,8 +350,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                         let c = bd.build_int_compare(IntPredicate::EQ, last_bit, one, "c")?;
                         Ok((rot, Some(c)))
                     }
-                    ArmShift::RorReg(reg_id) => {
-                        let shift_reg = self.reg_map.get(Reg::from(reg_id));
+                    Some(ArmShift::RorReg(reg_id)) => {
+                        let shift_reg = self.reg_map.get(reg_id);
                         let curr_c = self.get_flag(C)?;
 
                         // Only use 1st byte of shift reg
@@ -384,7 +384,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
                         Ok((rot, Some(c)))
                     }
-                    ArmShift::Rrx => {
+                    Some(ArmShift::Rrx) => {
                         let curr_c = self.get_flag(C)?;
                         let c32 = bd.build_int_cast_sign_flag(curr_c, self.i32_t, false, "c_in")?;
                         let rot = call_intrinsic!(bd, self.fshr, c32, base, one).into_int_value();
@@ -1111,8 +1111,6 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 mod tests {
     use std::sync::mpsc;
 
-    use capstone::RegId;
-    use capstone::arch::arm::ArmReg;
     use inkwell::context::Context;
 
     use super::*;
@@ -1126,7 +1124,7 @@ mod tests {
     }
 
     impl<'ctx> ShifterOperandTestCase<'ctx> {
-        fn new(context: &'ctx Context, shift: ArmShift) -> Self {
+        fn new(context: &'ctx Context, shift: Option<ArmShift>) -> Self {
             let op = ShifterOperand::Reg {
                 reg: Reg::R0,
                 shift,
@@ -1168,7 +1166,7 @@ mod tests {
     #[test]
     fn test_shifter_op_lsl_reg() {
         let ctx = Context::create();
-        let mut tst = ShifterOperandTestCase::new(&ctx, ArmShift::LslReg(Reg::R1));
+        let mut tst = ShifterOperandTestCase::new(&ctx, Some(ArmShift::LslReg(Reg::R1)));
 
         let res = tst.run(0b0000_0000_0001_0000_0000_0000_0000_1101, Some(12));
         let expect_res = (0b0000_0000_0000_0000_1101_0000_0000_0000, true);
@@ -1215,7 +1213,7 @@ mod tests {
     #[test]
     fn test_shifter_op_lsr_reg() {
         let ctx = Context::create();
-        let mut tst = ShifterOperandTestCase::new(&ctx, ArmShift::LsrReg(Reg::R1));
+        let mut tst = ShifterOperandTestCase::new(&ctx, Some(ArmShift::LsrReg(Reg::R1)));
 
         let res = tst.run(0b0000_0000_1001_0000_1110_0000_0000_1101, Some(16));
         let expect_res = (0b0000_0000_0000_0000_0000_0000_1001_0000, true);
@@ -1254,7 +1252,7 @@ mod tests {
     #[test]
     fn test_shifter_op_asr_reg() {
         let ctx = Context::create();
-        let mut tst = ShifterOperandTestCase::new(&ctx, ArmShift::AsrReg(Reg::R1));
+        let mut tst = ShifterOperandTestCase::new(&ctx, Some(ArmShift::AsrReg(Reg::R1)));
 
         let res = tst.run(0b0000_0000_1001_0000_1110_0000_0000_1101, Some(8));
         let expect_res = (0b0000_0000_0000_0000_1001_0000_1110_0000, false);
@@ -1300,7 +1298,7 @@ mod tests {
     #[test]
     fn test_shifter_op_ror_reg() {
         let ctx = Context::create();
-        let mut tst = ShifterOperandTestCase::new(&ctx, ArmShift::RorReg(Reg::R1));
+        let mut tst = ShifterOperandTestCase::new(&ctx, Some(ArmShift::RorReg(Reg::R1)));
 
         let res = tst.run(0b01110001100111001110000001001101, Some(3));
         let expect_res = (0b10101110001100111001110000001001, true);
@@ -1334,7 +1332,7 @@ mod tests {
     #[test]
     fn test_shifter_op_lsl_imm() {
         let ctx = Context::create();
-        let mut tst = ShifterOperandTestCase::new(&ctx, ArmShift::LslImm(0));
+        let mut tst = ShifterOperandTestCase::new(&ctx, Some(ArmShift::LslImm(0)));
 
         tst.state.regs[Reg::CPSR] |= C.0;
         let res = tst.run(0b11110001100111001110000001001101, None);
@@ -1346,12 +1344,12 @@ mod tests {
         let expect_res = (0b11110001100111001110000001001101, false);
         assert_eq!(res, expect_res);
 
-        let mut tst = ShifterOperandTestCase::new(&ctx, ArmShift::LslImm(12));
+        let mut tst = ShifterOperandTestCase::new(&ctx, Some(ArmShift::LslImm(12)));
         let res = tst.run(0b1111_0001_1001_1100_1110_0000_0100_1101, None);
         let expect_res = (0b1100_1110_0000_0100_1101_0000_0000_0000, true);
         assert_eq!(res, expect_res);
 
-        let mut tst = ShifterOperandTestCase::new(&ctx, ArmShift::LslImm(31));
+        let mut tst = ShifterOperandTestCase::new(&ctx, Some(ArmShift::LslImm(31)));
         let res = tst.run(0b1111_0001_1001_1100_1110_0000_0100_1100, None);
         let expect_res = (0b0000_0000_0000_0000_0000_0000_0000_0000, false);
         assert_eq!(res, expect_res);
@@ -1360,7 +1358,7 @@ mod tests {
     #[test]
     fn test_shifter_op_lsr_imm() {
         let ctx = Context::create();
-        let mut tst = ShifterOperandTestCase::new(&ctx, ArmShift::LsrImm(4));
+        let mut tst = ShifterOperandTestCase::new(&ctx, Some(ArmShift::LsrImm(4)));
         let res = tst.run(0b1111_0001_1001_1100_1110_0000_0100_1101, None);
         let expect_res = (0b0000_1111_0001_1001_1100_1110_0000_0100, true);
         assert_eq!(res, expect_res);
@@ -1369,7 +1367,7 @@ mod tests {
         let expect_res = (0b0000_1111_0001_1001_1100_1110_0000_0100, false);
         assert_eq!(res, expect_res);
 
-        let mut tst = ShifterOperandTestCase::new(&ctx, ArmShift::LsrImm(32));
+        let mut tst = ShifterOperandTestCase::new(&ctx, Some(ArmShift::LsrImm(32)));
         let res = tst.run(0b1111_0001_1001_1100_1110_0000_0100_1101, None);
         let expect_res = (0, true);
         assert_eq!(res, expect_res);
@@ -1381,7 +1379,7 @@ mod tests {
     #[test]
     fn test_shifter_op_asr_imm() {
         let ctx = Context::create();
-        let mut tst = ShifterOperandTestCase::new(&ctx, ArmShift::AsrImm(4));
+        let mut tst = ShifterOperandTestCase::new(&ctx, Some(ArmShift::AsrImm(4)));
         let res = tst.run(0b1111_0001_1001_1100_1110_0000_0100_1101, None);
         let expect_res = (0b1111_1111_0001_1001_1100_1110_0000_0100, true);
         assert_eq!(res, expect_res);
@@ -1390,7 +1388,7 @@ mod tests {
         let expect_res = (0b0000_0111_0001_1001_1100_1110_0000_0100, false);
         assert_eq!(res, expect_res);
 
-        let mut tst = ShifterOperandTestCase::new(&ctx, ArmShift::AsrImm(32));
+        let mut tst = ShifterOperandTestCase::new(&ctx, Some(ArmShift::AsrImm(32)));
         let res = tst.run(0b1111_0001_1001_1100_1110_0000_0100_1101, None);
         let expect_res = (0xffffffff, true);
         assert_eq!(res, expect_res);
@@ -1402,7 +1400,7 @@ mod tests {
     #[test]
     fn test_shifter_op_ror_imm() {
         let ctx = Context::create();
-        let mut tst = ShifterOperandTestCase::new(&ctx, ArmShift::RorImm(8));
+        let mut tst = ShifterOperandTestCase::new(&ctx, Some(ArmShift::RorImm(8)));
         let res = tst.run(0b1111_0001_1001_1100_1110_0000_0100_1101, None);
         let expect_res = (0b0100_1101_1111_0001_1001_1100_1110_0000, false);
         assert_eq!(res, expect_res);
@@ -1411,7 +1409,7 @@ mod tests {
         let expect_res = (0b1100_1101_1111_0001_1001_1100_1110_0000, true);
         assert_eq!(res, expect_res);
 
-        let mut tst = ShifterOperandTestCase::new(&ctx, ArmShift::RorImm(31));
+        let mut tst = ShifterOperandTestCase::new(&ctx, Some(ArmShift::RorImm(31)));
         let res = tst.run(0b1111_0001_1001_1100_1110_0000_0100_1101, None);
         let expect_res = (0b1110_0011_0011_1001_1100_0000_1001_1011, true);
         assert_eq!(res, expect_res);
@@ -1424,7 +1422,7 @@ mod tests {
     #[test]
     fn test_shifter_op_rrx() {
         let ctx = Context::create();
-        let mut tst = ShifterOperandTestCase::new(&ctx, ArmShift::Rrx);
+        let mut tst = ShifterOperandTestCase::new(&ctx, Some(ArmShift::Rrx));
 
         tst.state.regs[Reg::CPSR] |= C.0;
         let res = tst.run(0b11110001100111001110000001001101, None);
