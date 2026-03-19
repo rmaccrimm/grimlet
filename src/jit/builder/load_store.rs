@@ -1,12 +1,9 @@
-use anyhow::{Context as _, Result, anyhow, bail};
+use anyhow::{Context as _, Result, anyhow};
 use inkwell::values::IntValue;
 
-use crate::arm::disasm::instruction::{
-    ArmInstruction, ArmShift, MemOffset, MemOperand, WritebackMode,
-};
+use crate::arm::disasm::instruction::{ArmInstruction, MemOffset, MemOperand, WritebackMode};
 use crate::arm::state::Reg;
 use crate::arm::state::memory::{MainMemory, MemReadable, MemWriteable};
-use crate::jit::builder::flags::C;
 use crate::jit::builder::{FunctionBuilder, InstrResult, RegUpdate};
 
 #[derive(Copy, Clone)]
@@ -114,7 +111,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                 subtract,
             } => {
                 let index_val = self.reg_map.get(index);
-                let shifted = self.imm_shift(index_val, shift)?;
+                let (shifted, _) = self.shift_value(index_val, shift)?;
                 if subtract {
                     bd.build_int_sub(base_val, shifted, "addr")?
                 } else {
@@ -142,43 +139,6 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             }
         };
         Ok(addr_mode)
-    }
-
-    fn imm_shift(&self, value: IntValue<'a>, shift: Option<ArmShift>) -> Result<IntValue<'a>> {
-        let bd = self.builder;
-        let shifted = match shift {
-            None => Ok(value),
-            Some(ArmShift::AsrImm(imm)) => {
-                debug_assert!(imm > 0 && imm <= 32);
-                if imm == 32 {
-                    bd.build_right_shift(value, imm!(self, 31), true, "asr")
-                } else {
-                    bd.build_right_shift(value, imm!(self, imm), true, "asr")
-                }
-            }
-            Some(ArmShift::LslImm(imm)) => {
-                debug_assert!(imm < 32);
-                bd.build_left_shift(value, imm!(self, imm), "lsl")
-            }
-            Some(ArmShift::LsrImm(imm)) => {
-                debug_assert!(imm > 0 && imm <= 32);
-                if imm == 32 {
-                    Ok(imm!(self, 0))
-                } else {
-                    bd.build_right_shift(value, imm!(self, imm), false, "lsr")
-                }
-            }
-            Some(ArmShift::RorImm(imm)) => {
-                debug_assert!(imm > 0 && imm < 32);
-                Ok(call_intrinsic!(bd, self.fshr, value, value, imm!(self, imm)).into_int_value())
-            }
-            Some(ArmShift::Rrx) => {
-                let c = bd.build_int_cast_sign_flag(self.get_flag(C)?, self.i32_t, false, "c")?;
-                Ok(call_intrinsic!(bd, self.fshr, c, value, imm!(self, 1)).into_int_value())
-            }
-            _ => bail!("unsupported shift type for memory access: {:?}", shift),
-        }?;
-        Ok(shifted)
     }
 
     fn call_mem_read<T>(&self, addr: IntValue<'a>) -> Result<IntValue<'a>>
@@ -562,7 +522,9 @@ mod tests {
     use inkwell::context::Context;
 
     use super::*;
+    use crate::arm::disasm::instruction::ArmShift;
     use crate::arm::state::{ArmState, Reg};
+    use crate::jit::builder::flags::C;
     use crate::jit::{CompiledFunction, Compiler};
 
     /// Apply the given shift to R0
@@ -579,7 +541,7 @@ mod tests {
 
         f.load_initial_reg_values(init_regs).unwrap();
 
-        let shifted = f.imm_shift(f.reg_map.get(Reg::R0), shift).unwrap();
+        let (shifted, _) = f.shift_value(f.reg_map.get(Reg::R0), shift).unwrap();
         f.reg_map.update(Reg::R0, shifted);
         f.write_state_out(&f.reg_map).unwrap();
         f.builder.build_return(None).unwrap();
