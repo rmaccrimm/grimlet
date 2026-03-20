@@ -9,33 +9,6 @@ use crate::jit::FunctionBuilder;
 use crate::jit::builder::flags::C;
 use crate::jit::builder::{InstrResult, RegUpdate};
 
-macro_rules! thumb_shift {
-    ($name:ident, $imm_shift:expr, $reg_shift:expr) => {
-        fn $name(&self, instr: &ArmInstruction) -> InstrResult<'a> {
-            let bd = self.builder;
-            let rd = instr.get_reg_op(0);
-            let rd_val = self.reg_map.get(rd);
-
-            let (sh_val, c) = if instr.operands.len() == 3 {
-                let rm = instr.get_reg_op(1);
-                let rm_val = self.reg_map.get(rm);
-                let shift_amt = instr.get_imm_op(2);
-                self.shift_value(rm_val, Some($imm_shift(shift_amt as u32)))?
-            } else {
-                let rs = instr.get_reg_op(1);
-                self.shift_value(rd_val, Some($reg_shift(rs)))?
-            };
-
-            let n = bd.build_int_compare(IntPredicate::SLT, sh_val, imm!(self, 0), "n")?;
-            let z = bd.build_int_compare(IntPredicate::EQ, sh_val, imm!(self, 0), "z")?;
-            let cpsr = self.set_flags(Some(n), Some(z), c, None)?;
-
-            let updates = vec![RegUpdate(rd, sh_val), RegUpdate(Reg::CPSR, cpsr)];
-            Ok(updates)
-        }
-    };
-}
-
 impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     pub(super) fn arm_adc(&mut self, instr: ArmInstruction) {
         exec_instr!(self, exec_conditional, instr, Self::adc)
@@ -401,6 +374,34 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         }
     }
 
+    fn thumb_shift(
+        &self,
+        instr: &ArmInstruction,
+        imm_shift: impl Fn(u32) -> ArmShift,
+        reg_shift: impl Fn(Reg) -> ArmShift,
+    ) -> InstrResult<'a> {
+        let bd = self.builder;
+        let rd = instr.get_reg_op(0);
+        let rd_val = self.reg_map.get(rd);
+
+        let (sh_val, c) = if instr.operands.len() == 3 {
+            let rm = instr.get_reg_op(1);
+            let rm_val = self.reg_map.get(rm);
+            let shift_amt = instr.get_imm_op(2);
+            self.shift_value(rm_val, Some(imm_shift(shift_amt as u32)))?
+        } else {
+            let rs = instr.get_reg_op(1);
+            self.shift_value(rd_val, Some(reg_shift(rs)))?
+        };
+
+        let n = bd.build_int_compare(IntPredicate::SLT, sh_val, imm!(self, 0), "n")?;
+        let z = bd.build_int_compare(IntPredicate::EQ, sh_val, imm!(self, 0), "z")?;
+        let cpsr = self.set_flags(Some(n), Some(z), c, None)?;
+
+        let updates = vec![RegUpdate(rd, sh_val), RegUpdate(Reg::CPSR, cpsr)];
+        Ok(updates)
+    }
+
     /// TODO - handle rd = pc case
     fn adc(&self, instr: &ArmInstruction) -> InstrResult<'a> {
         let rd = instr.get_reg_op(0);
@@ -512,6 +513,10 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         Ok(updates)
     }
 
+    fn asr(&self, instr: &ArmInstruction) -> InstrResult<'a> {
+        self.thumb_shift(instr, ArmShift::AsrImm, ArmShift::AsrReg)
+    }
+
     fn bic(&self, instr: &ArmInstruction) -> InstrResult<'a> {
         let bd = self.builder;
         let rd = instr.get_reg_op(0);
@@ -587,6 +592,14 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         Ok(updates)
     }
 
+    fn lsl(&self, instr: &ArmInstruction) -> InstrResult<'a> {
+        self.thumb_shift(instr, ArmShift::LslImm, ArmShift::LslReg)
+    }
+
+    fn lsr(&self, instr: &ArmInstruction) -> InstrResult<'a> {
+        self.thumb_shift(instr, ArmShift::LsrImm, ArmShift::LsrReg)
+    }
+
     fn mov(&self, instr: &ArmInstruction) -> InstrResult<'a> {
         let bd = self.builder;
         let rd = instr.get_reg_op(0);
@@ -642,6 +655,10 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         let updates = vec![RegUpdate(rd, res_val), RegUpdate(Reg::CPSR, cpsr)];
         Ok(updates)
+    }
+
+    fn ror(&self, instr: &ArmInstruction) -> InstrResult<'a> {
+        self.thumb_shift(instr, ArmShift::RorImm, ArmShift::RorReg)
     }
 
     fn rsb(&self, instr: &ArmInstruction) -> InstrResult<'a> {
@@ -1100,14 +1117,6 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let updates = vec![RegUpdate(reg, res_val)];
         Ok(updates)
     }
-
-    thumb_shift!(asr, ArmShift::AsrImm, ArmShift::AsrReg);
-
-    thumb_shift!(lsl, ArmShift::LslImm, ArmShift::LslReg);
-
-    thumb_shift!(lsr, ArmShift::LsrImm, ArmShift::LsrReg);
-
-    thumb_shift!(ror, ArmShift::RorImm, ArmShift::RorReg);
 }
 
 #[cfg(test)]
