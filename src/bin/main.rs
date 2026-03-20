@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use anyhow::Result;
 use clap::Parser;
 use grimlet::arm::disasm::Disassembler;
-use grimlet::arm::state::{ArmMode, ArmState};
+use grimlet::arm::state::ArmState;
 use grimlet::emulator::{DebugOutput, Emulator};
 
 #[derive(Parser, Debug)]

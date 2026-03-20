@@ -122,7 +122,7 @@ impl MainMemory {
     }
 
     // Not all IO registers are actually 32-bits wide. Leave that up to the caller
-    pub fn read_io(&self, reg: IoReg) -> u32 { return self.read::<u32>(reg as u32) }
+    pub fn read_io(&self, reg: IoReg) -> u32 { self.read::<u32>(reg as u32) }
 }
 
 impl Default for MainMemory {

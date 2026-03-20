@@ -406,7 +406,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             ArmInsn::ARM_INS_TST => self.arm_tst(instr),
             ArmInsn::ARM_INS_UMLAL => self.arm_umlal(instr),
             ArmInsn::ARM_INS_UMULL => self.arm_umull(instr),
-            _ => panic!("unsupported instruction {:?}", instr.opcode),
+            _ => unimpl_instr!(instr, "UNKNOWN"),
         }
     }
 }

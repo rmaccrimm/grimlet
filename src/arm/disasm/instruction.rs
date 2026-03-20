@@ -255,21 +255,6 @@ impl ArmInstruction {
         })
     }
 
-    /// This is used by both thumb ASR, LSL, LSR, and ROR as well as arm
-    /// MOV rd, rn, <shifter_op> instructions which capstone converts to one of these shift ops
-    pub fn get_thumb_shifter_op(&self, shift: ArmShift) -> Result<ShifterOperand> {
-        todo!()
-        // match self.operands.len() {
-        //     2 => {
-        //         let rd = self.get_reg_op(0);
-        //         let rs = self.get_reg_op(1);
-        //         Ok(ShifterOperand::Reg { reg, shift })
-        //     }
-        //     3 => {}
-        //     l => anyhow!("unexpected number of operands: {}", l),
-        // }
-    }
-
     /// This is largely based on trial and error by compiling instructions with gvasm and seeing
     /// what capstone spits out. It seems like _fc and _f and are the only possible options
     pub fn get_sys_reg_op(&self, ind: usize) -> Result<ProgramStatusReg> {
@@ -338,7 +323,7 @@ impl TryFrom<CsArmShift> for ArmShift {
             CsArmShift::RorReg(reg_id) => ArmShift::RorReg(Reg::from(reg_id)),
             CsArmShift::RrxReg(_) => ArmShift::Rrx,
         };
-        return Ok(shift);
+        Ok(shift)
     }
 }
 
