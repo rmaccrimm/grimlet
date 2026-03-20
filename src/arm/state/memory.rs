@@ -14,134 +14,12 @@ pub struct MainMemory {
     vram: Vec<u8>,
     obj_attrs: Vec<u8>,
     cartridge_rom: Vec<u8>,
-    io_regs: IORegisters,
 }
 
-/// Memory-Mapped IO Registers. Padding fields allow for easier direct memory access
-#[repr(C, packed)]
-#[derive(Default)]
-pub struct IORegisters {
-    // Display registers (0x04000000 - 0x04000054)
-    pub dispcnt: u16,
-    pub stereo_enable: u16,
-    pub dispstat: u16,
-    pub vcount: u16,
-    pub bg0cnt: u16,
-    pub bg1cnt: u16,
-    pub bg2cnt: u16,
-    pub bg3cnt: u16,
-    pub bg0hofs: u16,
-    pub bg0vofs: u16,
-    pub bg1hofs: u16,
-    pub bg1vofs: u16,
-    pub bg2hofs: u16,
-    pub bg2vofs: u16,
-    pub bg3hofs: u16,
-    pub bg3vofs: u16,
-    pub bg2pa: u16,
-    pub bg2pb: u16,
-    pub bg2pc: u16,
-    pub bg2pd: u16,
-    pub bg2x: u32,
-    pub bg2y: u32,
-    pub bg3pa: u16,
-    pub bg3pb: u16,
-    pub bg3pc: u16,
-    pub bg3pd: u16,
-    pub bg3x: u32,
-    pub bg3y: u32,
-    pub win0h: u16,
-    pub win1h: u16,
-    pub win0v: u16,
-    pub win1v: u16,
-    pub winout: u16,
-    pub mosaic: u16,
-    pub __padding1: u16,
-    pub bldcnt: u16,
-    pub bldalpha: u16,
-    pub bldy: u16,
-    pub __padding2: [u8; 10],
-
-    // Sound registers (0x04000060 - 0x040000A4)
-    pub sound1cnt_l: u16,
-    pub sound1cnt_h: u16,
-    pub sound1cnt_x: u16,
-    pub __padding3: u16,
-    pub sound2cnt_l: u16,
-    pub __padding4: u16,
-    pub sound2cnt_h: u16,
-    pub __padding5: u16,
-    pub sound3cnt_l: u16,
-    pub sound3cnt_h: u16,
-    pub sound3cnt_x: u16,
-    pub __padding6: u16,
-    pub sound4cnt_l: u16,
-    pub __padding7: u16,
-    pub sound4cnt_h: u16,
-    pub __padding8: u16,
-    pub soundcnt_l: u16,
-    pub soundcnt_h: u16,
-    pub soundcnt_x: u16,
-    pub __padding9: u16,
-    pub soundbias: u16,
-    pub __padding10: [u8; 22],
-    pub fifo_a: u32,
-    pub fifo_b: u32,
-    pub __padding11: [u8; 8],
-
-    // DMA registers (0x040000B0 - 0x040000DE)
-    pub dma0sad: u32,
-    pub dma0dad: u32,
-    pub dma0cnt_l: u16,
-    pub dma0cnt_h: u16,
-    pub dma1sad: u32,
-    pub dma1dad: u32,
-    pub dma1cnt_l: u16,
-    pub dma1cnt_h: u16,
-    pub dma2sad: u32,
-    pub dma2dad: u32,
-    pub dma2cnt_l: u16,
-    pub dma2cnt_h: u16,
-    pub dma3sad: u32,
-    pub dma3dad: u32,
-    pub dma3cnt_l: u16,
-    pub dma3cnt_h: u16,
-    pub __padding12: [u8; 32],
-
-    // Timer registers (0x04000100 - 0x0400010E)
-    pub tm0d: u16,
-    pub tm0cnt: u16,
-    pub tm1d: u16,
-    pub tm1cnt: u16,
-    pub tm2d: u16,
-    pub tm2cnt: u16,
-    pub tm3d: u16,
-    pub tm3cnt: u16,
-    pub __padding13: [u8; 16],
-
-    // Serial I/O registers (0x04000120 - 0x0400012A)
-    pub scd0: u16,
-    pub scd1: u16,
-    pub scd2: u16,
-    pub scd3: u16,
-    pub sccnt_l: u16,
-    pub sccnt_h: u16,
-    pub __padding14: [u8; 4],
-    pub keyinput: u16,
-    pub keycnt: u16,
-    pub rcnt: u16,
-    pub __padding15: [u64; 25],
-    pub __padding16: u16,
-
-    // Interrupt/System registers (0x04000200 - 0x04000300)
-    pub ie: u16,
-    pub if_reg: u16,
-    pub waitcnt: u16,
-    pub __padding17: u16,
-    pub ime: u16,
-    pub __padding18: [u64; 30],
-    pub __padding19: [u8; 6],
-    pub haltcnt: u8,
+// TODO - will add these as needed
+pub enum IoReg {
+    DISPCNT = 0x4000000,
+    DISPSTAT = 0x4000004,
 }
 
 pub trait MemReadable =
@@ -207,6 +85,7 @@ impl MainMemory {
             .as_mut_ptr()
     }
 
+    // TODO - should these be public?
     pub fn mem_map_lookup(&self, addr: u32) -> Result<&[u8]> {
         let base = addr & 0x0f000000;
         let index = (addr - base) as usize;
@@ -241,6 +120,9 @@ impl MainMemory {
         };
         Ok(&mut region[index..])
     }
+
+    // Not all IO registers are actually 32-bits wide. Leave that up to the caller
+    pub fn read_io(&self, reg: IoReg) -> u32 { return self.read::<u32>(reg as u32) }
 }
 
 impl Default for MainMemory {
@@ -249,12 +131,11 @@ impl Default for MainMemory {
             bios: vec![0; 16 << 10],
             slow_wram: vec![0; 256 << 10],
             fast_wram: vec![0; 32 << 10],
-            io_registers: vec![0; 0x3ff],
+            io_registers: vec![0; 0x400],
             palette_ram: vec![0; 1 << 10],
             vram: vec![0; 96 << 10],
             obj_attrs: vec![0; 1 << 10],
             cartridge_rom: vec![0; 32 << 20],
-            io_regs: IORegisters::default(),
         }
     }
 }
