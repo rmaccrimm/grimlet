@@ -1,10 +1,10 @@
 use anyhow::{Context as _, Result, anyhow};
-use inkwell::values::IntValue;
+use inkwell::values::{BasicValue, IntValue};
 
 use crate::arm::disasm::instruction::{ArmInstruction, MemOffset, MemOperand, WritebackMode};
 use crate::arm::state::Reg;
-use crate::arm::state::memory::{MainMemory, MemReadable, MemWriteable};
-use crate::jit::builder::{FunctionBuilder, InstrResult, RegUpdate};
+use crate::arm::state::memory::{MainMemory, MemReadable, MemWriteable, ReadVal};
+use crate::jit::builder::{FunctionBuilder, InstrEffect, InstrResult, RegUpdate};
 
 #[derive(Copy, Clone)]
 /// Result of addressing mode calculation for single loads/stores
@@ -141,41 +141,65 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         Ok(addr_mode)
     }
 
-    fn call_mem_read<T>(&self, addr: IntValue<'a>) -> Result<IntValue<'a>>
+    // read value (i32), wait states (i32)
+    fn call_mem_read<T>(&self, addr: IntValue<'a>) -> Result<(IntValue<'a>, IntValue<'a>)>
     where
         T: MemReadable,
     {
-        let read_fn_t = self
-            .i32_t
-            .fn_type(&[self.ptr_t.into(), self.i32_t.into()], false);
+        let bd = self.builder;
+        // read value, wait states
+        let return_t = self
+            .llvm_ctx
+            .struct_type(&[self.i32_t.into(), self.i32_t.into()], false);
+
+        let read_fn_t = return_t.fn_type(&[self.ptr_t.into(), self.i32_t.into()], false);
         let read_fn_ptr = self.get_external_func_pointer(
-            MainMemory::read::<T> as fn(&MainMemory, u32) -> u32 as usize,
+            MainMemory::read::<T> as fn(&MainMemory, u32) -> ReadVal as usize,
         )?;
-        let load_val =
-            call_indirect_with_return!(self.builder, read_fn_t, read_fn_ptr, self.mem_ptr, addr);
-        Ok(load_val)
+
+        let result = call_indirect!(bd, read_fn_t, read_fn_ptr, self.mem_ptr, addr)
+            .try_as_basic_value()
+            .left()
+            .ok_or_else(|| anyhow!("failed to get read return val"))?
+            .into_struct_value();
+
+        let read_val = bd
+            .build_extract_value(result, 0, "rval")?
+            .as_basic_value_enum()
+            .into_int_value();
+        let wait_states = bd
+            .build_extract_value(result, 1, "rval")?
+            .as_basic_value_enum()
+            .into_int_value();
+
+        Ok((read_val, wait_states))
     }
 
-    fn call_mem_write<T>(&self, addr: IntValue<'a>, value: IntValue<'a>) -> Result<()>
+    fn call_mem_write<T>(&self, addr: IntValue<'a>, value: IntValue<'a>) -> Result<IntValue<'a>>
     where
         T: MemWriteable,
     {
-        let write_fn_t = self.void_t.fn_type(
+        let write_fn_t = self.i32_t.fn_type(
             &[self.ptr_t.into(), self.i32_t.into(), self.i32_t.into()],
             false,
         );
-        let write_fn_ptr = self
-            .get_external_func_pointer(MainMemory::write as fn(&mut MainMemory, u32, T) as usize)?;
+        let write_fn_ptr = self.get_external_func_pointer(
+            MainMemory::write as fn(&mut MainMemory, u32, T) -> u32 as usize,
+        )?;
 
-        call_indirect!(
+        let wait_states = call_indirect!(
             self.builder,
             write_fn_t,
             write_fn_ptr,
             self.mem_ptr,
             addr,
             value
-        );
-        Ok(())
+        )
+        .try_as_basic_value()
+        .left()
+        .ok_or_else(|| anyhow!("failed to get write return val"))?
+        .into_int_value();
+        Ok(wait_states)
     }
 
     fn ldr<T>(&self, instr: &ArmInstruction) -> InstrResult<'a>
@@ -184,13 +208,13 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     {
         let rd = instr.get_reg_op(0);
         let addr_mode: AddrMode = self.addressing_mode(&instr.get_mem_op(1)?)?;
-        let load_val = self.call_mem_read::<T>(addr_mode.addr)?;
+        let (val, cycles) = self.call_mem_read::<T>(addr_mode.addr)?;
 
-        let mut updates = vec![RegUpdate(rd, load_val)];
+        let mut updates = vec![RegUpdate(rd, val)];
         if let Some(wb) = addr_mode.writeback {
             updates.push(wb);
         }
-        Ok(updates)
+        Ok(InstrEffect { updates, cycles })
     }
 
     fn ldmia(&self, instr: &ArmInstruction) -> InstrResult<'a> {
@@ -199,24 +223,20 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let base_addr = self.reg_map.get(rn);
         let reg_list = instr.get_reg_list(1)?;
 
-        let read_fn_t = self
-            .i32_t
-            .fn_type(&[self.ptr_t.into(), self.i32_t.into()], false);
-        let read_fn_ptr = self.get_external_func_pointer(
-            MainMemory::read::<u32> as fn(&MainMemory, u32) -> u32 as usize,
-        )?;
-
         let mut updates = vec![];
         let mut addr = base_addr;
+        let mut cycles = imm!(self, 0);
         for &reg in reg_list.iter() {
-            let value = call_indirect_with_return!(bd, read_fn_t, read_fn_ptr, self.mem_ptr, addr);
+            // TODO - are these just additive?
+            let (value, read_cycles) = self.call_mem_read::<u32>(addr)?;
+            cycles = bd.build_int_add(cycles, read_cycles, "cycle")?;
             updates.push(RegUpdate(reg, value));
             addr = bd.build_int_add(addr, imm!(self, 4), "addr")?;
         }
         if instr.writeback {
             updates.push(RegUpdate(rn, addr))
         }
-        Ok(updates)
+        Ok(InstrEffect { updates, cycles })
     }
 
     fn ldmib(&self, instr: &ArmInstruction) -> InstrResult<'a> {
@@ -225,24 +245,20 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let base_addr = self.reg_map.get(rn);
         let reg_list = instr.get_reg_list(1)?;
 
-        let read_fn_t = self
-            .i32_t
-            .fn_type(&[self.ptr_t.into(), self.i32_t.into()], false);
-        let read_fn_ptr = self.get_external_func_pointer(
-            MainMemory::read::<u32> as fn(&MainMemory, u32) -> u32 as usize,
-        )?;
-
         let mut updates = vec![];
         let mut addr = base_addr;
+        let mut cycles = imm!(self, 0);
         for &reg in reg_list.iter() {
             addr = bd.build_int_add(addr, imm!(self, 4), "ib")?;
-            let value = call_indirect_with_return!(bd, read_fn_t, read_fn_ptr, self.mem_ptr, addr);
+            // TODO - are these just additive?
+            let (value, read_cycles) = self.call_mem_read::<u32>(addr)?;
+            cycles = bd.build_int_add(cycles, read_cycles, "cycle")?;
             updates.push(RegUpdate(reg, value));
         }
         if instr.writeback {
             updates.push(RegUpdate(rn, addr))
         }
-        Ok(updates)
+        Ok(InstrEffect { updates, cycles })
     }
 
     fn ldmda(&self, instr: &ArmInstruction) -> InstrResult<'a> {
@@ -251,18 +267,14 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let base_addr = self.reg_map.get(rn);
         let reg_list = instr.get_reg_list(1)?;
 
-        let read_fn_t = self
-            .i32_t
-            .fn_type(&[self.ptr_t.into(), self.i32_t.into()], false);
-        let read_fn_ptr = self.get_external_func_pointer(
-            MainMemory::read::<u32> as fn(&MainMemory, u32) -> u32 as usize,
-        )?;
-
         let mut updates = vec![];
         let mut addr =
             bd.build_int_sub(base_addr, imm!(self, 4 * (reg_list.len() - 1)), "start")?;
+        let mut cycles = imm!(self, 0);
         for &reg in reg_list.iter() {
-            let value = call_indirect_with_return!(bd, read_fn_t, read_fn_ptr, self.mem_ptr, addr);
+            // TODO - are these just additive?
+            let (value, read_cycles) = self.call_mem_read::<u32>(addr)?;
+            cycles = bd.build_int_add(cycles, read_cycles, "cycle")?;
             updates.push(RegUpdate(reg, value));
             addr = bd.build_int_add(addr, imm!(self, 4), "da")?;
         }
@@ -272,7 +284,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                 bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "wb")?,
             ))
         }
-        Ok(updates)
+        Ok(InstrEffect { updates, cycles })
     }
 
     fn ldmdb(&self, instr: &ArmInstruction) -> InstrResult<'a> {
@@ -281,17 +293,13 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let base_addr = self.reg_map.get(rn);
         let reg_list = instr.get_reg_list(1)?;
 
-        let read_fn_t = self
-            .i32_t
-            .fn_type(&[self.ptr_t.into(), self.i32_t.into()], false);
-        let read_fn_ptr = self.get_external_func_pointer(
-            MainMemory::read::<u32> as fn(&MainMemory, u32) -> u32 as usize,
-        )?;
-
         let mut updates = vec![];
         let mut addr = bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "start")?;
+        let mut cycles = imm!(self, 0);
         for &reg in reg_list.iter() {
-            let value = call_indirect_with_return!(bd, read_fn_t, read_fn_ptr, self.mem_ptr, addr);
+            // TODO - are these just additive?
+            let (value, read_cycles) = self.call_mem_read::<u32>(addr)?;
+            cycles = bd.build_int_add(cycles, read_cycles, "cycle")?;
             updates.push(RegUpdate(reg, value));
             addr = bd.build_int_add(addr, imm!(self, 4), "da")?;
         }
@@ -301,7 +309,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                 bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "wb")?,
             ))
         }
-        Ok(updates)
+        Ok(InstrEffect { updates, cycles })
     }
 
     fn str<T>(&self, instr: &ArmInstruction) -> InstrResult<'a>
@@ -311,12 +319,13 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let rd = instr.get_reg_op(0);
         let rd_val = self.reg_map.get(rd);
         let addr_mode: AddrMode = self.addressing_mode(&instr.get_mem_op(1)?)?;
-        self.call_mem_write::<T>(addr_mode.addr, rd_val)?;
+        let cycles = self.call_mem_write::<T>(addr_mode.addr, rd_val)?;
 
-        Ok(match addr_mode.writeback {
-            Some(wb) => vec![wb],
-            None => vec![],
-        })
+        let mut updates = vec![];
+        if let Some(wb) = addr_mode.writeback {
+            updates.push(wb)
+        }
+        Ok(InstrEffect { updates, cycles })
     }
 
     fn stmia(&self, instr: &ArmInstruction) -> InstrResult<'a> {
@@ -325,25 +334,19 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let base_addr = self.reg_map.get(rn);
         let reg_list = instr.get_reg_list(1)?;
 
-        let write_fn_t = self.void_t.fn_type(
-            &[self.ptr_t.into(), self.i32_t.into(), self.i32_t.into()],
-            false,
-        );
-        let write_fn_ptr = self.get_external_func_pointer(
-            MainMemory::write as fn(&mut MainMemory, u32, u32) as usize,
-        )?;
-
         let mut updates = vec![];
         let mut addr = base_addr;
+        let mut cycles = imm!(self, 0);
         for &reg in reg_list.iter() {
             let value = self.reg_map.get(reg);
-            call_indirect!(bd, write_fn_t, write_fn_ptr, self.mem_ptr, addr, value);
+            let write_cycles = self.call_mem_write::<u32>(addr, value)?;
+            cycles = bd.build_int_add(cycles, write_cycles, "cycles")?;
             addr = bd.build_int_add(addr, imm!(self, 4), "addr")?;
         }
         if instr.writeback {
             updates.push(RegUpdate(rn, addr))
         }
-        Ok(updates)
+        Ok(InstrEffect { updates, cycles })
     }
 
     fn stmib(&self, instr: &ArmInstruction) -> InstrResult<'a> {
@@ -352,25 +355,19 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let base_addr = self.reg_map.get(rn);
         let reg_list = instr.get_reg_list(1)?;
 
-        let write_fn_t = self.void_t.fn_type(
-            &[self.ptr_t.into(), self.i32_t.into(), self.i32_t.into()],
-            false,
-        );
-        let write_fn_ptr = self.get_external_func_pointer(
-            MainMemory::write as fn(&mut MainMemory, u32, u32) as usize,
-        )?;
-
         let mut updates = vec![];
         let mut addr = base_addr;
+        let mut cycles = imm!(self, 0);
         for &reg in reg_list.iter() {
             addr = bd.build_int_add(addr, imm!(self, 4), "ib")?;
             let value = self.reg_map.get(reg);
-            call_indirect!(bd, write_fn_t, write_fn_ptr, self.mem_ptr, addr, value);
+            let write_cycles = self.call_mem_write::<u32>(addr, value)?;
+            cycles = bd.build_int_add(cycles, write_cycles, "cycles")?;
         }
         if instr.writeback {
             updates.push(RegUpdate(rn, addr))
         }
-        Ok(updates)
+        Ok(InstrEffect { updates, cycles })
     }
 
     fn stmda(&self, instr: &ArmInstruction) -> InstrResult<'a> {
@@ -379,20 +376,14 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let base_addr = self.reg_map.get(rn);
         let reg_list = instr.get_reg_list(1)?;
 
-        let write_fn_t = self.void_t.fn_type(
-            &[self.ptr_t.into(), self.i32_t.into(), self.i32_t.into()],
-            false,
-        );
-        let write_fn_ptr = self.get_external_func_pointer(
-            MainMemory::write as fn(&mut MainMemory, u32, u32) as usize,
-        )?;
-
         let mut updates = vec![];
         let mut addr =
             bd.build_int_sub(base_addr, imm!(self, 4 * (reg_list.len() - 1)), "start")?;
+        let mut cycles = imm!(self, 0);
         for &reg in reg_list.iter() {
             let value = self.reg_map.get(reg);
-            call_indirect!(bd, write_fn_t, write_fn_ptr, self.mem_ptr, addr, value);
+            let write_cycles = self.call_mem_write::<u32>(addr, value)?;
+            cycles = bd.build_int_add(cycles, write_cycles, "cycles")?;
             addr = bd.build_int_add(addr, imm!(self, 4), "da")?;
         }
         if instr.writeback {
@@ -401,7 +392,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                 bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "wb")?,
             ))
         }
-        Ok(updates)
+        Ok(InstrEffect { updates, cycles })
     }
 
     fn stmdb(&self, instr: &ArmInstruction) -> InstrResult<'a> {
@@ -410,19 +401,13 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let base_addr = self.reg_map.get(rn);
         let reg_list = instr.get_reg_list(1)?;
 
-        let write_fn_t = self.void_t.fn_type(
-            &[self.ptr_t.into(), self.i32_t.into(), self.i32_t.into()],
-            false,
-        );
-        let write_fn_ptr = self.get_external_func_pointer(
-            MainMemory::write as fn(&mut MainMemory, u32, u32) as usize,
-        )?;
-
         let mut updates = vec![];
         let mut addr = bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "start")?;
+        let mut cycles = imm!(self, 0);
         for &reg in reg_list.iter() {
             let value = self.reg_map.get(reg);
-            call_indirect!(bd, write_fn_t, write_fn_ptr, self.mem_ptr, addr, value);
+            let write_cycles = self.call_mem_write::<u32>(addr, value)?;
+            cycles = bd.build_int_add(cycles, write_cycles, "cycles")?;
             addr = bd.build_int_add(addr, imm!(self, 4), "da")?;
         }
         if instr.writeback {
@@ -431,7 +416,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                 bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "wb")?,
             ))
         }
-        Ok(updates)
+        Ok(InstrEffect { updates, cycles })
     }
 
     // Identical to stmdb but first SP operand and writeback flag are excluded by disassembler
@@ -440,26 +425,20 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let base_addr = self.reg_map.get(Reg::SP);
         let reg_list = instr.get_reg_list(0)?;
 
-        let write_fn_t = self.void_t.fn_type(
-            &[self.ptr_t.into(), self.i32_t.into(), self.i32_t.into()],
-            false,
-        );
-        let write_fn_ptr = self.get_external_func_pointer(
-            MainMemory::write as fn(&mut MainMemory, u32, u32) as usize,
-        )?;
-
         let mut updates = vec![];
         let mut addr = bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "start")?;
+        let mut cycles = imm!(self, 0);
         for &reg in reg_list.iter() {
             let value = self.reg_map.get(reg);
-            call_indirect!(bd, write_fn_t, write_fn_ptr, self.mem_ptr, addr, value);
+            let write_cycles = self.call_mem_write::<u32>(addr, value)?;
+            cycles = bd.build_int_add(cycles, write_cycles, "cycles")?;
             addr = bd.build_int_add(addr, imm!(self, 4), "da")?;
         }
         updates.push(RegUpdate(
             Reg::SP,
             bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "wb")?,
         ));
-        Ok(updates)
+        Ok(InstrEffect { updates, cycles })
     }
 
     // Identical to ldmia but first SP operand and writeback flag are excluded by disassembler
@@ -468,22 +447,17 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let base_addr = self.reg_map.get(Reg::SP);
         let reg_list = instr.get_reg_list(0)?;
 
-        let read_fn_t = self
-            .i32_t
-            .fn_type(&[self.ptr_t.into(), self.i32_t.into()], false);
-        let read_fn_ptr = self.get_external_func_pointer(
-            MainMemory::read::<u32> as fn(&MainMemory, u32) -> u32 as usize,
-        )?;
-
         let mut updates = vec![];
         let mut addr = base_addr;
+        let mut cycles = imm!(self, 0);
         for &reg in reg_list.iter() {
-            let value = call_indirect_with_return!(bd, read_fn_t, read_fn_ptr, self.mem_ptr, addr);
+            let (value, read_cycles) = self.call_mem_read::<u32>(addr)?;
+            cycles = bd.build_int_add(cycles, read_cycles, "cycle")?;
             updates.push(RegUpdate(reg, value));
             addr = bd.build_int_add(addr, imm!(self, 4), "addr")?;
         }
         updates.push(RegUpdate(Reg::SP, addr));
-        Ok(updates)
+        Ok(InstrEffect { updates, cycles })
     }
 
     fn adr(&self, instr: &ArmInstruction) -> InstrResult<'a> {
@@ -492,13 +466,18 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let pc_offset = instr.get_imm_op(1);
         let addr = bd.build_int_add(self.reg_map.get(Reg::PC), imm!(self, pc_offset), "adr")?;
         let updates = vec![RegUpdate(rd, addr)];
-        Ok(updates)
+        Ok(InstrEffect {
+            updates,
+            // TODO
+            cycles: imm!(self, 0),
+        })
     }
 
     fn swp<T>(&self, instr: &ArmInstruction) -> InstrResult<'a>
     where
         T: MemReadable + MemWriteable,
     {
+        let bd = self.builder;
         let rd = instr.get_reg_op(0);
         let rm = instr.get_reg_op(1);
         let rm_val = self.reg_map.get(rm);
@@ -506,12 +485,14 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let addr = self.reg_map.get(mem_op.base);
 
         // TODO unaligned rotation (does this happen for ldr/str already?)
-
-        let load_val = self.call_mem_read::<T>(addr)?;
-        self.call_mem_write::<T>(addr, rm_val)?;
+        let (load_val, read_cycles) = self.call_mem_read::<T>(addr)?;
+        let write_cycles = self.call_mem_write::<T>(addr, rm_val)?;
 
         let updates = vec![RegUpdate(rd, load_val)];
-        Ok(updates)
+        Ok(InstrEffect {
+            updates,
+            cycles: bd.build_int_add(read_cycles, write_cycles, "cycle")?,
+        })
     }
 }
 

@@ -42,16 +42,6 @@ macro_rules! call_indirect {
     };
 }
 
-macro_rules! call_indirect_with_return {
-    ($builder:expr, $func_t:expr, $func_ptr:ident, $($args:expr),+) => {
-        call_indirect!($builder, $func_t, $func_ptr, $($args),+)
-            .try_as_basic_value()
-            .left()
-            .ok_or_else(|| anyhow!("failed to get {} return val", stringify!($func_ptr)))?
-            .into_int_value()
-    };
-}
-
 macro_rules! exec_instr {
     ($self:ident, $wrapper:ident, $arg:ident, Self::$inner:ident) => {
         $self
@@ -142,7 +132,12 @@ where
     fshr: FunctionValue<'a>,
 }
 
-type InstrResult<'a> = Result<Vec<RegUpdate<'a>>>;
+pub struct InstrEffect<'a> {
+    pub updates: Vec<RegUpdate<'a>>,
+    pub cycles: IntValue<'a>,
+}
+
+pub type InstrResult<'a> = Result<InstrEffect<'a>>;
 
 #[derive(Copy, Clone)]
 // A register and the value to write to it

@@ -4,16 +4,23 @@ use std::slice::Chunks;
 use anyhow::{Result, bail};
 use num::traits::{AsPrimitive, FromBytes, ToBytes};
 
+struct MemRegion {
+    wait_states: u32,
+    data: Vec<u8>,
+}
+
 #[repr(C)]
+pub struct ReadVal(u32, u32);
+
 pub struct MainMemory {
-    bios: Vec<u8>,
-    slow_wram: Vec<u8>,
-    fast_wram: Vec<u8>,
-    io_registers: Vec<u8>,
-    palette_ram: Vec<u8>,
-    vram: Vec<u8>,
-    obj_attrs: Vec<u8>,
-    cartridge_rom: Vec<u8>,
+    bios: MemRegion,
+    external_wram: MemRegion,
+    internal_wram: MemRegion,
+    io_registers: MemRegion,
+    palette_ram: MemRegion,
+    vram: MemRegion,
+    obj_attrs: MemRegion,
+    cartridge_rom: MemRegion,
 }
 
 // TODO - will add these as needed
@@ -27,72 +34,69 @@ pub trait MemReadable =
 
 pub trait MemWriteable = ToBytes<Bytes: IntoIterator<Item = u8>>;
 
+impl MemRegion {
+    fn new(size: usize, wait_states: u32) -> Self {
+        MemRegion {
+            wait_states,
+            data: vec![0; size],
+        }
+    }
+}
+
 impl MainMemory {
     pub fn iter_word(&self, start_addr: u32) -> Result<Chunks<'_, u8>> {
         if !start_addr.is_multiple_of(4) {
             panic!("Mis-alligned word address: {:x}", start_addr);
         }
-        Ok(self.mem_map_lookup(start_addr)?.chunks(4))
+        Ok(self.mem_map_lookup(start_addr)?.0.chunks(4))
     }
 
     pub fn iter_halfword(&self, start_addr: u32) -> Result<Chunks<'_, u8>> {
         if !start_addr.is_multiple_of(2) {
             panic!("Mis-alligned halfword address: {:x}", start_addr);
         }
-        Ok(self.mem_map_lookup(start_addr)?.chunks(2))
+        Ok(self.mem_map_lookup(start_addr)?.0.chunks(2))
     }
 
     /// Sign or zero-extends the result to 32 bits depending type parameter
-    pub fn read<T>(&self, addr: u32) -> u32
+    /// Returns both the read value and the number of wait-states
+    pub fn read<T>(&self, addr: u32) -> ReadVal
     where
         T: MemReadable,
     {
-        let mem_slice = self
-            .mem_map_lookup(addr)
-            .expect("out of bounds read")
+        let (mem_slice, wait_states) = self.mem_map_lookup(addr).expect("out of bounds read");
+        let bytes: T::Bytes = mem_slice
             .get(0..size_of::<T>())
-            .expect("reached end of bytes while reading");
-        let bytes: T::Bytes = mem_slice.try_into().expect("conversion from bytes failed");
+            .expect("reached end of bytes while reading")
+            .try_into()
+            .expect("conversion from bytes failed");
         let as_int = T::from_le_bytes(&bytes);
-        as_int.as_()
+        ReadVal(as_int.as_(), wait_states)
     }
 
-    pub fn write<T>(&mut self, addr: u32, value: T)
+    pub fn write<T>(&mut self, addr: u32, value: T) -> u32
     where
         T: MemWriteable,
     {
-        let mut mem_iter = self
-            .mem_map_lookup_mut(addr)
-            .expect("out of bounds write")
-            .iter_mut();
+        let (mem_iter, wait_states) = self.mem_map_lookup_mut(addr).expect("out of bounds write");
         for byte in value.to_le_bytes() {
-            let mem_val = mem_iter.next().expect("reached end of bytes while writing");
+            let mem_val = mem_iter
+                .iter_mut()
+                .next()
+                .expect("reached end of bytes while writing");
             *mem_val = byte;
         }
-    }
-
-    pub fn get_ptr(&self, addr: u32) -> *const u8 {
-        self.mem_map_lookup(addr)
-            .expect("get_ptr address out of bounds")
-            .as_ptr()
-    }
-
-    /// Planning to use this to be slightly more convenient for multiple stores. TODO what if
-    /// they were writing to memory mapped IO? Could that happen?
-    pub fn get_mut_ptr(&mut self, addr: u32) -> *mut u8 {
-        self.mem_map_lookup_mut(addr)
-            .expect("get_mut_ptr address out of bounds")
-            .as_mut_ptr()
+        wait_states
     }
 
     // TODO - should these be public?
-    pub fn mem_map_lookup(&self, addr: u32) -> Result<&[u8]> {
+    pub fn mem_map_lookup(&self, addr: u32) -> Result<(&[u8], u32)> {
         let base = addr & 0x0f000000;
         let index = (addr - base) as usize;
         let region = match base {
             0x00000000 => &self.bios,
-            0x02000000 => &self.slow_wram,
-            0x03000000 => &self.fast_wram,
+            0x02000000 => &self.external_wram,
+            0x03000000 => &self.internal_wram,
             0x04000000 => &self.io_registers,
             0x05000000 => &self.palette_ram,
             0x06000000 => &self.vram,
@@ -100,17 +104,17 @@ impl MainMemory {
             0x08000000 => &self.cartridge_rom,
             _ => bail!("unused area of memory (addr: {:#08x})", addr),
         };
-        Ok(&region[index..])
+        Ok((&region.data[index..], region.wait_states))
     }
 
     // Would be nice if these could be combined somehow
-    pub fn mem_map_lookup_mut(&mut self, addr: u32) -> Result<&mut [u8]> {
+    pub fn mem_map_lookup_mut(&mut self, addr: u32) -> Result<(&mut [u8], u32)> {
         let base = addr & 0x0f000000;
         let index = (addr - base) as usize;
         let region = match base {
             0x00000000 => &mut self.bios,
-            0x02000000 => &mut self.slow_wram,
-            0x03000000 => &mut self.fast_wram,
+            0x02000000 => &mut self.external_wram,
+            0x03000000 => &mut self.internal_wram,
             0x04000000 => &mut self.io_registers,
             0x05000000 => &mut self.palette_ram,
             0x06000000 => &mut self.vram,
@@ -118,31 +122,33 @@ impl MainMemory {
             0x08000000 => &mut self.cartridge_rom,
             _ => bail!("unused area of memory (addr: {:#08x})", addr),
         };
-        Ok(&mut region[index..])
+        Ok((&mut region.data[index..], region.wait_states))
     }
 
+    // Returns (IO register, wait-states).
     // Not all IO registers are actually 32-bits wide. Leave that up to the caller
-    pub fn read_io(&self, reg: IoReg) -> u32 { self.read::<u32>(reg as u32) }
+    pub fn read_io(&self, reg: IoReg) -> (u32, u32) { self.read::<u32>(reg as u32) }
 }
 
 impl Default for MainMemory {
     fn default() -> Self {
         Self {
-            bios: vec![0; 16 << 10],
-            slow_wram: vec![0; 256 << 10],
-            fast_wram: vec![0; 32 << 10],
-            io_registers: vec![0; 0x400],
-            palette_ram: vec![0; 1 << 10],
-            vram: vec![0; 96 << 10],
-            obj_attrs: vec![0; 1 << 10],
-            cartridge_rom: vec![0; 32 << 20],
+            bios: MemRegion::new(0, 16 << 10),
+            external_wram: MemRegion::new(2, 256 << 10),
+            internal_wram: MemRegion::new(0, 32 << 10),
+            io_registers: MemRegion::new(0, 0x400),
+            palette_ram: MemRegion::new(0, 1 << 10),
+            vram: MemRegion::new(0, 96 << 10),
+            obj_attrs: MemRegion::new(0, 1 << 10),
+            // TODO -  wait states configurable? Possibly seperate struct, maybe a Readable trait?
+            cartridge_rom: MemRegion::new(0, 32 << 20),
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::arm::state::memory::MainMemory;
+    use super::*;
 
     macro_rules! read_tests {
         ($bytes:expr, $($name:ident: $T:ty, $data:expr,)*) => {
@@ -152,8 +158,8 @@ mod tests {
                     let (read_addr, expected) = $data;
 
                     let mut mem = MainMemory::default();
-                    mem.bios = $bytes;
-                    assert_eq!(mem.read::<$T>(read_addr), expected);
+                    mem.bios = MemRegion{data: $bytes, wait_states: 0};
+                    assert_eq!(mem.read::<$T>(read_addr).0, expected);
                 }
             )*
         };
@@ -185,7 +191,10 @@ mod tests {
     #[should_panic = "reached end of bytes while reading"]
     fn test_read_past_end_of_bytes_panics() {
         let mem = MainMemory {
-            bios: vec![0x34, 0xff, 0xbe, 0x70],
+            bios: MemRegion {
+                data: vec![0x34, 0xff, 0xbe, 0x70],
+                wait_states: 0,
+            },
             ..Default::default()
         };
         mem.read::<u32>(1);
@@ -194,22 +203,25 @@ mod tests {
     #[test]
     fn test_write() {
         let mut mem = MainMemory {
-            bios: vec![0; 4],
+            bios: MemRegion {
+                data: vec![0; 4],
+                wait_states: 0,
+            },
             ..Default::default()
         };
         mem.write(0, 0x12345678u32);
-        assert_eq!(mem.bios, vec![0x78, 0x56, 0x34, 0x12]);
+        assert_eq!(mem.bios.data, vec![0x78, 0x56, 0x34, 0x12]);
         mem.write(0, 0u8);
-        assert_eq!(mem.bios, vec![0x00, 0x56, 0x34, 0x12]);
+        assert_eq!(mem.bios.data, vec![0x00, 0x56, 0x34, 0x12]);
         mem.write(1, 0u16);
-        assert_eq!(mem.bios, vec![0x00, 0x00, 0x00, 0x12]);
+        assert_eq!(mem.bios.data, vec![0x00, 0x00, 0x00, 0x12]);
         mem.write(0, 0x3102u16);
-        assert_eq!(mem.bios, vec![0x02, 0x31, 0x00, 0x12]);
+        assert_eq!(mem.bios.data, vec![0x02, 0x31, 0x00, 0x12]);
         mem.write(0, -12i8);
-        assert_eq!(mem.bios, vec![0xf4, 0x31, 0x00, 0x12]);
+        assert_eq!(mem.bios.data, vec![0xf4, 0x31, 0x00, 0x12]);
         mem.write(2, 0xabu8);
-        assert_eq!(mem.bios, vec![0xf4, 0x31, 0xab, 0x12]);
+        assert_eq!(mem.bios.data, vec![0xf4, 0x31, 0xab, 0x12]);
         mem.write(0, -10500i16);
-        assert_eq!(mem.bios, vec![0xfc, 0xd6, 0xab, 0x12]);
+        assert_eq!(mem.bios.data, vec![0xfc, 0xd6, 0xab, 0x12]);
     }
 }
