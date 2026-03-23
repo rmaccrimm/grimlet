@@ -16,6 +16,7 @@ pub struct ArmState {
     pub regs: [u32; NUM_REGS],
     pub mem: MainMemory,
     tx: Sender<SystemMessage>,
+    pub clock: u32,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -78,6 +79,7 @@ impl ArmState {
             regs,
             mem: MainMemory::default(),
             tx,
+            clock: 0
         }
     }
 
@@ -95,6 +97,8 @@ impl ArmState {
         }
         self.regs[Reg::PC] = addr + self.current_mode.pc_byte_offset();
     }
+
+    pub fn add_cycles(&mut self, cycles: u32) { self.clock += cycles; }
 }
 
 impl Display for ArmState {
