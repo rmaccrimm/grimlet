@@ -49,7 +49,7 @@ impl Emulator {
             bail!("ROM file not found");
         }
         let f = BufReader::new(File::open(path)?);
-        let mem_ref = self.state.mem.mem_map_lookup_mut(addr)?;
+        let (mem_ref, _) = self.state.mem.mem_map_lookup_mut(addr)?;
 
         for (i, byte) in f.bytes().enumerate() {
             mem_ref[i] = byte?;

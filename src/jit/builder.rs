@@ -305,7 +305,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         bd.build_conditional_branch(cond, if_block, end_block)?;
         bd.position_at_end(if_block);
 
-        let updates = inner(self, instr)?;
+        let InstrEffect { updates, .. } = inner(self, instr)?;
 
         // If an instruction wrote to PC, we need to perform a branch
         let branch_target: Option<IntValue> = updates.iter().find(|r| r.0 == Reg::PC).map(|r| r.1);

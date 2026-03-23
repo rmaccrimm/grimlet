@@ -1,4 +1,5 @@
 use grimlet::arm::disasm::Disassembler;
+use grimlet::arm::state::memory::ReadVal;
 use grimlet::arm::state::{ArmMode, ArmState, Reg};
 use grimlet::emulator::{DebugOutput, Emulator};
 
@@ -29,7 +30,7 @@ macro_rules! assembly_test {
             let num_asserts = emulator.state.regs[Reg::R8];
             let mut result_addr = STACK_ADDR - 4;
             for i in 1..=num_asserts {
-                let word = emulator.state.mem.read::<u32>(result_addr);
+                let ReadVal(word, _) = emulator.state.mem.read::<u32>(result_addr);
                 println!("{}: {}", i, word);
                 assert_eq!(word, 1, "failed on assertion {}", i);
                 result_addr -= 4;

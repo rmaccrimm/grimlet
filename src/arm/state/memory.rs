@@ -4,13 +4,15 @@ use std::slice::Chunks;
 use anyhow::{Result, bail};
 use num::traits::{AsPrimitive, FromBytes, ToBytes};
 
+#[derive(Clone, Debug)]
 struct MemRegion {
     wait_states: u32,
     data: Vec<u8>,
 }
 
 #[repr(C)]
-pub struct ReadVal(u32, u32);
+#[derive(Copy, Clone, Debug)]
+pub struct ReadVal(pub u32, pub u32);
 
 pub struct MainMemory {
     bios: MemRegion,
@@ -78,12 +80,10 @@ impl MainMemory {
     where
         T: MemWriteable,
     {
-        let (mem_iter, wait_states) = self.mem_map_lookup_mut(addr).expect("out of bounds write");
+        let (mem, wait_states) = self.mem_map_lookup_mut(addr).expect("out of bounds write");
+        let mut mem_iter = mem.iter_mut();
         for byte in value.to_le_bytes() {
-            let mem_val = mem_iter
-                .iter_mut()
-                .next()
-                .expect("reached end of bytes while writing");
+            let mem_val = mem_iter.next().expect("reached end of bytes while writing");
             *mem_val = byte;
         }
         wait_states
@@ -127,21 +127,21 @@ impl MainMemory {
 
     // Returns (IO register, wait-states).
     // Not all IO registers are actually 32-bits wide. Leave that up to the caller
-    pub fn read_io(&self, reg: IoReg) -> (u32, u32) { self.read::<u32>(reg as u32) }
+    pub fn read_io(&self, reg: IoReg) -> ReadVal { self.read::<u32>(reg as u32) }
 }
 
 impl Default for MainMemory {
     fn default() -> Self {
         Self {
-            bios: MemRegion::new(0, 16 << 10),
-            external_wram: MemRegion::new(2, 256 << 10),
-            internal_wram: MemRegion::new(0, 32 << 10),
-            io_registers: MemRegion::new(0, 0x400),
-            palette_ram: MemRegion::new(0, 1 << 10),
-            vram: MemRegion::new(0, 96 << 10),
-            obj_attrs: MemRegion::new(0, 1 << 10),
+            bios: MemRegion::new(16 << 10, 0),
+            external_wram: MemRegion::new(256 << 10, 0),
+            internal_wram: MemRegion::new(32 << 10, 0),
+            io_registers: MemRegion::new(0x400, 0),
+            palette_ram: MemRegion::new(1 << 10, 0),
+            vram: MemRegion::new(96 << 10, 0),
+            obj_attrs: MemRegion::new(1 << 10, 0),
             // TODO -  wait states configurable? Possibly seperate struct, maybe a Readable trait?
-            cartridge_rom: MemRegion::new(0, 32 << 20),
+            cartridge_rom: MemRegion::new(32 << 20, 0),
         }
     }
 }
@@ -203,10 +203,7 @@ mod tests {
     #[test]
     fn test_write() {
         let mut mem = MainMemory {
-            bios: MemRegion {
-                data: vec![0; 4],
-                wait_states: 0,
-            },
+            bios: MemRegion::new(4, 0),
             ..Default::default()
         };
         mem.write(0, 0x12345678u32);
