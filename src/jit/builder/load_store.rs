@@ -1,9 +1,13 @@
+use std::array::TryFromSliceError;
+
 use anyhow::{Context as _, Result, anyhow};
 use inkwell::values::{BasicValue, IntValue};
+use num::cast::AsPrimitive;
+use num::traits::{FromBytes, ToBytes};
 
 use crate::arm::disasm::instruction::{ArmInstruction, MemOffset, MemOperand, WritebackMode};
 use crate::arm::state::Reg;
-use crate::arm::state::memory::{MainMemory, MemReadable, MemWriteable, ReadVal};
+use crate::arm::state::memory::{MainMemory, ReadVal};
 use crate::jit::builder::{FunctionBuilder, InstrEffect, InstrResult, RegUpdate};
 
 #[derive(Copy, Clone)]
@@ -144,7 +148,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     // read value (i32), wait states (i32)
     fn call_mem_read<T>(&self, addr: IntValue<'a>) -> Result<(IntValue<'a>, IntValue<'a>)>
     where
-        T: MemReadable,
+        T: AsPrimitive<u32>
+            + for<'b> FromBytes<Bytes: TryFrom<&'b [u8], Error = TryFromSliceError>>,
     {
         let bd = self.builder;
         // read value, wait states
@@ -177,7 +182,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
     fn call_mem_write<T>(&self, addr: IntValue<'a>, value: IntValue<'a>) -> Result<IntValue<'a>>
     where
-        T: MemWriteable,
+        T: ToBytes<Bytes: IntoIterator<Item = u8>>,
     {
         let write_fn_t = self.i32_t.fn_type(
             &[self.ptr_t.into(), self.i32_t.into(), self.i32_t.into()],
@@ -204,7 +209,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
     fn ldr<T>(&self, instr: &ArmInstruction) -> InstrResult<'a>
     where
-        T: MemReadable,
+        T: AsPrimitive<u32>
+            + for<'b> FromBytes<Bytes: TryFrom<&'b [u8], Error = TryFromSliceError>>,
     {
         let rd = instr.get_reg_op(0);
         let addr_mode: AddrMode = self.addressing_mode(&instr.get_mem_op(1)?)?;
@@ -314,7 +320,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
     fn str<T>(&self, instr: &ArmInstruction) -> InstrResult<'a>
     where
-        T: MemWriteable,
+        T: ToBytes<Bytes: IntoIterator<Item = u8>>,
     {
         let rd = instr.get_reg_op(0);
         let rd_val = self.reg_map.get(rd);
@@ -475,7 +481,9 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
     fn swp<T>(&self, instr: &ArmInstruction) -> InstrResult<'a>
     where
-        T: MemReadable + MemWriteable,
+        T: AsPrimitive<u32>
+            + for<'b> FromBytes<Bytes: TryFrom<&'b [u8], Error = TryFromSliceError>>
+            + ToBytes<Bytes: IntoIterator<Item = u8>>,
     {
         let bd = self.builder;
         let rd = instr.get_reg_op(0);
