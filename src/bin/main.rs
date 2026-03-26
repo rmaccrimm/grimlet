@@ -2,7 +2,8 @@
 #![forbid(unsafe_code)]
 
 use anyhow::Result;
-use minifb::{Key, Window, WindowOptions};
+use eframe::egui::accesskit::Color;
+use eframe::egui::{self, Color32, ColorImage, TextureOptions, Vec2};
 
 const WIDTH: usize = 320;
 const HEIGHT: usize = 240;
@@ -16,31 +17,43 @@ struct World {
     velocity_y: i16,
 }
 
-fn main() -> Result<()> {
-    let mut buffer: Vec<u32> = vec![0; WIDTH * HEIGHT];
-
-    let mut window = Window::new(
-        "Test - ESC to exit",
-        WIDTH,
-        HEIGHT,
-        WindowOptions::default(),
+fn main() -> eframe::Result {
+    let options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default().with_inner_size([WIDTH as f32, HEIGHT as f32]),
+        ..Default::default()
+    };
+    eframe::run_native(
+        "Image Viewer",
+        options,
+        Box::new(|_| Ok(Box::new(MyApp::new()))),
     )
-    .unwrap_or_else(|e| {
-        panic!("{}", e);
-    });
+}
 
-    // Limit to max ~60 fps update rate
-    window.set_target_fps(60);
+struct MyApp {
+    world: World,
+    img: ColorImage,
+}
 
-    let mut world = World::new();
-
-    while window.is_open() && !window.is_key_down(Key::Escape) {
-        world.draw(&mut buffer);
-        // We unwrap here as we want this code to exit if it fails. Real applications may want to handle this in a different way
-        window.update_with_buffer(&buffer, WIDTH, HEIGHT).unwrap();
-        world.update();
+impl MyApp {
+    fn new() -> Self {
+        Self {
+            world: World::new(),
+            img: ColorImage::filled([WIDTH, HEIGHT], Color32::LIGHT_BLUE),
+        }
     }
-    Ok(())
+}
+
+impl eframe::App for MyApp {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        egui::CentralPanel::no_frame().show_inside(ui, |ui| {
+            let tex = ui.load_texture("img", self.img.clone(), TextureOptions::default());
+            ui.image((tex.id(), tex.size_vec2()));
+        });
+
+        self.world.update();
+        self.img = self.world.draw();
+        ui.request_repaint();
+    }
 }
 
 impl World {
@@ -70,7 +83,9 @@ impl World {
     /// Draw the `World` state to the frame buffer.
     ///
     /// Assumes the default texture format: `wgpu::TextureFormat::Rgba8UnormSrgb`
-    fn draw(&self, buffer: &mut [u32]) {
+    fn draw(&self) -> ColorImage {
+        let mut buffer: Vec<Color32> = vec![Color32::LIGHT_BLUE; WIDTH * HEIGHT];
+
         for (i, pixel) in buffer.iter_mut().enumerate() {
             let x = (i % WIDTH) as i16;
             let y = (i / WIDTH) as i16;
@@ -80,13 +95,11 @@ impl World {
                 && y >= self.box_y
                 && y < self.box_y + BOX_SIZE;
 
-            let rgba = if inside_the_box {
-                [0x5e, 0x48, 0xe8, 0xff]
-            } else {
-                [0x48, 0xb2, 0xe8, 0xff]
-            };
-
-            *pixel = rgba[0] << 16 | rgba[1] << 8 | rgba[2];
+            if inside_the_box {
+                *pixel = Color32::BLUE;
+            }
         }
+
+        ColorImage::new([WIDTH, HEIGHT], buffer)
     }
 }
