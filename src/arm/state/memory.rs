@@ -31,6 +31,11 @@ pub enum IoReg {
     DISPSTAT = 0x4000004,
 }
 
+pub trait MemReadable =
+    AsPrimitive<u32> + for<'a> FromBytes<Bytes: TryFrom<&'a [u8], Error = TryFromSliceError>>;
+
+pub trait MemWriteable = ToBytes<Bytes: IntoIterator<Item = u8>>;
+
 impl MemRegion {
     fn new(size: usize, wait_states: u32) -> Self {
         MemRegion {
@@ -59,8 +64,7 @@ impl MainMemory {
     /// Returns both the read value and the number of wait-states
     pub fn read<T>(&self, addr: u32) -> ReadVal
     where
-        T: AsPrimitive<u32>
-            + for<'a> FromBytes<Bytes: TryFrom<&'a [u8], Error = TryFromSliceError>>,
+        T: MemReadable,
     {
         let (mem_slice, wait_states) = self.mem_map_lookup(addr).expect("out of bounds read");
         let bytes: T::Bytes = mem_slice
@@ -74,7 +78,7 @@ impl MainMemory {
 
     pub fn write<T>(&mut self, addr: u32, value: T) -> u32
     where
-        T: ToBytes<Bytes: IntoIterator<Item = u8>>,
+        T: MemWriteable,
     {
         let (mem, wait_states) = self.mem_map_lookup_mut(addr).expect("out of bounds write");
         let mut mem_iter = mem.iter_mut();
