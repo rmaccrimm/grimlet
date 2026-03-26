@@ -21,3 +21,6 @@ capstone = "0.13.0"
 inkwell = { version = "0.6.0", features = ["llvm18-1"] }
 clap = { version = "4.5.53", features = ["derive"] }
 num = "0.4.3"
+pixels = { git = "https://github.com/parasyte/pixels.git", rev = "ae77d63" }
+winit = "0.30"
+winit_input_helper = "0.17"
