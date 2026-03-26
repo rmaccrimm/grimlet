@@ -132,12 +132,12 @@ where
     fshr: FunctionValue<'a>,
 }
 
-pub struct InstrEffect<'a> {
-    pub updates: Vec<RegUpdate<'a>>,
-    pub cycles: IntValue<'a>,
+struct InstrEffect<'a> {
+    updates: Vec<RegUpdate<'a>>,
+    cycles: IntValue<'a>,
 }
 
-pub type InstrResult<'a> = Result<InstrEffect<'a>>;
+type InstrResult<'a> = Result<InstrEffect<'a>>;
 
 #[derive(Copy, Clone)]
 // A register and the value to write to it
