@@ -55,11 +55,9 @@ impl Disasm for Disassembler {
 
     fn set_mode(&mut self, mode: ArmMode) {
         self.current_mode = mode;
-        let res = try {
-            match mode {
-                ArmMode::ARM => self.cs.set_mode(capstone::Mode::Arm)?,
-                ArmMode::THUMB => self.cs.set_mode(capstone::Mode::Thumb)?,
-            }
+        let res = match mode {
+            ArmMode::ARM => self.cs.set_mode(capstone::Mode::Arm),
+            ArmMode::THUMB => self.cs.set_mode(capstone::Mode::Thumb),
         };
         res.expect("error while updating capstone mode");
     }
