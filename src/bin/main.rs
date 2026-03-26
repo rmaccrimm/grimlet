@@ -1,18 +1,11 @@
 #![deny(clippy::all)]
 #![forbid(unsafe_code)]
 
-use std::sync::Arc;
+use anyhow::Result;
+use minifb::{Key, Window, WindowOptions};
 
-use pixels::{Error, Pixels, SurfaceTexture};
-use winit::dpi::LogicalSize;
-use winit::event::{Event, WindowEvent};
-use winit::event_loop::EventLoop;
-use winit::keyboard::KeyCode;
-use winit::window::Window;
-use winit_input_helper::WinitInputHelper;
-
-const WIDTH: u32 = 320;
-const HEIGHT: u32 = 240;
+const WIDTH: usize = 320;
+const HEIGHT: usize = 240;
 const BOX_SIZE: i16 = 64;
 
 /// Representation of the application state. In this example, a box will bounce around the screen.
@@ -23,75 +16,31 @@ struct World {
     velocity_y: i16,
 }
 
-fn main() -> Result<(), Error> {
-    let event_loop = EventLoop::new().unwrap();
-    let mut input = WinitInputHelper::new();
-    let window = {
-        let size = LogicalSize::new(WIDTH as f64, HEIGHT as f64);
-        #[allow(deprecated)]
-        Arc::new(
-            event_loop
-                .create_window(
-                    Window::default_attributes()
-                        .with_title("Hello Pixels")
-                        .with_inner_size(size)
-                        .with_min_inner_size(size),
-                )
-                .unwrap(),
-        )
-    };
+fn main() -> Result<()> {
+    let mut buffer: Vec<u32> = vec![0; WIDTH * HEIGHT];
 
-    let mut pixels = {
-        let window_size = window.inner_size();
-        let surface_texture = SurfaceTexture::new(window_size.width, window_size.height, &window);
-        Pixels::new(WIDTH, HEIGHT, surface_texture)?
-    };
+    let mut window = Window::new(
+        "Test - ESC to exit",
+        WIDTH,
+        HEIGHT,
+        WindowOptions::default(),
+    )
+    .unwrap_or_else(|e| {
+        panic!("{}", e);
+    });
+
+    // Limit to max ~60 fps update rate
+    window.set_target_fps(60);
+
     let mut world = World::new();
 
-    #[allow(deprecated)]
-    let res = event_loop.run(|event, elwt| {
-        match event {
-            Event::Resumed => {}
-            Event::NewEvents(_) => input.step(),
-            Event::AboutToWait => input.end_step(),
-            Event::DeviceEvent { event, .. } => {
-                input.process_device_event(&event);
-            }
-            Event::WindowEvent { event, .. } => {
-                // Draw the current frame
-                if event == WindowEvent::RedrawRequested {
-                    world.draw(pixels.frame_mut());
-                    if let Err(err) = pixels.render() {
-                        elwt.exit();
-                        return;
-                    }
-                }
-
-                // Handle input events
-                if input.process_window_event(&event) {
-                    // Close events
-                    if input.key_pressed(KeyCode::Escape) || input.close_requested() {
-                        elwt.exit();
-                        return;
-                    }
-
-                    // Resize the window
-                    if let Some(size) = input.window_resized()
-                        && let Err(err) = pixels.resize_surface(size.width, size.height)
-                    {
-                        elwt.exit();
-                        return;
-                    }
-
-                    // Update internal state and request a redraw
-                    world.update();
-                    window.request_redraw();
-                }
-            }
-            _ => {}
-        }
-    });
-    res.map_err(|e| Error::UserDefined(Box::new(e)))
+    while window.is_open() && !window.is_key_down(Key::Escape) {
+        world.draw(&mut buffer);
+        // We unwrap here as we want this code to exit if it fails. Real applications may want to handle this in a different way
+        window.update_with_buffer(&buffer, WIDTH, HEIGHT).unwrap();
+        world.update();
+    }
+    Ok(())
 }
 
 impl World {
@@ -121,10 +70,10 @@ impl World {
     /// Draw the `World` state to the frame buffer.
     ///
     /// Assumes the default texture format: `wgpu::TextureFormat::Rgba8UnormSrgb`
-    fn draw(&self, frame: &mut [u8]) {
-        for (i, pixel) in frame.chunks_exact_mut(4).enumerate() {
-            let x = (i % WIDTH as usize) as i16;
-            let y = (i / WIDTH as usize) as i16;
+    fn draw(&self, buffer: &mut [u32]) {
+        for (i, pixel) in buffer.iter_mut().enumerate() {
+            let x = (i % WIDTH) as i16;
+            let y = (i / WIDTH) as i16;
 
             let inside_the_box = x >= self.box_x
                 && x < self.box_x + BOX_SIZE
@@ -137,7 +86,7 @@ impl World {
                 [0x48, 0xb2, 0xe8, 0xff]
             };
 
-            pixel.copy_from_slice(&rgba);
+            *pixel = rgba[0] << 16 | rgba[1] << 8 | rgba[2];
         }
     }
 }
