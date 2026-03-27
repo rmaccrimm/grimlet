@@ -13,9 +13,9 @@ use inkwell::module::Module;
 
 use crate::arm::state::ArmState;
 
-type JumpTarget = unsafe extern "C" fn(*mut ArmState);
-
-pub type CompiledFunction<'a> = JitFunction<'a, JumpTarget>;
+// JIT'd funxtions take a pointer to the guest machine state and return the number of (emulated)
+// CPU cycles it took to execute
+pub type CompiledFunction<'a> = JitFunction<'a, unsafe extern "C" fn(*mut ArmState) -> u32>;
 
 pub type FunctionCache<'ctx> = HashMap<usize, CompiledFunction<'ctx>>;
 
