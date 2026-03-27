@@ -6,7 +6,7 @@ use inkwell::IntPredicate;
 use inkwell::values::IntValue;
 
 use crate::arm::state::Reg;
-use crate::jit::FunctionBuilder;
+use crate::jit::builder::FunctionBuilder;
 
 // A bitmask for a flag, and its name
 #[derive(Copy, Clone, Debug)]
@@ -21,10 +21,10 @@ pub(super) const Z: Flag = Flag(1 << 30, "z");
 pub(super) const N: Flag = Flag(1 << 31, "n");
 
 impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
-    pub(super) fn eval_cond(&mut self, cond: ArmCC) -> Result<IntValue<'a>> {
-        let bd = self.builder;
+    pub(super) fn eval_cond(&self, cond: ArmCC) -> Result<IntValue<'a>> {
+        let bd = &self.builder;
         let cond = match cond {
-            ArmCC::ARM_CC_AL => self.llvm_ctx.bool_type().const_int(1, false),
+            ArmCC::ARM_CC_AL => self.ctx.bool_type().const_int(1, false),
             ArmCC::ARM_CC_EQ => self.get_flag(Z)?,
             ArmCC::ARM_CC_NE => self.get_neg_flag(Z)?,
             ArmCC::ARM_CC_HS => self.get_flag(C)?,
@@ -85,7 +85,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         cond: IntValue<'a>,
     ) -> Result<IntValue<'a>> {
         // From Stanford's bithacks page - conditionally set or clear bits without branching
-        let bd = self.builder;
+        let bd = &self.builder;
         let f = bd.build_int_cast_sign_flag(cond, self.i32_t, false, "f")?;
         let nf = bd.build_int_neg(f, "neg_f")?;
         let m = self.i32_t.const_int(flag.0 as u64, false);
@@ -123,10 +123,9 @@ mod tests {
 
     use super::*;
     use crate::arm::state::{ArmState, REG_ITEMS, Reg};
-    use crate::jit::Compiler;
 
     macro_rules! compile_and_run {
-        ($compiler:ident, $func:ident, $state:ident) => {
+        ($func:ident, $state:ident) => {
             unsafe {
                 $func.compile().unwrap().call(&mut $state);
             }
@@ -144,8 +143,7 @@ mod tests {
         }
 
         let context = Context::create();
-        let mut comp = Compiler::new(&context);
-        let mut func = comp.new_function(0);
+        let mut func = FunctionBuilder::new(&context, 0).unwrap();
 
         let all_regs: HashSet<Reg> = REG_ITEMS.into_iter().collect();
         func.load_initial_reg_values(&all_regs).unwrap();
@@ -171,7 +169,7 @@ mod tests {
             .update(Reg::R7, func.set_flag(N, func.reg_map.get(Reg::R7), f)?);
         func.write_state_out(&func.reg_map).unwrap();
         func.builder.build_return(None).unwrap();
-        compile_and_run!(comp, func, state);
+        compile_and_run!(func, state);
         assert_eq!(
             &state.regs[0..8],
             [

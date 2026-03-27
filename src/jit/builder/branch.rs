@@ -3,7 +3,7 @@ use inkwell::values::IntValue;
 
 use crate::arm::disasm::instruction::ArmInstruction;
 use crate::arm::state::{ArmState, Reg};
-use crate::jit::FunctionBuilder;
+use crate::jit::builder::FunctionBuilder;
 
 pub(super) struct BranchAction<'a> {
     pub(super) target: IntValue<'a>,
@@ -29,12 +29,15 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     where
         F: Fn(&Self, &ArmInstruction) -> Result<BranchAction<'a>>,
     {
+        let bd = &self.builder;
         let mode = instr.mode;
-        let ctx = self.llvm_ctx;
-        let bd = self.builder;
+        let ctx = self.ctx;
         let if_block = ctx.append_basic_block(self.func, "if");
         let end_block = ctx.append_basic_block(self.func, "end");
         let cond = self.eval_cond(instr.cond)?;
+
+        // This block just so we can have the temporary builder borrow
+
         bd.build_conditional_branch(cond, if_block, end_block)?;
         bd.position_at_end(if_block);
 
@@ -69,13 +72,14 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         bd.position_at_end(end_block);
         self.increment_pc(mode);
         self.write_state_out(&self.reg_map)?;
-        bd.build_return(None)?;
+
+        self.builder.build_return(None)?;
         Ok(())
     }
 
     // self.write_state_out should be called before calling this
     pub(super) fn branch_and_return(&self, target: IntValue<'a>, mode: IntValue<'a>) -> Result<()> {
-        let bd = self.builder;
+        let bd = &self.builder;
         let func_t = self.void_t.fn_type(
             &[self.ptr_t.into(), self.i32_t.into(), self.i8_t.into()],
             false,
@@ -106,7 +110,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     fn bx(&self, instr: &ArmInstruction) -> Result<BranchAction<'a>> {
-        let bd = self.builder;
+        let bd = &self.builder;
         let rm_val = self.reg_map.get(instr.get_reg_op(0));
         let lsb = bd.build_and(rm_val, imm!(self, 1), "lsb")?;
         let mode = bd.build_int_cast_sign_flag(lsb, self.i8_t, false, "mode")?;

@@ -5,9 +5,8 @@ use inkwell::values::IntValue;
 
 use crate::arm::disasm::instruction::{ArmInstruction, ArmShift, ShifterOperand};
 use crate::arm::state::Reg;
-use crate::jit::FunctionBuilder;
 use crate::jit::builder::flags::C;
-use crate::jit::builder::{InstrEffect, InstrResult, RegUpdate};
+use crate::jit::builder::{FunctionBuilder, InstrEffect, InstrResult, RegUpdate};
 
 impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     pub(super) fn arm_adc(&mut self, instr: ArmInstruction) {
@@ -129,7 +128,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         base: IntValue<'a>,
         shift: Option<ArmShift>,
     ) -> Result<(IntValue<'a>, Option<IntValue<'a>>)> {
-        let bd = self.builder;
+        let bd = &self.builder;
         let zero = imm!(self, 0);
         let one = imm!(self, 1);
 
@@ -349,7 +348,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         &self,
         operand: ShifterOperand,
     ) -> Result<(IntValue<'a>, Option<IntValue<'a>>)> {
-        let bd = self.builder;
+        let bd = &self.builder;
 
         match operand {
             ShifterOperand::Imm { imm, rotate } => {
@@ -380,7 +379,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         imm_shift: impl Fn(u32) -> ArmShift,
         reg_shift: impl Fn(Reg) -> ArmShift,
     ) -> InstrResult<'a> {
-        let bd = self.builder;
+        let bd = &self.builder;
         let rd = instr.get_reg_op(0);
         let rd_val = self.reg_map.get(rd);
 
@@ -405,14 +404,13 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         })
     }
 
-    /// TODO - handle rd = pc case
     fn adc(&self, instr: &ArmInstruction) -> InstrResult<'a> {
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
         let rn_val = self.reg_map.get(rn);
         let (shifter_op, _) = self.shifter_operand(instr.get_shifter_op(2)?)?;
 
-        let bd = self.builder;
+        let bd = &self.builder;
         let c_in = bd.build_int_cast(self.get_flag(C)?, self.i32_t, "c32")?;
 
         if !instr.updates_flags {
@@ -469,9 +467,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         })
     }
 
-    /// TODO rd = pc case
     fn add(&self, instr: &ArmInstruction) -> InstrResult<'a> {
-        let bd = self.builder;
+        let bd = &self.builder;
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
         let rn_val = self.reg_map.get(rn);
@@ -509,7 +506,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     fn and(&self, instr: &ArmInstruction) -> InstrResult<'a> {
-        let bd = self.builder;
+        let bd = &self.builder;
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
         let rn_val = self.reg_map.get(rn);
@@ -539,7 +536,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     fn bic(&self, instr: &ArmInstruction) -> InstrResult<'a> {
-        let bd = self.builder;
+        let bd = &self.builder;
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
         let rn_val = self.reg_map.get(rn);
@@ -600,7 +597,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     fn eor(&self, instr: &ArmInstruction) -> InstrResult<'a> {
-        let bd = self.builder;
+        let bd = &self.builder;
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
         let rn_val = self.reg_map.get(rn);
@@ -636,7 +633,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     fn mov(&self, instr: &ArmInstruction) -> InstrResult<'a> {
-        let bd = self.builder;
+        let bd = &self.builder;
         let rd = instr.get_reg_op(0);
         let (shifter, c) = self.shifter_operand(instr.get_shifter_op(1)?)?;
 
@@ -655,7 +652,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     fn mvn(&self, instr: &ArmInstruction) -> InstrResult<'a> {
-        let bd = self.builder;
+        let bd = &self.builder;
         let rd = instr.get_reg_op(0);
         let (shifter, c) = self.shifter_operand(instr.get_shifter_op(1)?)?;
 
@@ -681,7 +678,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     fn orr(&self, instr: &ArmInstruction) -> InstrResult<'a> {
-        let bd = self.builder;
+        let bd = &self.builder;
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
         let rn_val = self.reg_map.get(rn);
@@ -713,7 +710,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     fn rsb(&self, instr: &ArmInstruction) -> InstrResult<'a> {
-        let bd = self.builder;
+        let bd = &self.builder;
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
         let rn_val = self.reg_map.get(rn);
@@ -752,7 +749,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     fn rsc(&self, instr: &ArmInstruction) -> InstrResult<'a> {
-        let bd = self.builder;
+        let bd = &self.builder;
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
         let rn_val = self.reg_map.get(rn);
@@ -816,7 +813,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     fn sbc(&self, instr: &ArmInstruction) -> InstrResult<'a> {
-        let bd = self.builder;
+        let bd = &self.builder;
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
         let rn_val = self.reg_map.get(rn);
@@ -880,7 +877,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     fn sub(&self, instr: &ArmInstruction) -> InstrResult<'a> {
-        let bd = self.builder;
+        let bd = &self.builder;
         let rd = instr.get_reg_op(0);
         let rn = instr.get_reg_op(1);
         let rn_val = self.reg_map.get(rn);
@@ -954,7 +951,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     fn mla(&self, instr: &ArmInstruction) -> InstrResult<'a> {
-        let bd = self.builder;
+        let bd = &self.builder;
         let rd = instr.get_reg_op(0);
         let rm = instr.get_reg_op(1);
         let rs = instr.get_reg_op(2);
@@ -985,7 +982,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     fn mul(&self, instr: &ArmInstruction) -> InstrResult<'a> {
-        let bd = self.builder;
+        let bd = &self.builder;
         let rd = instr.get_reg_op(0);
         let rm = instr.get_reg_op(1);
         let rs = instr.get_reg_op(2);
@@ -1013,7 +1010,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     fn smlal(&self, instr: &ArmInstruction) -> InstrResult<'a> {
-        let bd = self.builder;
+        let bd = &self.builder;
         let rdlo = instr.get_reg_op(0);
         let rdhi = instr.get_reg_op(1);
         let rm = instr.get_reg_op(2);
@@ -1023,14 +1020,14 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let rdhi_val = self.reg_map.get(rdhi);
         let rdlo_val = self.reg_map.get(rdlo);
 
-        let i64_t = self.llvm_ctx.i64_type();
+        let i64_t = self.ctx.i64_type();
         let rdhi_i64 = bd.build_int_s_extend(rdhi_val, i64_t, "rdhi_i64")?;
         let rdlo_i64 = bd.build_int_z_extend(rdlo_val, i64_t, "rdlo_i64")?;
         let acc = bd.build_left_shift(rdhi_i64, imm64!(self, 32), "acc_hi")?;
         let acc = bd.build_or(acc, rdlo_i64, "acc")?;
 
-        let rm_i64 = bd.build_int_s_extend(rm_val, self.llvm_ctx.i64_type(), "rm_i64")?;
-        let rs_i64 = bd.build_int_s_extend(rs_val, self.llvm_ctx.i64_type(), "rs_i64")?;
+        let rm_i64 = bd.build_int_s_extend(rm_val, self.ctx.i64_type(), "rm_i64")?;
+        let rs_i64 = bd.build_int_s_extend(rs_val, self.ctx.i64_type(), "rs_i64")?;
         let mul_res = bd.build_int_mul(rm_i64, rs_i64, "mul")?;
 
         let mla_res = bd.build_int_add(mul_res, acc, "smlal")?;
@@ -1063,7 +1060,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     fn smull(&self, instr: &ArmInstruction) -> InstrResult<'a> {
-        let bd = self.builder;
+        let bd = &self.builder;
         let rdlo = instr.get_reg_op(0);
         let rdhi = instr.get_reg_op(1);
         let rm = instr.get_reg_op(2);
@@ -1073,8 +1070,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let rs_val = self.reg_map.get(rs);
 
         // Sign-extend to i64 and multiply
-        let rm_i64 = bd.build_int_s_extend(rm_val, self.llvm_ctx.i64_type(), "rm_i64")?;
-        let rs_i64 = bd.build_int_s_extend(rs_val, self.llvm_ctx.i64_type(), "rs_i64")?;
+        let rm_i64 = bd.build_int_s_extend(rm_val, self.ctx.i64_type(), "rm_i64")?;
+        let rs_i64 = bd.build_int_s_extend(rs_val, self.ctx.i64_type(), "rs_i64")?;
         let mul_res = bd.build_int_mul(rm_i64, rs_i64, "smull")?;
 
         let lo_i32 = bd.build_int_truncate(mul_res, self.i32_t, "lo")?;
@@ -1105,7 +1102,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     fn umlal(&self, instr: &ArmInstruction) -> InstrResult<'a> {
-        let bd = self.builder;
+        let bd = &self.builder;
         let rdlo = instr.get_reg_op(0);
         let rdhi = instr.get_reg_op(1);
         let rm = instr.get_reg_op(2);
@@ -1115,14 +1112,14 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let rdhi_val = self.reg_map.get(rdhi);
         let rdlo_val = self.reg_map.get(rdlo);
 
-        let i64_t = self.llvm_ctx.i64_type();
+        let i64_t = self.ctx.i64_type();
         let rdhi_i64 = bd.build_int_z_extend(rdhi_val, i64_t, "rdhi_i64")?;
         let rdlo_i64 = bd.build_int_z_extend(rdlo_val, i64_t, "rdlo_i64")?;
         let acc = bd.build_left_shift(rdhi_i64, imm64!(self, 32), "acc_hi")?;
         let acc = bd.build_or(acc, rdlo_i64, "acc")?;
 
-        let rm_i64 = bd.build_int_z_extend(rm_val, self.llvm_ctx.i64_type(), "rm_i64")?;
-        let rs_i64 = bd.build_int_z_extend(rs_val, self.llvm_ctx.i64_type(), "rs_i64")?;
+        let rm_i64 = bd.build_int_z_extend(rm_val, self.ctx.i64_type(), "rm_i64")?;
+        let rs_i64 = bd.build_int_z_extend(rs_val, self.ctx.i64_type(), "rs_i64")?;
         let mul_res = bd.build_int_mul(rm_i64, rs_i64, "mul")?;
 
         let mla_res = bd.build_int_add(mul_res, acc, "umlal")?;
@@ -1155,7 +1152,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     fn umull(&self, instr: &ArmInstruction) -> InstrResult<'a> {
-        let bd = self.builder;
+        let bd = &self.builder;
         let rdlo = instr.get_reg_op(0);
         let rdhi = instr.get_reg_op(1);
         let rm = instr.get_reg_op(2);
@@ -1165,8 +1162,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let rs_val = self.reg_map.get(rs);
 
         // Sign-extend to i64 and multiply
-        let rm_i64 = bd.build_int_z_extend(rm_val, self.llvm_ctx.i64_type(), "rm_i64")?;
-        let rs_i64 = bd.build_int_z_extend(rs_val, self.llvm_ctx.i64_type(), "rs_i64")?;
+        let rm_i64 = bd.build_int_z_extend(rm_val, self.ctx.i64_type(), "rm_i64")?;
+        let rs_i64 = bd.build_int_z_extend(rs_val, self.ctx.i64_type(), "rs_i64")?;
         let mul_res = bd.build_int_mul(rm_i64, rs_i64, "smull")?;
 
         let lo_i32 = bd.build_int_truncate(mul_res, self.i32_t, "lo")?;
@@ -1221,7 +1218,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         if c {
             mask |= 0xff;
         }
-        let bd = self.builder;
+        let bd = &self.builder;
         let update_val = match instr.operands[1].op_type {
             ArmOperandType::Reg(reg_id) => self.reg_map.get(Reg::from(reg_id)),
             ArmOperandType::Imm(imm) => imm!(self, imm),
@@ -1245,7 +1242,7 @@ mod tests {
 
     use super::*;
     use crate::arm::state::ArmState;
-    use crate::jit::{CompiledFunction, Compiler};
+    use crate::jit::CompiledFunction;
 
     /// Shift r0 by the amount in r1 according to the shift type provided and update C flag
     struct ShifterOperandTestCase<'ctx> {
@@ -1259,8 +1256,7 @@ mod tests {
                 reg: Reg::R0,
                 shift,
             };
-            let mut compiler = Compiler::new(context);
-            let mut f = compiler.new_function(0);
+            let mut f = FunctionBuilder::new(context, 0).unwrap();
             f.load_initial_reg_values(&vec![Reg::R0, Reg::R1, Reg::CPSR].into_iter().collect())
                 .unwrap();
 
@@ -1573,8 +1569,7 @@ mod tests {
                 let (op, c_set, expected_val, expected_c) = $params;
 
                 let context = Context::create();
-                let mut compiler = Compiler::new(&context);
-                let mut f = compiler.new_function(0);
+                let mut f = FunctionBuilder::new(&context, 0).unwrap();
                 f.load_initial_reg_values(&vec![Reg::R0, Reg::R1, Reg::CPSR].into_iter().collect())
                     .unwrap();
 

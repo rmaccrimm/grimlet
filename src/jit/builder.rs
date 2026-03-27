@@ -12,7 +12,7 @@ macro_rules! imm8 {
 
 macro_rules! imm64 {
     ($self:ident, $i:expr) => {
-        $self.llvm_ctx.i64_type().const_int($i as u64, false)
+        $self.ctx.i64_type().const_int($i as u64, false)
     };
 }
 
@@ -64,10 +64,10 @@ mod load_store;
 mod reg_map;
 
 use std::collections::{HashMap, HashSet};
+use std::fs;
 
 use anyhow::{Result, anyhow};
 use capstone::arch::arm::ArmInsn;
-use inkwell::AddressSpace;
 use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
@@ -76,6 +76,7 @@ use inkwell::intrinsics::Intrinsic;
 use inkwell::module::Module;
 use inkwell::types::{IntType, PointerType, StructType, VoidType};
 use inkwell::values::{BasicValueEnum, FunctionValue, IntValue, PointerValue};
+use inkwell::{AddressSpace, OptimizationLevel};
 
 use super::CompiledFunction;
 use crate::arm::disasm::code_block::CodeBlock;
@@ -108,10 +109,11 @@ where
     reg_map: RegMap<'a>,
     cycles: IntValue<'a>,
 
-    // References to parent compiler LLVM state
-    llvm_ctx: &'ctx Context,
-    builder: &'a Builder<'ctx>,
-    execution_engine: &'a ExecutionEngine<'ctx>,
+    // References to LLVM state
+    ctx: &'ctx Context,
+    builder: Builder<'ctx>,
+    module: Module<'ctx>,
+    execution_engine: ExecutionEngine<'ctx>,
     current_block: BasicBlock<'a>,
 
     // Pointers to emulated state
@@ -146,94 +148,91 @@ type InstrResult<'a> = Result<InstrEffect<'a>>;
 struct RegUpdate<'a>(Reg, IntValue<'a>);
 
 impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
-    pub(super) fn new(
-        addr: usize,
-        llvm_ctx: &'ctx Context,
-        builder: &'a Builder<'ctx>,
-        module: &'a Module<'ctx>,
-        execution_engine: &'a ExecutionEngine<'ctx>,
-    ) -> Self {
-        let build = || -> Result<Self> {
-            let bd = builder;
+    pub fn new(ctx: &'ctx Context, addr: usize) -> Result<Self> {
+        let bd = ctx.create_builder();
+        let name = func_name(addr);
+        let module = ctx.create_module(&name);
+        // Less handles at least optimizing out `br i1 true, label %if, label %end`
+        // branches that are emitted for AL cond
+        let execution_engine = module
+            .create_jit_execution_engine(OptimizationLevel::Less)
+            .expect("failed to create LLVM execution engine");
 
-            let name = func_name(addr);
-            let ctx = llvm_ctx;
-            let i8_t = ctx.i8_type();
-            let i32_t = ctx.i32_type();
-            let ptr_t = ctx.ptr_type(AddressSpace::default());
-            let void_t = ctx.void_type();
+        let i8_t = ctx.i8_type();
+        let i32_t = ctx.i32_type();
+        let ptr_t = ctx.ptr_type(AddressSpace::default());
+        let void_t = ctx.void_type();
 
-            // Access to the guest state is rather fragile and dependent on the exact memory
-            // layout of ArmState.
-            let arm_state_t = llvm_ctx.struct_type(
-                &[
-                    i8_t.into(),                              // mode
-                    i32_t.array_type(NUM_REGS as u32).into(), // regs
-                    i32_t.into(),                             // cycle_count
-                    // This is obviously not the actual type of mem, but all we need is the address,
-                    // not the size, which is easy to get with an index, as long as we keep it at
-                    // the end of the struct
-                    i32_t.into(),
-                ],
-                false,
-            );
-            let fn_t = void_t.fn_type(&[ptr_t.into()], false);
+        // Access to the guest state is rather fragile and dependent on the exact memory
+        // layout of ArmState.
+        let arm_state_t = ctx.struct_type(
+            &[
+                i8_t.into(),                              // mode
+                i32_t.array_type(NUM_REGS as u32).into(), // regs
+                i32_t.into(),                             // cycle_count
+                // This is obviously not the actual type of mem, but all we need is the address,
+                // not the size, which is easy to get with an index, as long as we keep it at
+                // the end of the struct
+                i32_t.into(),
+            ],
+            false,
+        );
+        let fn_t = void_t.fn_type(&[ptr_t.into()], false);
 
-            let func = module.add_function(&name, fn_t, None);
-            let mut blocks = HashMap::new();
-            let basic_block = ctx.append_basic_block(func, "start");
-            bd.position_at_end(basic_block);
-            blocks.insert(addr, basic_block);
+        let func = module.add_function(&name, fn_t, None);
+        let mut blocks = HashMap::new();
+        let basic_block = ctx.append_basic_block(func, "start");
+        bd.position_at_end(basic_block);
+        blocks.insert(addr, basic_block);
 
-            let arm_state_ptr = get_ptr_param(&func, 0)?;
-            let cycle_count_ptr = unsafe {
-                bd.build_gep(
-                    arm_state_t,
-                    arm_state_ptr,
-                    &[i32_t.const_zero(), i32_t.const_int(2, false)],
-                    "mem_ptr",
-                )?
-            };
-            let mem_ptr = unsafe {
-                bd.build_gep(
-                    arm_state_t,
-                    arm_state_ptr,
-                    &[i32_t.const_zero(), i32_t.const_int(3, false)],
-                    "mem_ptr",
-                )?
-            };
-            // Declare intrinsics
-            let sadd_with_overflow = get_intrinsic("llvm.sadd.with.overflow", module)?;
-            let ssub_with_overflow = get_intrinsic("llvm.ssub.with.overflow", module)?;
-            let uadd_with_overflow = get_intrinsic("llvm.uadd.with.overflow", module)?;
-            let usub_with_overflow = get_intrinsic("llvm.usub.with.overflow", module)?;
-            let fshr = get_intrinsic("llvm.fshr", module)?;
-
-            Ok(FunctionBuilder {
-                llvm_ctx: ctx,
-                name,
-                func,
-                reg_map: RegMap::new(),
-                cycles: i32_t.const_zero(),
-                arm_state_ptr,
-                mem_ptr,
-                cycle_count_ptr,
-                builder,
-                execution_engine,
-                current_block: basic_block,
+        let arm_state_ptr = get_ptr_param(&func, 0)?;
+        let cycle_count_ptr = unsafe {
+            bd.build_gep(
                 arm_state_t,
-                i8_t,
-                i32_t,
-                ptr_t,
-                void_t,
-                sadd_with_overflow,
-                ssub_with_overflow,
-                uadd_with_overflow,
-                usub_with_overflow,
-                fshr,
-            })
+                arm_state_ptr,
+                &[i32_t.const_zero(), i32_t.const_int(2, false)],
+                "mem_ptr",
+            )?
         };
-        build().expect("Function initialization failed")
+        let mem_ptr = unsafe {
+            bd.build_gep(
+                arm_state_t,
+                arm_state_ptr,
+                &[i32_t.const_zero(), i32_t.const_int(3, false)],
+                "mem_ptr",
+            )?
+        };
+        // Declare intrinsics
+        let sadd_with_overflow = get_intrinsic("llvm.sadd.with.overflow", &module)?;
+        let ssub_with_overflow = get_intrinsic("llvm.ssub.with.overflow", &module)?;
+        let uadd_with_overflow = get_intrinsic("llvm.uadd.with.overflow", &module)?;
+        let usub_with_overflow = get_intrinsic("llvm.usub.with.overflow", &module)?;
+        let fshr = get_intrinsic("llvm.fshr", &module)?;
+
+        Ok(FunctionBuilder {
+            ctx,
+            name,
+            func,
+            reg_map: RegMap::new(),
+            cycles: i32_t.const_zero(),
+            arm_state_ptr,
+            mem_ptr,
+            cycle_count_ptr,
+            builder: bd,
+            module,
+            execution_engine,
+            current_block: basic_block,
+            arm_state_t,
+            i8_t,
+            i32_t,
+            ptr_t,
+            void_t,
+            sadd_with_overflow,
+            ssub_with_overflow,
+            uadd_with_overflow,
+            usub_with_overflow,
+            fshr,
+        })
     }
 
     pub fn build_body(mut self, code_block: CodeBlock) -> Result<Self> {
@@ -249,12 +248,26 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         if self.func.verify(true) {
             unsafe { Ok(self.execution_engine.get_function(&self.name)?) }
         } else {
+            // Ignore any failures
+            let _ = self.dump_llvm();
             Err(anyhow!("Function verification failed"))
         }
     }
 
+    /// TODO - make this optional via config
+    fn dump_llvm(&self) -> Result<()> {
+        if fs::exists("llvm")? && fs::metadata("llvm")?.is_dir() {
+            fs::remove_dir_all("llvm")?
+        }
+        fs::create_dir("llvm")?;
+        self.module
+            .print_to_file(format!("llvm/mod_{}.ll", self.name))
+            .unwrap();
+        Ok(())
+    }
+
     fn load_initial_reg_values(&mut self, regs_read: &HashSet<Reg>) -> Result<()> {
-        let bd = self.builder;
+        let bd = &self.builder;
         for &r in regs_read.iter() {
             let i = r as usize;
             let name = format!("r{}_elem_ptr", i);
@@ -286,7 +299,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     fn get_external_func_pointer(&self, func_addr: usize) -> Result<PointerValue<'a>> {
         let ee = &self.execution_engine;
         let func_ptr = self.builder.build_int_to_ptr(
-            self.llvm_ctx
+            self.ctx
                 .ptr_sized_int_type(ee.get_target_data(), None)
                 .const_int(func_addr as u64, false),
             self.ptr_t,
@@ -324,21 +337,24 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     where
         F: Fn(&Self, &ArmInstruction) -> InstrResult<'a>,
     {
-        let ctx = self.llvm_ctx;
-        let bd = self.builder;
-        let if_block = ctx.append_basic_block(self.func, "if");
-        let end_block = ctx.append_basic_block(self.func, "end");
+        let bd = &self.builder;
+        let if_block = self.ctx.append_basic_block(self.func, "if");
+        let end_block = self.ctx.append_basic_block(self.func, "end");
 
         // If we skipped the instruction, just add 1 cycle to counter
-        let unexec_cycles = bd.build_int_add(self.cycles, imm!(self, 1), "unexec_cyc")?;
-
+        let unexec_cycles = self
+            .builder
+            .build_int_add(self.cycles, imm!(self, 1), "unexec_cyc")?;
         let cond = self.eval_cond(instr.cond)?;
-        bd.build_conditional_branch(cond, if_block, end_block)?;
+        self.builder
+            .build_conditional_branch(cond, if_block, end_block)?;
 
         // If cond is met, run inner and get set of updates to perform
-        bd.position_at_end(if_block);
+        self.builder.position_at_end(if_block);
         let InstrEffect { updates, cycles } = inner(self, instr)?;
-        let exec_cycles = bd.build_int_add(self.cycles, cycles, "exec_cyc")?;
+        let exec_cycles = self
+            .builder
+            .build_int_add(self.cycles, cycles, "exec_cyc")?;
 
         // If an instruction wrote to PC, we need to perform a branch
         let branch_target: Option<IntValue> = updates.iter().find(|r| r.0 == Reg::PC).map(|r| r.1);
@@ -352,16 +368,16 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             // TODO - can we change mode here? Possibly an ARMv5 thing
             self.branch_and_return(target, imm8!(self, instr.mode as i8))?;
 
-            bd.position_at_end(end_block);
+            self.builder.position_at_end(end_block);
             self.increment_pc(instr.mode);
             self.write_state_out(&self.reg_map)?;
-            bd.build_return(None)?;
+            self.builder.build_return(None)?;
 
             return Ok(());
         }
 
-        bd.build_unconditional_branch(end_block)?;
-        bd.position_at_end(end_block);
+        self.builder.build_unconditional_branch(end_block)?;
+        self.builder.position_at_end(end_block);
 
         // Update the values in reg_map, depending on which branch was taken. Because inner does
         // not mutate reg_map, we can use it to get the first option for phi values (cond not met).
@@ -472,10 +488,9 @@ mod tests {
 
     use super::*;
     use crate::arm::state::{ArmState, REG_ITEMS, Reg};
-    use crate::jit::Compiler;
 
     macro_rules! compile_and_run {
-        ($compiler:ident, $func:ident, $state:ident) => {
+        ($func:ident, $state:ident) => {
             unsafe {
                 $func.compile().unwrap().call(&mut $state);
             }
@@ -492,8 +507,7 @@ mod tests {
         }
 
         let context = Context::create();
-        let mut comp = Compiler::new(&context);
-        let mut f = comp.new_function(0);
+        let mut f = FunctionBuilder::new(&context, 0).unwrap();
 
         let all_regs: HashSet<Reg> = REG_ITEMS.into_iter().collect();
         f.load_initial_reg_values(&all_regs).unwrap();
@@ -528,7 +542,7 @@ mod tests {
         f.builder.build_return(None).unwrap();
 
         println!("{:?}", state.regs);
-        compile_and_run!(comp, f, state);
+        compile_and_run!(f, state);
         println!("{:?}", state.regs);
         assert_eq!(state.curr_instr_addr(), 306);
     }
@@ -546,11 +560,10 @@ mod tests {
         }
 
         let context = Context::create();
-        let mut comp = Compiler::new(&context);
         let mut cache = HashMap::new();
 
         let all_regs: HashSet<Reg> = REG_ITEMS.into_iter().collect();
-        let mut f1 = comp.new_function(0);
+        let mut f1 = FunctionBuilder::new(&context, 0).unwrap();
         f1.load_initial_reg_values(&all_regs).unwrap();
 
         let r0 = f1.reg_map.get(Reg::R0);
@@ -588,7 +601,7 @@ mod tests {
         let compiled1 = f1.compile().unwrap();
         cache.insert(0, compiled1);
 
-        let mut f2 = comp.new_function(1);
+        let mut f2 = FunctionBuilder::new(&context, 1).unwrap();
         f2.load_initial_reg_values(&all_regs).unwrap();
         f2.reg_map.update(Reg::R0, f2.i32_t.const_int(999, false));
         f2.write_state_out(&f2.reg_map).unwrap();
@@ -597,7 +610,7 @@ mod tests {
         let func_ptr_param = unsafe {
             f2.builder
                 .build_int_to_ptr(
-                    f2.llvm_ctx
+                    f2.ctx
                         .ptr_sized_int_type(f2.execution_engine.get_target_data(), None)
                         // Double cast since usize ensures correct pointer size but inkwell
                         // expects u64
@@ -639,13 +652,12 @@ mod tests {
     fn test_call_intrinsic() {
         let mut state = ArmState::default();
         let context = Context::create();
-        let mut comp = Compiler::new(&context);
-        let mut f = comp.new_function(0);
+        let mut f = FunctionBuilder::new(&context, 0).unwrap();
 
         let all_regs: HashSet<Reg> = REG_ITEMS.into_iter().collect();
         f.load_initial_reg_values(&all_regs).unwrap();
 
-        let bd = f.builder;
+        let bd = &f.builder;
         let call = bd
             .build_call(
                 f.sadd_with_overflow,
@@ -674,8 +686,8 @@ mod tests {
         f.reg_map.update(Reg::R0, val);
         f.reg_map.update(Reg::R1, overflowed);
         f.write_state_out(&f.reg_map).unwrap();
-        f.builder.build_return(None).unwrap();
-        compile_and_run!(comp, f, state);
+        bd.build_return(None).unwrap();
+        compile_and_run!(f, state);
 
         println!("{:?}", state.regs);
         assert_eq!(state.regs[0], 0x800000fe);

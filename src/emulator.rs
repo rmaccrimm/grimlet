@@ -7,7 +7,8 @@ use inkwell::context::Context;
 
 use crate::arm::disasm::Disasm;
 use crate::arm::state::ArmState;
-use crate::jit::{Compiler, FunctionCache};
+use crate::jit::FunctionCache;
+use crate::jit::builder::FunctionBuilder;
 
 pub mod video;
 
@@ -23,8 +24,8 @@ pub enum SystemMessage {
 
 pub struct Emulator<'a> {
     pub state: ArmState,
+    ctx: &'a Context,
     disasm: Box<dyn Disasm>,
-    compiler: Compiler<'a>,
     func_cache: FunctionCache<'a>,
 }
 
@@ -38,9 +39,9 @@ pub enum DebugOutput {
 impl<'a> Emulator<'a> {
     pub fn new(disasm: impl Disasm + 'static, llvm_ctx: &'a Context) -> Self {
         Self {
+            ctx: llvm_ctx,
             state: ArmState::default(),
             disasm: Box::new(disasm),
-            compiler: Compiler::new(llvm_ctx),
             func_cache: FunctionCache::new(),
         }
     }
@@ -85,19 +86,16 @@ impl<'a> Emulator<'a> {
                         Some(DebugOutput::Struct) => println!("{:#?}", code_block),
                         None => (),
                     }
-                    match self
-                        .compiler
-                        .new_function(instr_addr)
+                    let builder = FunctionBuilder::new(self.ctx, instr_addr)
+                        .expect("failed to initialize function")
                         .build_body(code_block)
-                        .expect("failed to build function")
-                        .compile()
-                    {
+                        .expect("failed to build function");
+                    match builder.compile() {
                         Ok(compiled) => {
                             self.func_cache.insert(instr_addr, compiled);
                             self.func_cache.get(&instr_addr).unwrap()
                         }
                         Err(e) => {
-                            self.compiler.dump().unwrap();
                             panic!("{}", e);
                         }
                     }

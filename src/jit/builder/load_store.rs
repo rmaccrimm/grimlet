@@ -101,7 +101,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     fn addressing_mode(&self, mem_op: &MemOperand) -> Result<AddrMode<'a>> {
-        let bd = self.builder;
+        let bd = &self.builder;
         let base_val = self.reg_map.get(mem_op.base);
 
         let calc_addr = match mem_op.offset {
@@ -146,10 +146,10 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     where
         T: MemReadable,
     {
-        let bd = self.builder;
+        let bd = &self.builder;
         // read value, wait states
         let return_t = self
-            .llvm_ctx
+            .ctx
             .struct_type(&[self.i32_t.into(), self.i32_t.into()], false);
 
         let read_fn_t = return_t.fn_type(&[self.ptr_t.into(), self.i32_t.into()], false);
@@ -218,7 +218,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     fn ldmia(&self, instr: &ArmInstruction) -> InstrResult<'a> {
-        let bd = self.builder;
+        let bd = &self.builder;
         let rn = instr.get_reg_op(0);
         let base_addr = self.reg_map.get(rn);
         let reg_list = instr.get_reg_list(1)?;
@@ -240,7 +240,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     fn ldmib(&self, instr: &ArmInstruction) -> InstrResult<'a> {
-        let bd = self.builder;
+        let bd = &self.builder;
         let rn = instr.get_reg_op(0);
         let base_addr = self.reg_map.get(rn);
         let reg_list = instr.get_reg_list(1)?;
@@ -262,7 +262,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     fn ldmda(&self, instr: &ArmInstruction) -> InstrResult<'a> {
-        let bd = self.builder;
+        let bd = &self.builder;
         let rn = instr.get_reg_op(0);
         let base_addr = self.reg_map.get(rn);
         let reg_list = instr.get_reg_list(1)?;
@@ -288,7 +288,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     fn ldmdb(&self, instr: &ArmInstruction) -> InstrResult<'a> {
-        let bd = self.builder;
+        let bd = &self.builder;
         let rn = instr.get_reg_op(0);
         let base_addr = self.reg_map.get(rn);
         let reg_list = instr.get_reg_list(1)?;
@@ -329,7 +329,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     fn stmia(&self, instr: &ArmInstruction) -> InstrResult<'a> {
-        let bd = self.builder;
+        let bd = &self.builder;
         let rn = instr.get_reg_op(0);
         let base_addr = self.reg_map.get(rn);
         let reg_list = instr.get_reg_list(1)?;
@@ -350,7 +350,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     fn stmib(&self, instr: &ArmInstruction) -> InstrResult<'a> {
-        let bd = self.builder;
+        let bd = &self.builder;
         let rn = instr.get_reg_op(0);
         let base_addr = self.reg_map.get(rn);
         let reg_list = instr.get_reg_list(1)?;
@@ -371,7 +371,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     fn stmda(&self, instr: &ArmInstruction) -> InstrResult<'a> {
-        let bd = self.builder;
+        let bd = &self.builder;
         let rn = instr.get_reg_op(0);
         let base_addr = self.reg_map.get(rn);
         let reg_list = instr.get_reg_list(1)?;
@@ -396,7 +396,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     fn stmdb(&self, instr: &ArmInstruction) -> InstrResult<'a> {
-        let bd = self.builder;
+        let bd = &self.builder;
         let rn = instr.get_reg_op(0);
         let base_addr = self.reg_map.get(rn);
         let reg_list = instr.get_reg_list(1)?;
@@ -421,7 +421,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
     // Identical to stmdb but first SP operand and writeback flag are excluded by disassembler
     fn push(&self, instr: &ArmInstruction) -> InstrResult<'a> {
-        let bd = self.builder;
+        let bd = &self.builder;
         let base_addr = self.reg_map.get(Reg::SP);
         let reg_list = instr.get_reg_list(0)?;
 
@@ -443,7 +443,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
     // Identical to ldmia but first SP operand and writeback flag are excluded by disassembler
     fn pop(&self, instr: &ArmInstruction) -> InstrResult<'a> {
-        let bd = self.builder;
+        let bd = &self.builder;
         let base_addr = self.reg_map.get(Reg::SP);
         let reg_list = instr.get_reg_list(0)?;
 
@@ -461,15 +461,14 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     fn adr(&self, instr: &ArmInstruction) -> InstrResult<'a> {
-        let bd = self.builder;
+        let bd = &self.builder;
         let rd = instr.get_reg_op(0);
         let pc_offset = instr.get_imm_op(1);
         let addr = bd.build_int_add(self.reg_map.get(Reg::PC), imm!(self, pc_offset), "adr")?;
         let updates = vec![RegUpdate(rd, addr)];
         Ok(InstrEffect {
             updates,
-            // TODO
-            cycles: imm!(self, 0),
+            cycles: imm!(self, 1),
         })
     }
 
@@ -477,7 +476,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     where
         T: MemReadable + MemWriteable,
     {
-        let bd = self.builder;
+        let bd = &self.builder;
         let rd = instr.get_reg_op(0);
         let rm = instr.get_reg_op(1);
         let rm_val = self.reg_map.get(rm);
@@ -503,8 +502,8 @@ mod tests {
     use super::*;
     use crate::arm::disasm::instruction::ArmShift;
     use crate::arm::state::{ArmState, Reg};
+    use crate::jit::CompiledFunction;
     use crate::jit::builder::flags::C;
-    use crate::jit::{CompiledFunction, Compiler};
 
     /// Apply the given shift to R0
     fn shift_test_case(
@@ -513,8 +512,7 @@ mod tests {
         shift: Option<ArmShift>,
         c_flag: Option<bool>,
     ) -> u32 {
-        let mut compiler = Compiler::new(context);
-        let mut f = compiler.new_function(0);
+        let mut f = FunctionBuilder::new(context, 0).unwrap();
 
         let init_regs = &vec![Reg::R0, Reg::CPSR].into_iter().collect();
 
@@ -683,8 +681,7 @@ mod tests {
         /// r8: index
         /// r9: stores calculated address
         fn new(context: &'ctx Context, mem_op: &MemOperand) -> Self {
-            let mut compiler = Compiler::new(context);
-            let mut f = compiler.new_function(0);
+            let mut f = FunctionBuilder::new(context, 0).unwrap();
 
             f.load_initial_reg_values(
                 &vec![Reg::R7, Reg::R8, Reg::R9, Reg::CPSR]
