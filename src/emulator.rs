@@ -26,7 +26,6 @@ pub struct Emulator<'a> {
     disasm: Box<dyn Disasm>,
     compiler: Compiler<'a>,
     func_cache: FunctionCache<'a>,
-    cycle_count: u32,
 }
 
 /// Print codeblocks before running
@@ -39,11 +38,10 @@ pub enum DebugOutput {
 impl<'a> Emulator<'a> {
     pub fn new(disasm: impl Disasm + 'static, llvm_ctx: &'a Context) -> Self {
         Self {
-            state: ArmState::new(),
+            state: ArmState::default(),
             disasm: Box::new(disasm),
             compiler: Compiler::new(llvm_ctx),
             func_cache: FunctionCache::new(),
-            cycle_count: 0,
         }
     }
 
@@ -106,10 +104,10 @@ impl<'a> Emulator<'a> {
                 }
             };
             unsafe {
-                self.cycle_count += func.call(&mut self.state);
+                func.call(&mut self.state);
             }
-            if self.cycle_count >= CYCLES_PER_FRAME {
-                self.cycle_count %= CYCLES_PER_FRAME;
+            if self.state.cycle_count >= CYCLES_PER_FRAME {
+                self.state.cycle_count %= CYCLES_PER_FRAME;
                 // Render frame here
                 break;
             }

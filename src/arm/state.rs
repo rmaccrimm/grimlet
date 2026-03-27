@@ -6,15 +6,14 @@ use std::ops::{Index, IndexMut};
 use capstone::arch::arm::ArmReg;
 
 use crate::arm::state::memory::MainMemory;
-use crate::emulator::SystemMessage;
 
 /// Emulated CPU state (and interpreter?)
 #[repr(C)]
 pub struct ArmState {
     pub current_mode: ArmMode,
     pub regs: [u32; NUM_REGS],
+    pub cycle_count: u32,
     pub mem: MainMemory,
-    pub clock: u32,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -68,18 +67,20 @@ pub const REG_ITEMS: [Reg; NUM_REGS] = [
     Reg::SPSR,
 ];
 
-impl ArmState {
-    pub fn new() -> Self {
+impl Default for ArmState {
+    fn default() -> Self {
         let mut regs = [0; NUM_REGS];
         regs[Reg::PC] = 8; // 2 instructions ahead
         Self {
             current_mode: ArmMode::ARM,
             regs,
             mem: MainMemory::default(),
-            clock: 0,
+            cycle_count: 0,
         }
     }
+}
 
+impl ArmState {
     pub fn curr_instr_addr(&self) -> usize {
         (self.regs[Reg::PC] - self.current_mode.pc_byte_offset()) as usize
     }
@@ -91,8 +92,6 @@ impl ArmState {
         }
         self.regs[Reg::PC] = addr + self.current_mode.pc_byte_offset();
     }
-
-    pub fn add_cycles(&mut self, cycles: u32) { self.clock += cycles; }
 }
 
 impl Display for ArmState {

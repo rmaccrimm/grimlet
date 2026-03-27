@@ -106,6 +106,7 @@ where
 
     // Latest value for each register
     reg_map: RegMap<'a>,
+    cycles: IntValue<'a>,
 
     // References to parent compiler LLVM state
     llvm_ctx: &'ctx Context,
@@ -116,6 +117,7 @@ where
     // Pointers to emulated state
     arm_state_ptr: PointerValue<'a>,
     mem_ptr: PointerValue<'a>,
+    cycle_count_ptr: PointerValue<'a>,
 
     // Frequently used LLVM types
     arm_state_t: StructType<'a>,
@@ -161,11 +163,17 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             let ptr_t = ctx.ptr_type(AddressSpace::default());
             let void_t = ctx.void_type();
 
+            // Access to the guest state is rather fragile and dependent on the exact memory
+            // layout of ArmState.
             let arm_state_t = llvm_ctx.struct_type(
                 &[
-                    ctx.i8_type().into(),                         // mode
-                    i32_t.array_type(NUM_REGS as u32).into(),     // regs
-                    ctx.ptr_type(AddressSpace::default()).into(), // mem
+                    i8_t.into(),                              // mode
+                    i32_t.array_type(NUM_REGS as u32).into(), // regs
+                    i32_t.into(),                             // cycle_count
+                    // This is obviously not the actual type of mem, but all we need is the address,
+                    // not the size, which is easy to get with an index, as long as we keep it at
+                    // the end of the struct
+                    i32_t.into(),
                 ],
                 false,
             );
@@ -178,11 +186,19 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             blocks.insert(addr, basic_block);
 
             let arm_state_ptr = get_ptr_param(&func, 0)?;
-            let mem_ptr = unsafe {
+            let cycle_count_ptr = unsafe {
                 bd.build_gep(
                     arm_state_t,
                     arm_state_ptr,
                     &[i32_t.const_zero(), i32_t.const_int(2, false)],
+                    "mem_ptr",
+                )?
+            };
+            let mem_ptr = unsafe {
+                bd.build_gep(
+                    arm_state_t,
+                    arm_state_ptr,
+                    &[i32_t.const_zero(), i32_t.const_int(3, false)],
                     "mem_ptr",
                 )?
             };
@@ -198,8 +214,10 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                 name,
                 func,
                 reg_map: RegMap::new(),
+                cycles: i32_t.const_zero(),
                 arm_state_ptr,
                 mem_ptr,
+                cycle_count_ptr,
                 builder,
                 execution_engine,
                 current_block: basic_block,
@@ -277,7 +295,10 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         Ok(func_ptr)
     }
 
-    /// When context switching, write out the latest values in reg_map to the guest state
+    /// When exiting the JIT'd code, write out the latest values in reg_map to the guest state. Note
+    /// that in some cases (e.g. branch and link) we may want to save something other than
+    /// self.reg_map, which is why it's passed as a parameter here (TBD if this is the case for
+    /// cycles)
     fn write_state_out(&self, reg_map: &RegMap) -> Result<()> {
         let bd = &self.builder;
         let items: Vec<RegMapItem> = reg_map.items.iter().flatten().cloned().collect();
@@ -287,6 +308,13 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             }
             bd.build_store(r.state_ptr, r.current_value)?;
         }
+        let curr_count = bd
+            .build_load(self.i32_t, self.cycle_count_ptr, "curr_cyc")?
+            .into_int_value();
+        bd.build_store(
+            self.cycle_count_ptr,
+            bd.build_int_add(curr_count, self.cycles, "upd_cyc")?,
+        )?;
         Ok(())
     }
 
@@ -303,9 +331,11 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         let cond = self.eval_cond(instr.cond)?;
         bd.build_conditional_branch(cond, if_block, end_block)?;
-        bd.position_at_end(if_block);
 
-        let InstrEffect { updates, .. } = inner(self, instr)?;
+        // If cond is met, run inner and get set of updates to perform
+        bd.position_at_end(if_block);
+        let InstrEffect { updates, cycles } = inner(self, instr)?;
+        let updated_cyles = bd.build_int_add(self.cycles, cycles, "cycles")?;
 
         // If an instruction wrote to PC, we need to perform a branch
         let branch_target: Option<IntValue> = updates.iter().find(|r| r.0 == Reg::PC).map(|r| r.1);
@@ -330,10 +360,10 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         bd.build_unconditional_branch(end_block)?;
         bd.position_at_end(end_block);
 
-        // Otherwise, select correct reg values and continue
+        // Update the values in reg_map, depending on which branch was taken. Because inner does
+        // not mutate reg_map, we can use it to get the first option for phi values (cond not met).
+        // The second option (cond met) comes from udpates.
         for RegUpdate(reg, value) in updates {
-            // Inner doesn't mutate self so the values in reg_map can be used to get the first
-            // option for the phi values
             let r_init = self.reg_map.get(reg);
             let r_new = value;
             let phi = bd.build_phi(self.i32_t, "phi")?;
@@ -341,6 +371,14 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             self.reg_map
                 .update(reg, phi.as_basic_value().into_int_value());
         }
+        // Perform a similar update for cycle count
+        let cycle_phi = bd.build_phi(self.i32_t, "cyc_phi")?;
+        cycle_phi.add_incoming(&[
+            (&self.cycles, self.current_block),
+            (&updated_cyles, if_block),
+        ]);
+        self.cycles = cycle_phi.as_basic_value().into_int_value();
+
         self.increment_pc(instr.mode);
         self.current_block = end_block;
         Ok(())
@@ -428,7 +466,6 @@ fn func_name(addr: usize) -> String { format!("fn_{:#010x}", addr) }
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    use std::sync::mpsc;
 
     use super::*;
     use crate::arm::state::{ArmState, REG_ITEMS, Reg};
@@ -446,7 +483,7 @@ mod tests {
     fn test_jump_to_external() {
         // End result is:
         // pc <- r15 + r9
-        let mut state = ArmState::new();
+        let mut state = ArmState::default();
         for i in 0..NUM_REGS {
             state.regs[i] = (i * i) as u32;
         }
@@ -500,7 +537,7 @@ mod tests {
         // f2:
         //   r0 <- 999
         //   f1()
-        let mut state = ArmState::new();
+        let mut state = ArmState::default();
         for i in 0..NUM_REGS {
             state.regs[i] = (i * i) as u32;
         }
@@ -597,7 +634,7 @@ mod tests {
 
     #[test]
     fn test_call_intrinsic() {
-        let mut state = ArmState::new();
+        let mut state = ArmState::default();
         let context = Context::create();
         let mut comp = Compiler::new(&context);
         let mut f = comp.new_function(0);

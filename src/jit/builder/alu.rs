@@ -1241,8 +1241,6 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::mpsc;
-
     use inkwell::context::Context;
 
     use super::*;
@@ -1275,7 +1273,7 @@ mod tests {
             let f = f.compile().unwrap();
             Self {
                 f,
-                state: ArmState::new(),
+                state: ArmState::default(),
             }
         }
 
@@ -1588,7 +1586,7 @@ mod tests {
                 f.builder.build_return(None).unwrap();
                 let f = f.compile().unwrap();
 
-                let mut state = ArmState::new();
+                let mut state = ArmState::default();
                 if c_set {
                     state.regs[Reg::CPSR] |= C.0;
                 }
