@@ -2,7 +2,6 @@ pub mod memory;
 
 use std::fmt::{self, Display};
 use std::ops::{Index, IndexMut};
-use std::sync::mpsc::Sender;
 
 use capstone::arch::arm::ArmReg;
 
@@ -15,7 +14,6 @@ pub struct ArmState {
     pub current_mode: ArmMode,
     pub regs: [u32; NUM_REGS],
     pub mem: MainMemory,
-    tx: Sender<SystemMessage>,
     pub clock: u32,
 }
 
@@ -71,15 +69,14 @@ pub const REG_ITEMS: [Reg; NUM_REGS] = [
 ];
 
 impl ArmState {
-    pub fn new(tx: Sender<SystemMessage>) -> Self {
+    pub fn new() -> Self {
         let mut regs = [0; NUM_REGS];
         regs[Reg::PC] = 8; // 2 instructions ahead
         Self {
             current_mode: ArmMode::ARM,
             regs,
             mem: MainMemory::default(),
-            tx,
-            clock: 0
+            clock: 0,
         }
     }
 
@@ -91,9 +88,6 @@ impl ArmState {
         let new_mode = ArmMode::from(mode);
         if new_mode != self.current_mode {
             self.current_mode = new_mode;
-            self.tx
-                .send(SystemMessage::ChangeMode(new_mode))
-                .expect("channel was closed");
         }
         self.regs[Reg::PC] = addr + self.current_mode.pc_byte_offset();
     }

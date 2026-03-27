@@ -16,6 +16,8 @@ pub trait Disasm {
     fn next_code_block(&self, mem: &MainMemory, addr: usize) -> Result<CodeBlock>;
 
     fn set_mode(&mut self, mode: ArmMode);
+
+    fn get_mode(&self) -> ArmMode;
 }
 
 // Produces CodeBlocks from in-memory program
@@ -61,6 +63,8 @@ impl Disasm for Disassembler {
         };
         res.expect("error while updating capstone mode");
     }
+
+    fn get_mode(&self) -> ArmMode { self.current_mode }
 }
 
 impl Default for Disassembler {

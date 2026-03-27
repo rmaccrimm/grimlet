@@ -446,8 +446,7 @@ mod tests {
     fn test_jump_to_external() {
         // End result is:
         // pc <- r15 + r9
-        let (tx, _) = mpsc::channel();
-        let mut state = ArmState::new(tx);
+        let mut state = ArmState::new();
         for i in 0..NUM_REGS {
             state.regs[i] = (i * i) as u32;
         }
@@ -501,8 +500,7 @@ mod tests {
         // f2:
         //   r0 <- 999
         //   f1()
-        let (tx, _) = mpsc::channel();
-        let mut state = ArmState::new(tx);
+        let mut state = ArmState::new();
         for i in 0..NUM_REGS {
             state.regs[i] = (i * i) as u32;
         }
@@ -599,8 +597,7 @@ mod tests {
 
     #[test]
     fn test_call_intrinsic() {
-        let (tx, _) = mpsc::channel();
-        let mut state = ArmState::new(tx);
+        let mut state = ArmState::new();
         let context = Context::create();
         let mut comp = Compiler::new(&context);
         let mut f = comp.new_function(0);

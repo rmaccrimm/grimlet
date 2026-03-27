@@ -527,8 +527,7 @@ mod tests {
         f.write_state_out(&f.reg_map).unwrap();
         f.builder.build_return(None).unwrap();
         let f = f.compile().unwrap();
-        let (tx, _) = mpsc::channel();
-        let mut state = ArmState::new(tx);
+        let mut state = ArmState::new();
         state.regs[Reg::R0] = init;
         if let Some(c) = c_flag {
             state.regs[Reg::CPSR] = if c { C.0 } else { 0 }
@@ -705,10 +704,9 @@ mod tests {
             f.write_state_out(&f.reg_map).unwrap();
             f.builder.build_return(None).unwrap();
             let f = f.compile().unwrap();
-            let (tx, _) = mpsc::channel();
             Self {
                 f,
-                state: ArmState::new(tx),
+                state: ArmState::new(),
             }
         }
 

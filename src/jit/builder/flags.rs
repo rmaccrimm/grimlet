@@ -136,8 +136,7 @@ mod tests {
 
     #[test]
     fn test_set_flags() -> Result<()> {
-        let (tx, _) = mpsc::channel();
-        let mut state = ArmState::new(tx);
+        let mut state = ArmState::new();
         for i in 0..8 {
             state.regs[i] = i as u32;
         }

@@ -10,10 +10,13 @@ use crate::arm::disasm::Disasm;
 use crate::arm::state::{ArmMode, ArmState};
 use crate::jit::{Compiler, FunctionCache};
 
+pub mod video;
+
 /// Currently only signals a change from ARM to THUMB and vice-versa, but I'm thinking this will
-/// be useful in handling things like memory mapped IOa
+/// be useful in handling things like memory mapped IO
 pub enum SystemMessage {
-    ChangeMode(ArmMode),
+    PauseEmulation,
+    ResumeEmulation,
 }
 
 pub struct Emulator {
@@ -33,7 +36,7 @@ pub enum DebugOutput {
 impl Emulator {
     pub fn new(disasm: impl Disasm + 'static) -> Self {
         let (tx, rx) = mpsc::channel();
-        let state = ArmState::new(tx);
+        let state = ArmState::new();
         let llvm_ctx = Context::create();
         Self {
             state,
@@ -69,14 +72,8 @@ impl Emulator {
                 // compiler.dump().unwrap();
                 break;
             }
-            match self.rx.try_recv() {
-                Ok(msg) => match msg {
-                    SystemMessage::ChangeMode(arm_mode) => {
-                        self.disasm.set_mode(arm_mode);
-                    }
-                },
-                Err(TryRecvError::Disconnected) => panic!("channel was disconnected"),
-                Err(TryRecvError::Empty) => (),
+            if self.disasm.get_mode() != self.state.current_mode {
+                self.disasm.set_mode(self.state.current_mode);
             }
 
             let instr_addr = self.state.curr_instr_addr();
@@ -150,6 +147,8 @@ mod tests {
                 addr,
             ))
         }
+
+        fn get_mode(&self) -> ArmMode { ArmMode::ARM }
 
         fn set_mode(&mut self, _mode: ArmMode) {
             // Does nothing
