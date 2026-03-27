@@ -1,9 +1,7 @@
 #![deny(clippy::all)]
 #![forbid(unsafe_code)]
 
-use anyhow::Result;
-use eframe::egui::accesskit::Color;
-use eframe::egui::{self, Color32, ColorImage, TextureOptions, Vec2};
+use eframe::egui::{self, Color32, ColorImage, TextureOptions};
 
 const WIDTH: usize = 320;
 const HEIGHT: usize = 240;

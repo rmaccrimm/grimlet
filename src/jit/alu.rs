@@ -5,8 +5,8 @@ use inkwell::values::IntValue;
 
 use crate::arm::disasm::instruction::{ArmInstruction, ArmShift, ShifterOperand};
 use crate::arm::state::Reg;
-use crate::jit::builder::flags::C;
-use crate::jit::builder::{FunctionBuilder, InstrEffect, InstrResult, RegUpdate};
+use crate::jit::flags::C;
+use crate::jit::{FunctionBuilder, InstrEffect, InstrResult, RegUpdate};
 
 impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     pub(super) fn arm_adc(&mut self, instr: ArmInstruction) {

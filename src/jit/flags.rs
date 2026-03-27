@@ -6,7 +6,7 @@ use inkwell::IntPredicate;
 use inkwell::values::IntValue;
 
 use crate::arm::state::Reg;
-use crate::jit::builder::FunctionBuilder;
+use crate::jit::FunctionBuilder;
 
 // A bitmask for a flag, and its name
 #[derive(Copy, Clone, Debug)]

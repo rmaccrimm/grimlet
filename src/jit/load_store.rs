@@ -4,7 +4,7 @@ use inkwell::values::{BasicValue, IntValue};
 use crate::arm::disasm::instruction::{ArmInstruction, MemOffset, MemOperand, WritebackMode};
 use crate::arm::state::Reg;
 use crate::arm::state::memory::{MainMemory, MemReadable, MemWriteable, ReadVal};
-use crate::jit::builder::{FunctionBuilder, InstrEffect, InstrResult, RegUpdate};
+use crate::jit::{FunctionBuilder, InstrEffect, InstrResult, RegUpdate};
 
 #[derive(Copy, Clone)]
 /// Result of addressing mode calculation for single loads/stores
@@ -503,7 +503,7 @@ mod tests {
     use crate::arm::disasm::instruction::ArmShift;
     use crate::arm::state::{ArmState, Reg};
     use crate::jit::CompiledFunction;
-    use crate::jit::builder::flags::C;
+    use crate::jit::flags::C;
 
     /// Apply the given shift to R0
     fn shift_test_case(

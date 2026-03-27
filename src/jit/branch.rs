@@ -3,7 +3,7 @@ use inkwell::values::IntValue;
 
 use crate::arm::disasm::instruction::ArmInstruction;
 use crate::arm::state::{ArmState, Reg};
-use crate::jit::builder::FunctionBuilder;
+use crate::jit::FunctionBuilder;
 
 pub(super) struct BranchAction<'a> {
     pub(super) target: IntValue<'a>,

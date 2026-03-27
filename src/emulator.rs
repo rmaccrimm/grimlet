@@ -7,8 +7,7 @@ use inkwell::context::Context;
 
 use crate::arm::disasm::Disasm;
 use crate::arm::state::ArmState;
-use crate::jit::FunctionCache;
-use crate::jit::builder::FunctionBuilder;
+use crate::jit::{FunctionBuilder, FunctionCache};
 
 pub mod video;
 
