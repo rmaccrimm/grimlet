@@ -329,13 +329,16 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let if_block = ctx.append_basic_block(self.func, "if");
         let end_block = ctx.append_basic_block(self.func, "end");
 
+        // If we skipped the instruction, just add 1 cycle to counter
+        let unexec_cycles = bd.build_int_add(self.cycles, imm!(self, 1), "unexec_cyc")?;
+
         let cond = self.eval_cond(instr.cond)?;
         bd.build_conditional_branch(cond, if_block, end_block)?;
 
         // If cond is met, run inner and get set of updates to perform
         bd.position_at_end(if_block);
         let InstrEffect { updates, cycles } = inner(self, instr)?;
-        let updated_cyles = bd.build_int_add(self.cycles, cycles, "cycles")?;
+        let exec_cycles = bd.build_int_add(self.cycles, cycles, "exec_cyc")?;
 
         // If an instruction wrote to PC, we need to perform a branch
         let branch_target: Option<IntValue> = updates.iter().find(|r| r.0 == Reg::PC).map(|r| r.1);
@@ -371,11 +374,11 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             self.reg_map
                 .update(reg, phi.as_basic_value().into_int_value());
         }
-        // Perform a similar update for cycle count
+        // Perform a similar update for cycle count.
         let cycle_phi = bd.build_phi(self.i32_t, "cyc_phi")?;
         cycle_phi.add_incoming(&[
-            (&self.cycles, self.current_block),
-            (&updated_cyles, if_block),
+            (&unexec_cycles, self.current_block),
+            (&exec_cycles, if_block),
         ]);
         self.cycles = cycle_phi.as_basic_value().into_int_value();
 
