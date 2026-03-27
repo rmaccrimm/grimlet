@@ -3,7 +3,6 @@ use std::io::{BufReader, Read};
 
 use anyhow::{Result, bail};
 use clap::ValueEnum;
-use eframe::wgpu::naga::Function;
 use inkwell::context::Context;
 
 use crate::arm::disasm::Disasm;
@@ -11,6 +10,9 @@ use crate::arm::state::ArmState;
 use crate::jit::{Compiler, FunctionCache};
 
 pub mod video;
+
+// Just 2^24 / 60 rounded down
+const CYCLES_PER_FRAME: u32 = 279620;
 
 /// Currently only signals a change from ARM to THUMB and vice-versa, but I'm thinking this will
 /// be useful in handling things like memory mapped IO
@@ -24,6 +26,7 @@ pub struct Emulator<'a> {
     disasm: Box<dyn Disasm>,
     compiler: Compiler<'a>,
     func_cache: FunctionCache<'a>,
+    cycle_count: u32,
 }
 
 /// Print codeblocks before running
@@ -40,6 +43,7 @@ impl<'a> Emulator<'a> {
             disasm: Box::new(disasm),
             compiler: Compiler::new(llvm_ctx),
             func_cache: FunctionCache::new(),
+            cycle_count: 0,
         }
     }
 
@@ -102,7 +106,12 @@ impl<'a> Emulator<'a> {
                 }
             };
             unsafe {
-                func.call(&mut self.state);
+                self.cycle_count += func.call(&mut self.state);
+            }
+            if self.cycle_count >= CYCLES_PER_FRAME {
+                self.cycle_count %= CYCLES_PER_FRAME;
+                // Render frame here
+                break;
             }
             if print.is_some() {
                 println!("{}", self.state);
