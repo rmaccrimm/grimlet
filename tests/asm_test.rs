@@ -2,6 +2,7 @@ use grimlet::arm::disasm::Disassembler;
 use grimlet::arm::state::memory::ReadVal;
 use grimlet::arm::state::{ArmMode, ArmState, Reg};
 use grimlet::emulator::{DebugOutput, Emulator};
+use inkwell::context::Context;
 
 /// Labels produced by gvasm assume it's loaded into cartridge ROM
 const CART_START_ADDR: u32 = 0x08000000;
@@ -20,7 +21,8 @@ macro_rules! assembly_test {
         fn $name() {
             let path = format!("tests/programs/{}.gba", stringify!($name));
             let disasm = Disassembler::default();
-            let mut emulator = Emulator::new(disasm);
+            let ctx = Context::create();
+            let mut emulator = Emulator::new(disasm, &ctx);
             emulator.load_rom(path, CART_START_ADDR).unwrap();
             let exit = |st: &ArmState| -> bool { st.regs[Reg::R11] == EXIT_VAL };
             emulator.state.jump_to(CART_START_ADDR, ArmMode::ARM as i8);

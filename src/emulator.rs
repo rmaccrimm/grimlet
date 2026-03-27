@@ -1,13 +1,13 @@
 use std::fs::{self, File};
 use std::io::{BufReader, Read};
-use std::sync::mpsc::{self, Receiver, TryRecvError};
 
 use anyhow::{Result, bail};
 use clap::ValueEnum;
+use eframe::wgpu::naga::Function;
 use inkwell::context::Context;
 
 use crate::arm::disasm::Disasm;
-use crate::arm::state::{ArmMode, ArmState};
+use crate::arm::state::ArmState;
 use crate::jit::{Compiler, FunctionCache};
 
 pub mod video;
@@ -19,11 +19,11 @@ pub enum SystemMessage {
     ResumeEmulation,
 }
 
-pub struct Emulator {
+pub struct Emulator<'a> {
     pub state: ArmState,
-    llvm_ctx: Context,
     disasm: Box<dyn Disasm>,
-    rx: Receiver<SystemMessage>,
+    compiler: Compiler<'a>,
+    func_cache: FunctionCache<'a>,
 }
 
 /// Print codeblocks before running
@@ -33,16 +33,13 @@ pub enum DebugOutput {
     Struct,
 }
 
-impl Emulator {
-    pub fn new(disasm: impl Disasm + 'static) -> Self {
-        let (tx, rx) = mpsc::channel();
-        let state = ArmState::new();
-        let llvm_ctx = Context::create();
+impl<'a> Emulator<'a> {
+    pub fn new(disasm: impl Disasm + 'static, llvm_ctx: &'a Context) -> Self {
         Self {
-            state,
+            state: ArmState::new(),
             disasm: Box::new(disasm),
-            llvm_ctx,
-            rx,
+            compiler: Compiler::new(llvm_ctx),
+            func_cache: FunctionCache::new(),
         }
     }
 
@@ -64,9 +61,6 @@ impl Emulator {
     where
         F: Fn(&ArmState) -> bool,
     {
-        let mut compiler = Compiler::new(&self.llvm_ctx);
-        let mut func_cache = FunctionCache::new();
-
         loop {
             if exit_condition(&self.state) {
                 // compiler.dump().unwrap();
@@ -77,7 +71,7 @@ impl Emulator {
             }
 
             let instr_addr = self.state.curr_instr_addr();
-            let func = match func_cache.get(&instr_addr) {
+            let func = match self.func_cache.get(&instr_addr) {
                 Some(func) => func,
                 None => {
                     let code_block = self
@@ -89,18 +83,19 @@ impl Emulator {
                         Some(DebugOutput::Struct) => println!("{:#?}", code_block),
                         None => (),
                     }
-                    match compiler
+                    match self
+                        .compiler
                         .new_function(instr_addr)
                         .build_body(code_block)
                         .expect("failed to build function")
                         .compile()
                     {
                         Ok(compiled) => {
-                            func_cache.insert(instr_addr, compiled);
-                            func_cache.get(&instr_addr).unwrap()
+                            self.func_cache.insert(instr_addr, compiled);
+                            self.func_cache.get(&instr_addr).unwrap()
                         }
                         Err(e) => {
-                            compiler.dump().unwrap();
+                            self.compiler.dump().unwrap();
                             panic!("{}", e);
                         }
                     }
@@ -207,7 +202,8 @@ mod tests {
             op!(ArmInsn::ARM_INS_B, None, imm(100)),
         ]);
 
-        let mut emulator = Emulator::new(disasm);
+        let ctx = Context::create();
+        let mut emulator = Emulator::new(disasm, &ctx);
         // Appears in R0 if MOV was successful
         let confirm_val = u32::MAX;
         emulator.state.regs[Reg::R1] = confirm_val;
@@ -292,7 +288,8 @@ mod tests {
             op!(ArmInsn::ARM_INS_B, None, imm(100)),
         ]);
 
-        let mut em = Emulator::new(disasm);
+        let ctx = Context::create();
+        let mut em = Emulator::new(disasm, &ctx);
 
         let exit = |st: &ArmState| -> bool { st.curr_instr_addr() == 100 };
         let r0 = Reg::R0;
@@ -339,7 +336,8 @@ mod tests {
                 instrs.push(op!(ArmInsn::ARM_INS_B, None, imm(100)));
 
                 let disasm = VecDisassembler::new(instrs);
-                let mut emulator = Emulator::new(disasm);
+                let ctx = Context::create();
+                let mut emulator = Emulator::new(disasm, &ctx);
 
                 let exit = |st: &ArmState| -> bool { st.curr_instr_addr() == 100 };
                 emulator.run(exit, Some(DebugOutput::Assembly));
