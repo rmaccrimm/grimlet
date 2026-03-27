@@ -19,7 +19,6 @@ test = false
 anyhow = "1.0.100"
 capstone = "0.13.0"
 inkwell = { version = "0.6.0", features = ["llvm18-1"] }
-clap = { version = "4.5.53", features = ["derive"] }
+clap = { version = "4.6.0", features = ["derive"] }
 num = "0.4.3"
-minifb = "0.28.0"
 eframe = "0.34.0"
