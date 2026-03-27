@@ -66,7 +66,7 @@ mod reg_map;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 
-use anyhow::{Result, anyhow};
+use anyhow::{Context as _, Result, anyhow};
 use capstone::arch::arm::ArmInsn;
 use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
@@ -77,6 +77,7 @@ use inkwell::module::Module;
 use inkwell::types::{IntType, PointerType, StructType, VoidType};
 use inkwell::values::{BasicValueEnum, FunctionValue, IntValue, PointerValue};
 use inkwell::{AddressSpace, OptimizationLevel};
+use uuid::Uuid;
 
 use crate::arm::disasm::code_block::CodeBlock;
 use crate::arm::disasm::instruction::ArmInstruction;
@@ -253,20 +254,18 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         if self.func.verify(true) {
             unsafe { Ok(self.execution_engine.get_function(&self.name)?) }
         } else {
-            // Ignore any failures
-            let _ = self.dump_llvm();
+            self.dump_llvm()
+                .with_context(|| "Function verification failed: failed to dump LLVM code.")?;
             Err(anyhow!("Function verification failed"))
         }
     }
 
-    /// TODO - make this optional via config
     fn dump_llvm(&self) -> Result<()> {
-        if fs::exists("llvm")? && fs::metadata("llvm")?.is_dir() {
-            fs::remove_dir_all("llvm")?
+        if !fs::exists("llvm")? {
+            fs::create_dir("llvm")?;
         }
-        fs::create_dir("llvm")?;
         self.module
-            .print_to_file(format!("llvm/mod_{}.ll", self.name))
+            .print_to_file(format!("llvm/mod_{}_{}.ll", self.name, Uuid::new_v4()))
             .unwrap();
         Ok(())
     }
