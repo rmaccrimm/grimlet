@@ -400,7 +400,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let updates = vec![RegUpdate(rd, sh_val), RegUpdate(Reg::CPSR, cpsr)];
         Ok(InstrEffect {
             updates,
-            cycles: imm!(self, 0),
+            cycles: imm!(self, 1),
         })
     }
 
@@ -419,7 +419,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             let updates = vec![RegUpdate(rd, add_2)];
             return Ok(InstrEffect {
                 updates,
-                cycles: imm!(self, 0),
+                cycles: imm!(self, 1),
             });
         };
 
@@ -463,7 +463,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let updates = vec![RegUpdate(rd, s2), RegUpdate(Reg::CPSR, cpsr)];
         Ok(InstrEffect {
             updates,
-            cycles: imm!(self, 0),
+            cycles: imm!(self, 1),
         })
     }
 
@@ -479,7 +479,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             let updates = vec![RegUpdate(rd, res)];
             return Ok(InstrEffect {
                 updates,
-                cycles: imm!(self, 0),
+                cycles: imm!(self, 1),
             });
         }
 
@@ -501,7 +501,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let updates = vec![RegUpdate(rd, res_val), RegUpdate(Reg::CPSR, cpsr)];
         Ok(InstrEffect {
             updates,
-            cycles: imm!(self, 0),
+            cycles: imm!(self, 1),
         })
     }
 
@@ -517,7 +517,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             let updates = vec![RegUpdate(rd, res_val)];
             return Ok(InstrEffect {
                 updates,
-                cycles: imm!(self, 0),
+                cycles: imm!(self, 1),
             });
         }
         let n = bd.build_int_compare(IntPredicate::SLT, res_val, imm!(self, 0), "n")?;
@@ -527,7 +527,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let updates = vec![RegUpdate(rd, res_val), RegUpdate(Reg::CPSR, cpsr)];
         Ok(InstrEffect {
             updates,
-            cycles: imm!(self, 0),
+            cycles: imm!(self, 1),
         })
     }
 
@@ -549,7 +549,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             let updates = vec![RegUpdate(rd, res_val)];
             return Ok(InstrEffect {
                 updates,
-                cycles: imm!(self, 0),
+                cycles: imm!(self, 1),
             });
         }
 
@@ -560,7 +560,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let updates = vec![RegUpdate(rd, res_val), RegUpdate(Reg::CPSR, cpsr)];
         Ok(InstrEffect {
             updates,
-            cycles: imm!(self, 0),
+            cycles: imm!(self, 1),
         })
     }
 
@@ -576,7 +576,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let updates = updates.into_iter().filter(|up| up.0 == Reg::CPSR).collect();
         Ok(InstrEffect {
             updates,
-            cycles: imm!(self, 0),
+            cycles: imm!(self, 1),
         })
     }
 
@@ -592,7 +592,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let updates = updates.into_iter().filter(|up| up.0 == Reg::CPSR).collect();
         Ok(InstrEffect {
             updates,
-            cycles: imm!(self, 0),
+            cycles: imm!(self, 1),
         })
     }
 
@@ -609,7 +609,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             let updates = vec![RegUpdate(rd, res_val)];
             return Ok(InstrEffect {
                 updates,
-                cycles: imm!(self, 0),
+                cycles: imm!(self, 1),
             });
         }
 
@@ -620,7 +620,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let updates = vec![RegUpdate(rd, res_val), RegUpdate(Reg::CPSR, cpsr)];
         Ok(InstrEffect {
             updates,
-            cycles: imm!(self, 0),
+            cycles: imm!(self, 1),
         })
     }
 
@@ -647,7 +647,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         };
         Ok(InstrEffect {
             updates,
-            cycles: imm!(self, 0),
+            cycles: imm!(self, 1),
         })
     }
 
@@ -662,7 +662,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             let updates = vec![RegUpdate(rd, res_val)];
             return Ok(InstrEffect {
                 updates,
-                cycles: imm!(self, 0),
+                cycles: imm!(self, 1),
             });
         }
 
@@ -673,7 +673,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let updates = vec![RegUpdate(rd, res_val), RegUpdate(Reg::CPSR, cpsr)];
         Ok(InstrEffect {
             updates,
-            cycles: imm!(self, 0),
+            cycles: imm!(self, 1),
         })
     }
 
@@ -690,7 +690,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             let updates = vec![RegUpdate(rd, res_val)];
             return Ok(InstrEffect {
                 updates,
-                cycles: imm!(self, 0),
+                cycles: imm!(self, 1),
             });
         }
 
@@ -701,7 +701,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let updates = vec![RegUpdate(rd, res_val), RegUpdate(Reg::CPSR, cpsr)];
         Ok(InstrEffect {
             updates,
-            cycles: imm!(self, 0),
+            cycles: imm!(self, 1),
         })
     }
 
@@ -721,7 +721,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             let updates = vec![RegUpdate(rd, res_val)];
             return Ok(InstrEffect {
                 updates,
-                cycles: imm!(self, 0),
+                cycles: imm!(self, 1),
             });
         }
 
@@ -744,7 +744,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let updates = vec![RegUpdate(rd, res_val), RegUpdate(Reg::CPSR, cpsr)];
         Ok(InstrEffect {
             updates,
-            cycles: imm!(self, 0),
+            cycles: imm!(self, 1),
         })
     }
 
@@ -780,7 +780,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             let updates = vec![RegUpdate(rd, s2)];
             return Ok(InstrEffect {
                 updates,
-                cycles: imm!(self, 0),
+                cycles: imm!(self, 1),
             });
         }
 
@@ -808,7 +808,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let updates = vec![RegUpdate(rd, s2), RegUpdate(Reg::CPSR, cpsr)];
         Ok(InstrEffect {
             updates,
-            cycles: imm!(self, 0),
+            cycles: imm!(self, 1),
         })
     }
 
@@ -844,7 +844,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             let updates = vec![RegUpdate(rd, s2)];
             return Ok(InstrEffect {
                 updates,
-                cycles: imm!(self, 0),
+                cycles: imm!(self, 1),
             });
         }
 
@@ -872,7 +872,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let updates = vec![RegUpdate(rd, s2), RegUpdate(Reg::CPSR, cpsr)];
         Ok(InstrEffect {
             updates,
-            cycles: imm!(self, 0),
+            cycles: imm!(self, 1),
         })
     }
 
@@ -888,7 +888,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             let updates = vec![RegUpdate(rd, sub_res)];
             return Ok(InstrEffect {
                 updates,
-                cycles: imm!(self, 0),
+                cycles: imm!(self, 1),
             });
         }
         let ures =
@@ -915,7 +915,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let updates = vec![RegUpdate(rd, sres_val), RegUpdate(Reg::CPSR, cpsr)];
         Ok(InstrEffect {
             updates,
-            cycles: imm!(self, 0),
+            cycles: imm!(self, 1),
         })
     }
 
@@ -930,7 +930,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let updates = updates.into_iter().filter(|up| up.0 == Reg::CPSR).collect();
         Ok(InstrEffect {
             updates,
-            cycles: imm!(self, 0),
+            cycles: imm!(self, 1),
         })
     }
 
@@ -946,7 +946,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let updates = updates.into_iter().filter(|up| up.0 == Reg::CPSR).collect();
         Ok(InstrEffect {
             updates,
-            cycles: imm!(self, 0),
+            cycles: imm!(self, 1),
         })
     }
 
@@ -966,7 +966,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             let updates = vec![RegUpdate(rd, mla)];
             return Ok(InstrEffect {
                 updates,
-                cycles: imm!(self, 0),
+                cycles: imm!(self, 1),
             });
         }
 
@@ -977,7 +977,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let updates = vec![RegUpdate(rd, mla), RegUpdate(Reg::CPSR, cpsr)];
         Ok(InstrEffect {
             updates,
-            cycles: imm!(self, 0),
+            cycles: imm!(self, 1),
         })
     }
 
@@ -994,7 +994,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             let updates = vec![RegUpdate(rd, mul)];
             return Ok(InstrEffect {
                 updates,
-                cycles: imm!(self, 0),
+                cycles: imm!(self, 1),
             });
         }
 
@@ -1005,7 +1005,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let updates = vec![RegUpdate(rd, mul), RegUpdate(Reg::CPSR, cpsr)];
         Ok(InstrEffect {
             updates,
-            cycles: imm!(self, 0),
+            cycles: imm!(self, 1),
         })
     }
 
@@ -1040,7 +1040,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             let updates = vec![RegUpdate(rdhi, hi_i32), RegUpdate(rdlo, lo_i32)];
             return Ok(InstrEffect {
                 updates,
-                cycles: imm!(self, 0),
+                cycles: imm!(self, 1),
             });
         }
 
@@ -1055,7 +1055,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         ];
         Ok(InstrEffect {
             updates,
-            cycles: imm!(self, 0),
+            cycles: imm!(self, 1),
         })
     }
 
@@ -1082,7 +1082,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             let updates = vec![RegUpdate(rdhi, hi_i32), RegUpdate(rdlo, lo_i32)];
             return Ok(InstrEffect {
                 updates,
-                cycles: imm!(self, 0),
+                cycles: imm!(self, 1),
             });
         }
 
@@ -1097,7 +1097,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         ];
         Ok(InstrEffect {
             updates,
-            cycles: imm!(self, 0),
+            cycles: imm!(self, 1),
         })
     }
 
@@ -1132,7 +1132,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             let updates = vec![RegUpdate(rdhi, hi_i32), RegUpdate(rdlo, lo_i32)];
             return Ok(InstrEffect {
                 updates,
-                cycles: imm!(self, 0),
+                cycles: imm!(self, 1),
             });
         }
 
@@ -1147,7 +1147,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         ];
         Ok(InstrEffect {
             updates,
-            cycles: imm!(self, 0),
+            cycles: imm!(self, 1),
         })
     }
 
@@ -1174,7 +1174,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             let updates = vec![RegUpdate(rdhi, hi_i32), RegUpdate(rdlo, lo_i32)];
             return Ok(InstrEffect {
                 updates,
-                cycles: imm!(self, 0),
+                cycles: imm!(self, 1),
             });
         }
 
@@ -1189,7 +1189,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         ];
         Ok(InstrEffect {
             updates,
-            cycles: imm!(self, 0),
+            cycles: imm!(self, 1),
         })
     }
 
@@ -1199,7 +1199,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let updates = vec![RegUpdate(rd, cpsr)];
         Ok(InstrEffect {
             updates,
-            cycles: imm!(self, 0),
+            cycles: imm!(self, 1),
         })
     }
 
@@ -1231,7 +1231,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let updates = vec![RegUpdate(reg, res_val)];
         Ok(InstrEffect {
             updates,
-            cycles: imm!(self, 0),
+            cycles: imm!(self, 1),
         })
     }
 }
