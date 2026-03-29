@@ -1,3 +1,5 @@
+pub mod interval_tree;
+
 use std::array::TryFromSliceError;
 use std::slice::Chunks;
 
