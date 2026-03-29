@@ -14,20 +14,10 @@ struct Node {
     sorted_by_last: Vec<(u32, u32)>,
 }
 
-impl Default for IntervalTree {
-    fn default() -> Self {
-        Self {
-            // Just picking a power of 2 - 1 (num elements for complete tree) for initial size
-            nodes: vec![None; 15],
-        }
-    }
-}
-
 impl IntervalTree {
     pub fn insert(&mut self, ival: (u32, u32)) {
-        let mut ins = Node::new(ival);
         if self.nodes[0].is_none() {
-            self.nodes[0] = Some(ins);
+            self.nodes[0] = Some(Node::new(ival));
             return;
         };
         let mut curr = 0;
@@ -39,7 +29,7 @@ impl IntervalTree {
                 }
                 Some(node) => node,
             };
-            if node < &mut ins {
+            if *node < ival {
                 match self.left_ind(curr) {
                     Ok(l) => {
                         curr = l;
@@ -49,7 +39,7 @@ impl IntervalTree {
                         self.increase_height();
                     }
                 }
-            } else if node > &mut ins {
+            } else if *node > ival {
                 match self.right_ind(curr) {
                     Ok(r) => {
                         curr = r;
@@ -60,7 +50,7 @@ impl IntervalTree {
                     }
                 }
             } else {
-                node.add(ival)
+                node.add(ival);
             }
         }
     }
@@ -124,20 +114,13 @@ impl IntervalTree {
     }
 }
 
-impl Ord for Node {
-    fn cmp(&self, other: &Self) -> Ordering {
-        if self.sorted_by_last[0].1 < other.center {
-            Ordering::Less
-        } else if self.sorted_by_first[0].0 > other.center {
-            Ordering::Greater
-        } else {
-            Ordering::Equal
+impl Default for IntervalTree {
+    fn default() -> Self {
+        Self {
+            // Just picking a power of 2 - 1 (num elements for complete tree) for initial size
+            nodes: vec![None; 15],
         }
     }
-}
-
-impl PartialOrd for Node {
-    fn partial_cmp(&self, other: &Node) -> Option<std::cmp::Ordering> { Some(self.cmp(other)) }
 }
 
 impl Node {
@@ -155,4 +138,20 @@ impl Node {
         self.sorted_by_last.push(ival);
         self.sorted_by_last.sort_by_key(|i| Reverse(i.1));
     }
+}
+
+impl PartialOrd<(u32, u32)> for Node {
+    fn partial_cmp(&self, ival: &(u32, u32)) -> Option<std::cmp::Ordering> {
+        if self.center < ival.0 {
+            Some(Ordering::Less)
+        } else if self.center > ival.1 {
+            Some(Ordering::Greater)
+        } else {
+            Some(Ordering::Equal)
+        }
+    }
+}
+
+impl PartialEq<(u32, u32)> for Node {
+    fn eq(&self, ival: &(u32, u32)) -> bool { !(self.center < ival.0 || self.center > ival.1) }
 }
