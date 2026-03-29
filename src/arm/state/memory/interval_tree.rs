@@ -1,11 +1,10 @@
 use std::cmp::{Ordering, Reverse};
-use std::collections::BTreeSet;
 
-use anyhow::{Result, anyhow};
-
-#[derive(Default, Debug)]
+// Some premature optimization, just for fun. Used to lookup all cached function blocks covering a
+// given address.
+#[derive(Debug)]
 pub struct IntervalTree {
-    btree: BTreeSet<Node>,
+    nodes: Vec<Option<Node>>,
 }
 
 #[derive(Clone, Default, PartialEq, Eq, Debug)]
@@ -13,6 +12,116 @@ struct Node {
     center: u32,
     sorted_by_first: Vec<(u32, u32)>,
     sorted_by_last: Vec<(u32, u32)>,
+}
+
+impl Default for IntervalTree {
+    fn default() -> Self {
+        Self {
+            // Just picking a power of 2 - 1 (num elements for complete tree) for initial size
+            nodes: vec![None; 15],
+        }
+    }
+}
+
+impl IntervalTree {
+    pub fn insert(&mut self, ival: (u32, u32)) {
+        let mut ins = Node::new(ival);
+        if self.nodes[0].is_none() {
+            self.nodes[0] = Some(ins);
+            return;
+        };
+        let mut curr = 0;
+        loop {
+            let node = match &mut self.nodes[curr] {
+                None => {
+                    self.nodes[curr] = Some(Node::new(ival));
+                    return;
+                }
+                Some(node) => node,
+            };
+            if node < &mut ins {
+                match self.left_ind(curr) {
+                    Ok(l) => {
+                        curr = l;
+                    }
+                    Err(l) => {
+                        curr = l;
+                        self.increase_height();
+                    }
+                }
+            } else if node > &mut ins {
+                match self.right_ind(curr) {
+                    Ok(r) => {
+                        curr = r;
+                    }
+                    Err(r) => {
+                        curr = r;
+                        self.increase_height();
+                    }
+                }
+            } else {
+                node.add(ival)
+            }
+        }
+    }
+
+    pub fn search(&self, x: u32) -> Vec<(u32, u32)> {
+        let mut curr = match self.nodes[0] {
+            Some(_) => 0,
+            None => return vec![],
+        };
+        loop {
+            let node = match &self.nodes[curr] {
+                None => return vec![],
+                Some(node) => node,
+            };
+            if x == node.center {
+                return node.sorted_by_first.clone();
+            } else if x < node.center {
+                let i = node.sorted_by_first.partition_point(|&r| r.0 <= x);
+                if i == 0 {
+                    match self.left_ind(i) {
+                        Ok(l) => {
+                            curr = l;
+                            continue;
+                        }
+                        Err(_) => return vec![],
+                    }
+                } else {
+                    return node.sorted_by_first[0..i].to_vec();
+                }
+            } else {
+                let i = node.sorted_by_last.partition_point(|&r| r.1 >= x);
+                if i == 0 {
+                    match self.right_ind(curr) {
+                        Ok(r) => {
+                            curr = r;
+                            continue;
+                        }
+                        Err(_) => return vec![],
+                    }
+                } else {
+                    return node.sorted_by_last[0..i].to_vec();
+                }
+            }
+        }
+    }
+
+    fn left_ind(&self, i: usize) -> Result<usize, usize> {
+        let l = 2 * i + 1;
+        if l >= self.nodes.len() { Err(l) } else { Ok(l) }
+    }
+
+    fn right_ind(&self, i: usize) -> Result<usize, usize> {
+        let r = 2 * i + 2;
+        if r >= self.nodes.len() { Err(r) } else { Ok(r) }
+    }
+
+    fn increase_height(&mut self) {
+        let new_len = (self.nodes.len() + 1) * 2 - 1;
+        // println!("Doubling capacity. New size: {}", new_len);
+        self.nodes.resize(new_len, None);
+    }
 }
 
 impl Ord for Node {
@@ -28,52 +137,7 @@ impl Ord for Node {
 }
 
 impl PartialOrd for Node {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { Some(self.cmp(other)) }
-}
-
-impl IntervalTree {
-    pub fn insert(&mut self, ival: (u32, u32)) {
-        let n = Node::new(ival);
-        match self.btree.get(&n) {
-            Some(overlap) => {
-                let mut updated = overlap.clone();
-                updated.add(ival);
-                self.btree.replace(updated).unwrap();
-            }
-            None => {
-                self.btree.insert(n);
-            }
-        }
-    }
-
-    pub fn remove(&mut self, ival: (u32, u32)) -> Result<()> {
-        let n = Node::new(ival);
-        match self.btree.get(&n) {
-            Some(m) => {
-                let i = m
-                    .sorted_by_first
-                    .iter()
-                    .position(|x| *x == ival)
-                    .ok_or(anyhow!("interval {:?} not found", ival))?;
-                let j = m
-                    .sorted_by_first
-                    .iter()
-                    .position(|x| *x == ival)
-                    .ok_or(anyhow!("interval {:?} not found", ival))?;
-                let mut updated = m.clone();
-                updated.sorted_by_first.remove(i);
-                updated.sorted_by_last.remove(j);
-
-                if updated.sorted_by_first.is_empty() {
-                    self.btree.remove(&n);
-                } else {
-                    self.btree.replace(updated);
-                }
-                Ok(())
-            }
-            None => Err(anyhow!("interval {:?} not found", ival)),
-        }
-    }
+    fn partial_cmp(&self, other: &Node) -> Option<std::cmp::Ordering> { Some(self.cmp(other)) }
 }
 
 impl Node {
@@ -90,26 +154,5 @@ impl Node {
         self.sorted_by_first.sort_by_key(|i| i.0);
         self.sorted_by_last.push(ival);
         self.sorted_by_last.sort_by_key(|i| Reverse(i.1));
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_interval_tree() {
-        let mut tree = IntervalTree::default();
-        tree.insert((45, 55));
-        tree.insert((1, 10));
-        tree.insert((8, 12));
-        tree.insert((56, 57));
-        tree.insert((70, 80));
-        tree.insert((65, 68));
-        tree.insert((46, 54));
-        tree.remove((45, 55)).unwrap();
-        tree.remove((46, 54)).unwrap();
-        println!("{:#?}", tree);
-        assert!(false);
     }
 }
