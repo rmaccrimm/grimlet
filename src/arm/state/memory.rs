@@ -10,11 +10,7 @@ struct MemRegion {
     data: Vec<u8>,
 }
 
-#[repr(C)]
-#[derive(Copy, Clone, Debug)]
-pub struct ReadVal(pub u32, pub u32);
-
-pub struct MainMemory {
+pub struct MemoryManager {
     bios: MemRegion,
     external_wram: MemRegion,
     internal_wram: MemRegion,
@@ -31,6 +27,20 @@ pub enum IoReg {
     DISPSTAT = 0x4000004,
 }
 
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct ReadVal {
+    pub value: u32,
+    pub wait_states: u32,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct WriteVal {
+    pub should_exit: bool,
+    pub wait_states: u32,
+}
+
 pub trait MemReadable =
     AsPrimitive<u32> + for<'a> FromBytes<Bytes: TryFrom<&'a [u8], Error = TryFromSliceError>>;
 
@@ -45,7 +55,7 @@ impl MemRegion {
     }
 }
 
-impl MainMemory {
+impl MemoryManager {
     pub fn iter_word(&self, start_addr: u32) -> Result<Chunks<'_, u8>> {
         if !start_addr.is_multiple_of(4) {
             panic!("Mis-alligned word address: {:x}", start_addr);
@@ -73,10 +83,15 @@ impl MainMemory {
             .try_into()
             .expect("conversion from bytes failed");
         let as_int = T::from_le_bytes(&bytes);
-        ReadVal(as_int.as_(), wait_states)
+        ReadVal {
+            value: as_int.as_(),
+            wait_states,
+        }
     }
 
-    pub fn write<T>(&mut self, addr: u32, value: T) -> u32
+    /// Writes can potentially invalidate a code block, including the one currently running, in
+    /// which case we need to exit the running block.
+    pub fn write<T>(&mut self, addr: u32, value: T) -> WriteVal
     where
         T: MemWriteable,
     {
@@ -86,7 +101,10 @@ impl MainMemory {
             let mem_val = mem_iter.next().expect("reached end of bytes while writing");
             *mem_val = byte;
         }
-        wait_states
+        WriteVal {
+            should_exit: false,
+            wait_states,
+        }
     }
 
     // TODO - should these be public?
@@ -130,7 +148,7 @@ impl MainMemory {
     pub fn read_io(&self, reg: IoReg) -> ReadVal { self.read::<u32>(reg as u32) }
 }
 
-impl Default for MainMemory {
+impl Default for MemoryManager {
     fn default() -> Self {
         Self {
             bios: MemRegion::new(16 << 10, 0),
@@ -157,9 +175,9 @@ mod tests {
                 fn $name() {
                     let (read_addr, expected) = $data;
 
-                    let mut mem = MainMemory::default();
+                    let mut mem = MemoryManager::default();
                     mem.bios = MemRegion{data: $bytes, wait_states: 0};
-                    assert_eq!(mem.read::<$T>(read_addr).0, expected);
+                    assert_eq!(mem.read::<$T>(read_addr).value, expected);
                 }
             )*
         };
@@ -190,7 +208,7 @@ mod tests {
     #[test]
     #[should_panic = "reached end of bytes while reading"]
     fn test_read_past_end_of_bytes_panics() {
-        let mem = MainMemory {
+        let mem = MemoryManager {
             bios: MemRegion {
                 data: vec![0x34, 0xff, 0xbe, 0x70],
                 wait_states: 0,
@@ -202,7 +220,7 @@ mod tests {
 
     #[test]
     fn test_write() {
-        let mut mem = MainMemory {
+        let mut mem = MemoryManager {
             bios: MemRegion::new(4, 0),
             ..Default::default()
         };

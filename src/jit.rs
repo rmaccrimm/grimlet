@@ -59,6 +59,7 @@ macro_rules! exec_instr {
 
 mod alu;
 mod branch;
+mod cache;
 mod flags;
 mod load_store;
 mod reg_map;
@@ -345,7 +346,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let if_block = self.ctx.append_basic_block(self.func, "if");
         let end_block = self.ctx.append_basic_block(self.func, "end");
 
-        // If we skipped the instruction, just add 1 cycle to counter
+        // If cond is not met (instruction not executed), just add 1 cycle to counter
         let unexec_cycles = self
             .builder
             .build_int_add(self.cycles, imm!(self, 1), "unexec_cyc")?;

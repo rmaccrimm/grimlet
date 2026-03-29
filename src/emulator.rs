@@ -123,7 +123,7 @@ mod tests {
     use super::*;
     use crate::arm::disasm::code_block::CodeBlock;
     use crate::arm::disasm::instruction::ArmInstruction;
-    use crate::arm::state::memory::MainMemory;
+    use crate::arm::state::memory::MemoryManager;
     use crate::arm::state::{ArmMode, Reg};
     pub struct VecDisassembler {
         pub program: Vec<ArmInstruction>,
@@ -139,7 +139,7 @@ mod tests {
     }
 
     impl Disasm for VecDisassembler {
-        fn next_code_block(&self, _mem: &MainMemory, addr: usize) -> Result<CodeBlock> {
+        fn next_code_block(&self, _mem: &MemoryManager, addr: usize) -> Result<CodeBlock> {
             let ind = addr / 4;
             Ok(CodeBlock::from_instructions(
                 self.program[ind..].iter().cloned(),

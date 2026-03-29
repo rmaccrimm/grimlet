@@ -8,12 +8,12 @@ use capstone::arch::BuildsCapstone;
 use crate::arm::disasm::code_block::CodeBlock;
 use crate::arm::disasm::instruction::ArmInstruction;
 use crate::arm::state::ArmMode;
-use crate::arm::state::memory::MainMemory;
+use crate::arm::state::memory::MemoryManager;
 
 /// Trait for CodeBlock producers. Mainly exists so tests can provide instructions without needing
 /// an actual binary.
 pub trait Disasm {
-    fn next_code_block(&self, mem: &MainMemory, addr: usize) -> Result<CodeBlock>;
+    fn next_code_block(&self, mem: &MemoryManager, addr: usize) -> Result<CodeBlock>;
 
     fn set_mode(&mut self, mode: ArmMode);
 
@@ -42,7 +42,7 @@ impl Disassembler {
 }
 
 impl Disasm for Disassembler {
-    fn next_code_block(&self, mem: &MainMemory, start_addr: usize) -> Result<CodeBlock> {
+    fn next_code_block(&self, mem: &MemoryManager, start_addr: usize) -> Result<CodeBlock> {
         // TODO what's the appropriate type for addresses?
         let mem_iter = match self.current_mode {
             ArmMode::ARM => mem.iter_word(start_addr as u32),

@@ -5,7 +5,7 @@ use std::ops::{Index, IndexMut};
 
 use capstone::arch::arm::ArmReg;
 
-use crate::arm::state::memory::MainMemory;
+use crate::arm::state::memory::MemoryManager;
 
 /// Emulated CPU state (and interpreter?)
 #[repr(C)]
@@ -13,7 +13,7 @@ pub struct ArmState {
     pub current_mode: ArmMode,
     pub regs: [u32; NUM_REGS],
     pub cycle_count: u32,
-    pub mem: MainMemory,
+    pub mem: MemoryManager,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -74,7 +74,7 @@ impl Default for ArmState {
         Self {
             current_mode: ArmMode::ARM,
             regs,
-            mem: MainMemory::default(),
+            mem: MemoryManager::default(),
             cycle_count: 0,
         }
     }

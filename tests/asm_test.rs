@@ -32,9 +32,9 @@ macro_rules! assembly_test {
             let num_asserts = emulator.state.regs[Reg::R8];
             let mut result_addr = STACK_ADDR - 4;
             for i in 1..=num_asserts {
-                let ReadVal(word, _) = emulator.state.mem.read::<u32>(result_addr);
-                println!("{}: {}", i, word);
-                assert_eq!(word, 1, "failed on assertion {}", i);
+                let ReadVal { value, .. } = emulator.state.mem.read::<u32>(result_addr);
+                println!("{}: {}", i, value);
+                assert_eq!(value, 1, "failed on assertion {}", i);
                 result_addr -= 4;
             }
             println!("{} assertions passed!", num_asserts);

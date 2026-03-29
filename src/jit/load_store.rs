@@ -3,7 +3,7 @@ use inkwell::values::{BasicValue, IntValue};
 
 use crate::arm::disasm::instruction::{ArmInstruction, MemOffset, MemOperand, WritebackMode};
 use crate::arm::state::Reg;
-use crate::arm::state::memory::{MainMemory, MemReadable, MemWriteable, ReadVal};
+use crate::arm::state::memory::{MemReadable, MemWriteable, MemoryManager, ReadVal, WriteVal};
 use crate::jit::{FunctionBuilder, InstrEffect, InstrResult, RegUpdate};
 
 #[derive(Copy, Clone)]
@@ -154,7 +154,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         let read_fn_t = return_t.fn_type(&[self.ptr_t.into(), self.i32_t.into()], false);
         let read_fn_ptr = self.get_external_func_pointer(
-            MainMemory::read::<T> as fn(&MainMemory, u32) -> ReadVal as usize,
+            MemoryManager::read::<T> as fn(&MemoryManager, u32) -> ReadVal as usize,
         )?;
 
         let result = call_indirect!(bd, read_fn_t, read_fn_ptr, self.mem_ptr, addr)
@@ -179,12 +179,15 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     where
         T: MemWriteable,
     {
-        let write_fn_t = self.i32_t.fn_type(
-            &[self.ptr_t.into(), self.i32_t.into(), self.i32_t.into()],
-            false,
-        );
+        let write_fn_t = self
+            .ctx
+            .struct_type(&[self.i8_t.into(), self.i32_t.into()], false)
+            .fn_type(
+                &[self.ptr_t.into(), self.i32_t.into(), self.i32_t.into()],
+                false,
+            );
         let write_fn_ptr = self.get_external_func_pointer(
-            MainMemory::write as fn(&mut MainMemory, u32, T) -> u32 as usize,
+            MemoryManager::write as fn(&mut MemoryManager, u32, T) -> WriteVal as usize,
         )?;
 
         let wait_states = call_indirect!(
