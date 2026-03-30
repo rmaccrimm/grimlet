@@ -31,7 +31,7 @@ impl IntervalTree {
             Some(r) => r,
         };
         loop {
-            if self.nodes[n] < ival {
+            if ival.1 < self.nodes[n].center {
                 match self.nodes[n].left {
                     Some(l) => {
                         n = l;
@@ -42,7 +42,7 @@ impl IntervalTree {
                         self.retrace(n);
                     }
                 }
-            } else if self.nodes[n] > ival {
+            } else if ival.0 > self.nodes[n].center {
                 match self.nodes[n].right {
                     Some(r) => {
                         n = r;
@@ -299,20 +299,4 @@ impl Node {
             self.sorted_by_last.sort_by_key(|i| Reverse(i.1));
         }
     }
-}
-
-impl PartialOrd<(u32, u32)> for Node {
-    fn partial_cmp(&self, ival: &(u32, u32)) -> Option<std::cmp::Ordering> {
-        if self.center < ival.0 {
-            Some(Ordering::Less)
-        } else if self.center > ival.1 {
-            Some(Ordering::Greater)
-        } else {
-            Some(Ordering::Equal)
-        }
-    }
-}
-
-impl PartialEq<(u32, u32)> for Node {
-    fn eq(&self, ival: &(u32, u32)) -> bool { !(self.center < ival.0 || self.center > ival.1) }
 }
