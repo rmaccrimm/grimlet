@@ -1,8 +1,10 @@
-use std::cmp::{Ordering, Reverse};
+use std::cmp::Reverse;
+
+use anyhow::{Result, bail};
 
 // Some premature optimization, just for fun. Used to lookup all cached function blocks covering a
 // given address.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct IntervalTree {
     root: Option<usize>,
     nodes: Vec<Node>,
@@ -38,8 +40,10 @@ impl IntervalTree {
                     }
                     None => {
                         self.nodes.push(Node::new(ival, Some(n)));
-                        self.nodes[n].left = Some(self.nodes.len());
-                        self.retrace(n);
+                        let c = self.nodes.len() - 1;
+                        self.nodes[n].left = Some(c);
+                        self.retrace(c);
+                        break;
                     }
                 }
             } else if ival.0 > self.nodes[n].center {
@@ -49,12 +53,15 @@ impl IntervalTree {
                     }
                     None => {
                         self.nodes.push(Node::new(ival, Some(n)));
-                        self.nodes[n].right = Some(self.nodes.len());
-                        self.retrace(n);
+                        let c = self.nodes.len() - 1;
+                        self.nodes[n].right = Some(c);
+                        self.retrace(c);
+                        break;
                     }
                 }
             } else {
                 self.nodes[n].add(ival);
+                break;
             }
         }
     }
@@ -106,16 +113,15 @@ impl IntervalTree {
             let p_balance = self.nodes[p].balance;
 
             // new root of the sub-tree and grand-parent, updated at end of loop iteration
-            let (n, g): (usize, Option<usize>) = if is_right_child {
+            if is_right_child {
                 if self.nodes[p].balance > 0 {
                     // unbalanced to the right
-                    let g = self.nodes[p].parent;
-                    let n = if c_balance < 0 {
-                        self.rotate_right_left(p, c)
+                    if c_balance < 0 {
+                        self.rotate_right_left(p, c);
                     } else {
-                        self.rotate_left(p, c)
-                    };
-                    (n, g)
+                        self.rotate_left(p, c).unwrap();
+                    }
+                    break;
                 } else if p_balance < 0 {
                     self.nodes[p].balance = 0;
                     break;
@@ -127,13 +133,12 @@ impl IntervalTree {
             } else {
                 if p_balance < 0 {
                     // unbalanced to the left
-                    let g = self.nodes[p].parent;
-                    let n = if c_balance > 0 {
-                        self.rotate_left_right(p, c)
+                    if c_balance > 0 {
+                        self.rotate_left_right(p, c);
                     } else {
-                        self.rotate_right(p, c)
-                    };
-                    (n, g)
+                        self.rotate_right(p, c);
+                    }
+                    break;
                 } else if p_balance > 0 {
                     self.nodes[p].balance = 0;
                     break;
@@ -143,26 +148,34 @@ impl IntervalTree {
                     continue;
                 }
             };
+        }
+    }
 
-            self.nodes[n].parent = g;
-            match g {
-                Some(gi) => {
-                    if self.nodes[gi].left == Some(c) {
-                        self.nodes[gi].left = Some(n);
-                    } else {
-                        self.nodes[gi].right = Some(n);
-                    }
-                }
-                None => {
-                    self.root = Some(n);
+    /// g: grand-parent
+    /// p: previous parent (pre-rotation)
+    /// n: new parent (post-rotation)
+    fn fix_parent(&mut self, g: Option<usize>, p: usize, n: usize) {
+        self.nodes[n].parent = g;
+        match g {
+            Some(gi) => {
+                if self.nodes[gi].left == Some(p) {
+                    self.nodes[gi].left = Some(n);
+                } else {
+                    self.nodes[gi].right = Some(n);
                 }
             }
-            break;
+            None => {
+                self.root = Some(n);
+            }
         }
     }
 
     // p_balance = +1, c_balance in (0, +1)
-    fn rotate_left(&mut self, p: usize, c: usize) -> usize {
+    fn rotate_left(&mut self, p: usize, c: usize) -> Result<()> {
+        if self.nodes[p].right != Some(c) || self.nodes[c].parent != Some(p) {
+            bail!("invalid left rotation")
+        }
+        let g = self.nodes[p].parent;
         let c_left_child = self.nodes[c].left;
 
         self.nodes[p].right = c_left_child;
@@ -174,11 +187,14 @@ impl IntervalTree {
         if self.nodes[c].balance == 0 {
             self.nodes[p].balance = 1;
             self.nodes[c].balance = -1;
-        } else {
+        } else if self.nodes[c].balance == 1 {
             self.nodes[p].balance = 0;
             self.nodes[c].balance = 0;
+        } else {
+            bail!("invalid left rotation")
         }
-        c
+        self.fix_parent(g, p, c);
+        Ok(())
     }
 
     // p_balance = +1, c_balance = -1
@@ -220,7 +236,12 @@ impl IntervalTree {
         y
     }
 
-    fn rotate_right(&mut self, p: usize, c: usize) -> usize {
+    // p_balance = -1, c_balance in (0, -1)
+    fn rotate_right(&mut self, p: usize, c: usize) -> Result<()> {
+        if self.nodes[p].left != Some(c) || self.nodes[c].parent != Some(p) {
+            bail!("invalid right rotation")
+        }
+        let g = self.nodes[p].parent;
         let c_right_child = self.nodes[c].right;
 
         self.nodes[p].left = c_right_child;
@@ -232,11 +253,14 @@ impl IntervalTree {
         if self.nodes[c].balance == 0 {
             self.nodes[p].balance = -1;
             self.nodes[c].balance = 1;
-        } else {
+        } else if self.nodes[c].balance == -1 {
             self.nodes[p].balance = 0;
             self.nodes[c].balance = 0;
+        } else {
+            bail!("invalid right rotation")
         }
-        c
+        self.fix_parent(g, p, c);
+        Ok(())
     }
 
     fn rotate_left_right(&mut self, p: usize, c: usize) -> usize {
@@ -298,5 +322,96 @@ impl Node {
             self.sorted_by_last.push(ival);
             self.sorted_by_last.sort_by_key(|i| Reverse(i.1));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn build_tree() -> IntervalTree {
+        let mut t = IntervalTree::default();
+        // Expected:
+        //        3
+        //       /  \
+        //     1     5
+        //    / \   / \
+        //   0   2 4   6
+        t.insert((0, 0));
+        t.insert((1, 1));
+        t.insert((2, 2));
+        t.insert((3, 3));
+        t.insert((4, 4));
+        t.insert((5, 5));
+        t.insert((6, 6));
+        t
+    }
+
+    fn check_links(
+        t: &IntervalTree,
+        i: usize,
+        l: Option<usize>,
+        r: Option<usize>,
+        p: Option<usize>,
+    ) {
+        let Node {
+            left,
+            right,
+            parent,
+            ..
+        } = t.nodes[i];
+        assert_eq!((left, right, parent), (l, r, p));
+    }
+
+    #[test]
+    fn test_in_order_inserts() {
+        let t = build_tree();
+        assert_eq!(t.root, Some(3));
+        check_links(&t, 0, None, None, Some(1));
+        check_links(&t, 1, Some(0), Some(2), Some(3));
+        check_links(&t, 2, None, None, Some(1));
+        check_links(&t, 3, Some(1), Some(5), None);
+        check_links(&t, 4, None, None, Some(5));
+        check_links(&t, 5, Some(4), Some(6), Some(3));
+        check_links(&t, 6, None, None, Some(5));
+    }
+
+    #[test]
+    fn test_rotate_left() {
+        let tree = build_tree();
+
+        let mut t = tree.clone();
+        t.rotate_left(1, 2).unwrap();
+        assert_eq!(t.root, Some(3));
+        check_links(&t, 0, None, None, Some(1));
+        check_links(&t, 1, Some(0), None, Some(2));
+        check_links(&t, 2, Some(1), None, Some(3));
+        check_links(&t, 3, Some(2), Some(5), None);
+        check_links(&t, 4, None, None, Some(5));
+        check_links(&t, 5, Some(4), Some(6), Some(3));
+        check_links(&t, 6, None, None, Some(5));
+
+        let mut t = tree.clone();
+        t.rotate_left(3, 5).unwrap();
+        assert_eq!(t.root, Some(5));
+        check_links(&t, 0, None, None, Some(1));
+        check_links(&t, 1, Some(0), Some(2), Some(3));
+        check_links(&t, 2, None, None, Some(1));
+        check_links(&t, 3, Some(1), Some(4), Some(5));
+        check_links(&t, 4, None, None, Some(3));
+        check_links(&t, 5, Some(3), Some(6), None);
+        check_links(&t, 6, None, None, Some(5));
+    }
+
+    #[test]
+    fn test_invalid_rotate_left() {
+        let tree = build_tree();
+        let mut t = tree.clone();
+        assert!(t.rotate_left(5, 3).is_err());
+        assert_eq!(t, tree);
+        assert!(t.rotate_left(0, 0).is_err());
+        assert_eq!(t, tree);
+        assert!(t.rotate_left(4, 1).is_err());
+        assert_eq!(t, tree);
     }
 }
