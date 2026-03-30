@@ -65,36 +65,30 @@ impl IntervalTree {
             None => return vec![],
             Some(r) => r,
         };
+        let mut results = vec![];
         loop {
             let node = &self.nodes[n];
 
             if x == node.center {
-                return node.sorted_by_first.clone();
+                results.extend_from_slice(&node.sorted_by_first);
+                return results;
             } else if x < node.center {
                 let i = node.sorted_by_first.partition_point(|&r| r.0 <= x);
-                if i == 0 {
-                    match node.left {
-                        Some(l) => {
-                            n = l;
-                            continue;
-                        }
-                        None => return vec![],
+                results.extend_from_slice(&node.sorted_by_first[0..i]);
+                match node.left {
+                    Some(l) => {
+                        n = l;
                     }
-                } else {
-                    return node.sorted_by_first[0..i].to_vec();
+                    None => return results,
                 }
             } else {
                 let i = node.sorted_by_last.partition_point(|&r| r.1 >= x);
-                if i == 0 {
-                    match node.right {
-                        Some(r) => {
-                            n = r;
-                            continue;
-                        }
-                        None => return vec![],
+                results.extend_from_slice(&node.sorted_by_last[0..i]);
+                match node.right {
+                    Some(r) => {
+                        n = r;
                     }
-                } else {
-                    return node.sorted_by_last[0..i].to_vec();
+                    None => return results,
                 }
             }
         }
