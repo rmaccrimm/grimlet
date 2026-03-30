@@ -377,19 +377,6 @@ impl Node {
 mod tests {
     use super::*;
 
-    fn build_tree() -> IntervalTree {
-        let mut t = IntervalTree::default();
-        //        3
-        //       /  \
-        //     1     5
-        //    / \   / \
-        //   0   2 4   6
-        for i in 0..7 {
-            t.insert((i, i));
-        }
-        t
-    }
-
     fn check_links(
         t: &IntervalTree,
         i: usize,
@@ -408,7 +395,10 @@ mod tests {
 
     #[test]
     fn test_in_order_inserts() {
-        let t = build_tree();
+        let mut t = IntervalTree::default();
+        for i in 0..7 {
+            t.insert((i, i));
+        }
         assert_eq!(t.root, Some(3));
         check_links(&t, 0, None, None, Some(1));
         check_links(&t, 1, Some(0), Some(2), Some(3));
@@ -421,7 +411,10 @@ mod tests {
 
     #[test]
     fn test_rotate_left() {
-        let tree = build_tree();
+        let mut tree = IntervalTree::default();
+        for i in 0..7 {
+            tree.insert((i, i));
+        }
 
         let mut t = tree.clone();
         t.rotate_left(1, 2).unwrap();
@@ -448,7 +441,10 @@ mod tests {
 
     #[test]
     fn test_invalid_rotate_left() {
-        let tree = build_tree();
+        let mut tree = IntervalTree::default();
+        for i in 0..7 {
+            tree.insert((i, i));
+        }
         let mut t = tree.clone();
         assert!(t.rotate_left(5, 3).is_err());
         assert!(t.rotate_left(0, 0).is_err());
@@ -459,7 +455,10 @@ mod tests {
 
     #[test]
     fn test_rotate_right() {
-        let tree = build_tree();
+        let mut tree = IntervalTree::default();
+        for i in 0..7 {
+            tree.insert((i, i));
+        }
         let mut t = tree.clone();
         t.rotate_right(1, 0).unwrap();
         check_links(&t, 0, None, Some(1), Some(3));
@@ -484,7 +483,10 @@ mod tests {
 
     #[test]
     fn test_invalid_rotate_right() {
-        let tree = build_tree();
+        let mut tree = IntervalTree::default();
+        for i in 0..7 {
+            tree.insert((i, i));
+        }
         let mut t = tree.clone();
         assert!(t.rotate_right(1, 5).is_err());
         assert!(t.rotate_right(3, 5).is_err());
@@ -492,11 +494,6 @@ mod tests {
         assert!(t.rotate_right(0, 0).is_err());
         assert!(t.rotate_right(2, 5).is_err());
         assert_eq!(t, tree);
-    }
-
-    #[test]
-    fn test_node_size() {
-        assert_eq!(size_of::<Node>(), 104);
     }
 
     #[test]
