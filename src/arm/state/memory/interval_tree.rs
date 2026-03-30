@@ -153,16 +153,15 @@ impl IntervalTree {
     // p_balance = +1, c_balance in (0, +1)
     fn rotate_left(&mut self, p: usize, c: usize) -> usize {
         let c_left_child = self.nodes[c].left;
+        let g = self.nodes[p].parent;
 
         self.nodes[p].right = c_left_child;
+        self.nodes[c].left = Some(p);
+        self.nodes[p].parent = Some(c);
+        self.nodes[c].parent = g;
         if let Some(n) = c_left_child {
             self.nodes[n].parent = Some(p);
         }
-
-        let g = self.nodes[p].parent;
-        self.nodes[p].parent = Some(c);
-        self.nodes[c].parent = g;
-
         if self.nodes[c].balance == 0 {
             self.nodes[p].balance = 1;
             self.nodes[c].balance = -1;
@@ -177,27 +176,102 @@ impl IntervalTree {
     fn rotate_right_left(&mut self, p: usize, c: usize) -> usize {
         // Guaranteed to not be None, by balance of c
         let y = self.nodes[c].left.unwrap();
+        let g = self.nodes[p].parent;
 
         // 1st right rotation
         let y_right_child = self.nodes[y].right;
         self.nodes[c].left = y_right_child;
+        self.nodes[c].parent = Some(y);
+        self.nodes[y].right = Some(c);
+        self.nodes[y].parent = Some(p);
         if let Some(n) = y_right_child {
             self.nodes[n].parent = Some(c);
         }
-        self.nodes[c].parent = Some(y);
-        self.nodes[y].right = Some(c);
 
         // 2nd left rotation
+        let y_left_child = self.nodes[y].left;
+        self.nodes[p].right = y_left_child;
+        self.nodes[y].left = Some(p);
+        self.nodes[p].parent = Some(y);
+        self.nodes[y].parent = g;
+        if let Some(n) = y_left_child {
+            self.nodes[n].parent = Some(p);
+        }
 
+        let y_balance = self.nodes[y].balance;
+        if y_balance == 0 {
+            self.nodes[p].balance = 0;
+            self.nodes[c].balance = 0;
+        } else if y_balance > 0 {
+            self.nodes[p].balance = -1;
+            self.nodes[c].balance = 0;
+        } else {
+            self.nodes[p].balance = 0;
+            self.nodes[c].balance = 1;
+        }
+        self.nodes[y].balance = 0;
         y
     }
 
     fn rotate_right(&mut self, p: usize, c: usize) -> usize {
-        todo!();
+        let c_right_child = self.nodes[c].right;
+        let g = self.nodes[p].parent;
+
+        self.nodes[p].left = c_right_child;
+        self.nodes[c].right = Some(p);
+        self.nodes[p].parent = Some(c);
+        self.nodes[c].parent = g;
+        if let Some(n) = c_right_child {
+            self.nodes[n].parent = Some(p);
+        }
+        if self.nodes[c].balance == 0 {
+            self.nodes[p].balance = -1;
+            self.nodes[c].balance = 1;
+        } else {
+            self.nodes[p].balance = 0;
+            self.nodes[c].balance = 0;
+        }
+        c
     }
 
     fn rotate_left_right(&mut self, p: usize, c: usize) -> usize {
-        todo!();
+        // Guaranteed to not be None, by balance of c
+        let y = self.nodes[c].right.unwrap();
+        let g = self.nodes[p].parent;
+
+        // 1st right rotation
+        let y_left_child = self.nodes[y].left;
+        self.nodes[c].right = y_left_child;
+        self.nodes[c].parent = Some(y);
+        self.nodes[y].left = Some(c);
+        self.nodes[y].parent = Some(p);
+        if let Some(n) = y_left_child {
+            self.nodes[n].parent = Some(c);
+        }
+
+        // 2nd left rotation
+        let y_right_child = self.nodes[y].right;
+        self.nodes[p].left = y_right_child;
+        self.nodes[y].right = Some(p);
+        self.nodes[p].parent = Some(y);
+        self.nodes[y].parent = g;
+        if let Some(n) = y_right_child {
+            self.nodes[n].parent = Some(p);
+        }
+
+        let y_balance = self.nodes[y].balance;
+        if y_balance == 0 {
+            self.nodes[p].balance = 0;
+            self.nodes[c].balance = 0;
+        } else if y_balance > 0 {
+            self.nodes[p].balance = 1;
+            self.nodes[c].balance = 0;
+        } else {
+            self.nodes[p].balance = 0;
+            self.nodes[c].balance = -1;
+        }
+        self.nodes[y].balance = 0;
+        y
     }
 }
 
