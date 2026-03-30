@@ -117,7 +117,7 @@ impl IntervalTree {
                 if self.nodes[p].balance > 0 {
                     // unbalanced to the right
                     if c_balance < 0 {
-                        self.rotate_right_left(p, c);
+                        self.rotate_right_left(p, c).unwrap();
                     } else {
                         self.rotate_left(p, c).unwrap();
                     }
@@ -134,9 +134,9 @@ impl IntervalTree {
                 if p_balance < 0 {
                     // unbalanced to the left
                     if c_balance > 0 {
-                        self.rotate_left_right(p, c);
+                        self.rotate_left_right(p, c).unwrap();
                     } else {
-                        self.rotate_right(p, c);
+                        self.rotate_right(p, c).unwrap();
                     }
                     break;
                 } else if p_balance > 0 {
@@ -198,7 +198,7 @@ impl IntervalTree {
     }
 
     // p_balance = +1, c_balance = -1
-    fn rotate_right_left(&mut self, p: usize, c: usize) -> usize {
+    fn rotate_right_left(&mut self, p: usize, c: usize) -> Result<()> {
         // Guaranteed to not be None, by balance of c
         let y = self.nodes[c].left.unwrap();
 
@@ -233,7 +233,7 @@ impl IntervalTree {
             self.nodes[c].balance = 1;
         }
         self.nodes[y].balance = 0;
-        y
+        Ok(())
     }
 
     // p_balance = -1, c_balance in (0, -1)
@@ -263,7 +263,7 @@ impl IntervalTree {
         Ok(())
     }
 
-    fn rotate_left_right(&mut self, p: usize, c: usize) -> usize {
+    fn rotate_left_right(&mut self, p: usize, c: usize) -> Result<()> {
         // Guaranteed to not be None, by balance of c
         let y = self.nodes[c].right.unwrap();
 
@@ -298,7 +298,7 @@ impl IntervalTree {
             self.nodes[c].balance = -1;
         }
         self.nodes[y].balance = 0;
-        y
+        Ok(())
     }
 }
 
