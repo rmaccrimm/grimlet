@@ -10,6 +10,15 @@ pub struct IntervalTree {
     nodes: Vec<Node>,
 }
 
+// Balance factor
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
+enum BF {
+    #[default]
+    Balanced,
+    LeftHeavy,
+    RightHeavy,
+}
+
 #[derive(Clone, Default, PartialEq, Eq, Debug)]
 struct Node {
     center: u32,
@@ -18,7 +27,7 @@ struct Node {
     left: Option<usize>,
     right: Option<usize>,
     parent: Option<usize>,
-    balance: i8,
+    balance: BF,
 }
 
 impl IntervalTree {
@@ -114,38 +123,45 @@ impl IntervalTree {
 
             // new root of the sub-tree and grand-parent, updated at end of loop iteration
             if is_right_child {
-                if self.nodes[p].balance > 0 {
-                    // unbalanced to the right
-                    if c_balance < 0 {
-                        self.rotate_right_left(p, c).unwrap();
-                    } else {
-                        self.rotate_left(p, c).unwrap();
+                match p_balance {
+                    BF::RightHeavy => {
+                        // unbalanced to the right
+                        if c_balance == BF::LeftHeavy {
+                            self.rotate_right_left(p, c).unwrap();
+                        } else {
+                            self.rotate_left(p, c).unwrap();
+                        }
+                        break;
                     }
-                    break;
-                } else if p_balance < 0 {
-                    self.nodes[p].balance = 0;
-                    break;
-                } else {
-                    self.nodes[p].balance = 1;
-                    c = p;
-                    continue;
+                    BF::LeftHeavy => {
+                        self.nodes[p].balance = BF::Balanced;
+                        break;
+                    }
+                    BF::Balanced => {
+                        self.nodes[p].balance = BF::RightHeavy;
+                        c = p;
+                        continue;
+                    }
                 }
             } else {
-                if p_balance < 0 {
-                    // unbalanced to the left
-                    if c_balance > 0 {
-                        self.rotate_left_right(p, c).unwrap();
-                    } else {
-                        self.rotate_right(p, c).unwrap();
+                match p_balance {
+                    BF::LeftHeavy => {
+                        if c_balance == BF::RightHeavy {
+                            self.rotate_left_right(p, c).unwrap();
+                        } else {
+                            self.rotate_right(p, c).unwrap();
+                        }
+                        break;
                     }
-                    break;
-                } else if p_balance > 0 {
-                    self.nodes[p].balance = 0;
-                    break;
-                } else {
-                    self.nodes[p].balance = -1;
-                    c = p;
-                    continue;
+                    BF::RightHeavy => {
+                        self.nodes[p].balance = BF::Balanced;
+                        break;
+                    }
+                    BF::Balanced => {
+                        self.nodes[p].balance = BF::LeftHeavy;
+                        c = p;
+                        continue;
+                    }
                 }
             };
         }
@@ -184,14 +200,18 @@ impl IntervalTree {
         if let Some(n) = c_left_child {
             self.nodes[n].parent = Some(p);
         }
-        if self.nodes[c].balance == 0 {
-            self.nodes[p].balance = 1;
-            self.nodes[c].balance = -1;
-        } else if self.nodes[c].balance == 1 {
-            self.nodes[p].balance = 0;
-            self.nodes[c].balance = 0;
-        } else {
-            bail!("invalid left rotation")
+        match self.nodes[c].balance {
+            BF::Balanced => {
+                self.nodes[p].balance = BF::RightHeavy;
+                self.nodes[c].balance = BF::LeftHeavy;
+            }
+            BF::RightHeavy => {
+                self.nodes[p].balance = BF::Balanced;
+                self.nodes[c].balance = BF::Balanced;
+            }
+            _ => {
+                bail!("invalid left rotation")
+            }
         }
         self.fix_parent(g, p, c);
         Ok(())
@@ -222,17 +242,21 @@ impl IntervalTree {
         }
 
         let y_balance = self.nodes[y].balance;
-        if y_balance == 0 {
-            self.nodes[p].balance = 0;
-            self.nodes[c].balance = 0;
-        } else if y_balance > 0 {
-            self.nodes[p].balance = -1;
-            self.nodes[c].balance = 0;
-        } else {
-            self.nodes[p].balance = 0;
-            self.nodes[c].balance = 1;
+        match y_balance {
+            BF::Balanced => {
+                self.nodes[p].balance = BF::Balanced;
+                self.nodes[c].balance = BF::Balanced;
+            }
+            BF::RightHeavy => {
+                self.nodes[p].balance = BF::LeftHeavy;
+                self.nodes[c].balance = BF::Balanced;
+            }
+            BF::LeftHeavy => {
+                self.nodes[p].balance = BF::Balanced;
+                self.nodes[c].balance = BF::RightHeavy;
+            }
         }
-        self.nodes[y].balance = 0;
+        self.nodes[y].balance = BF::Balanced;
         Ok(())
     }
 
@@ -250,14 +274,18 @@ impl IntervalTree {
         if let Some(n) = c_right_child {
             self.nodes[n].parent = Some(p);
         }
-        if self.nodes[c].balance == 0 {
-            self.nodes[p].balance = -1;
-            self.nodes[c].balance = 1;
-        } else if self.nodes[c].balance == -1 {
-            self.nodes[p].balance = 0;
-            self.nodes[c].balance = 0;
-        } else {
-            bail!("invalid right rotation")
+        match self.nodes[c].balance {
+            BF::Balanced => {
+                self.nodes[p].balance = BF::LeftHeavy;
+                self.nodes[c].balance = BF::RightHeavy;
+            }
+            BF::LeftHeavy => {
+                self.nodes[p].balance = BF::Balanced;
+                self.nodes[c].balance = BF::Balanced;
+            }
+            BF::RightHeavy => {
+                bail!("invalid right rotation")
+            }
         }
         self.fix_parent(g, p, c);
         Ok(())
@@ -287,17 +315,21 @@ impl IntervalTree {
         }
 
         let y_balance = self.nodes[y].balance;
-        if y_balance == 0 {
-            self.nodes[p].balance = 0;
-            self.nodes[c].balance = 0;
-        } else if y_balance > 0 {
-            self.nodes[p].balance = 1;
-            self.nodes[c].balance = 0;
-        } else {
-            self.nodes[p].balance = 0;
-            self.nodes[c].balance = -1;
+        match y_balance {
+            BF::Balanced => {
+                self.nodes[p].balance = BF::Balanced;
+                self.nodes[c].balance = BF::Balanced;
+            }
+            BF::RightHeavy => {
+                self.nodes[p].balance = BF::RightHeavy;
+                self.nodes[c].balance = BF::Balanced;
+            }
+            BF::LeftHeavy => {
+                self.nodes[p].balance = BF::Balanced;
+                self.nodes[c].balance = BF::LeftHeavy;
+            }
         }
-        self.nodes[y].balance = 0;
+        self.nodes[y].balance = BF::Balanced;
         Ok(())
     }
 }
@@ -311,7 +343,7 @@ impl Node {
             left: None,
             right: None,
             parent,
-            balance: 0,
+            balance: BF::default(),
         }
     }
 
@@ -331,7 +363,6 @@ mod tests {
 
     fn build_tree() -> IntervalTree {
         let mut t = IntervalTree::default();
-        // Expected:
         //        3
         //       /  \
         //     1     5
@@ -395,7 +426,7 @@ mod tests {
         t.rotate_left(3, 5).unwrap();
         assert_eq!(t.root, Some(5));
         check_links(&t, 0, None, None, Some(1));
-        check_links(&t, 1, Some(0), Some(3), Some(3));
+        check_links(&t, 1, Some(0), Some(2), Some(3));
         check_links(&t, 2, None, None, Some(1));
         check_links(&t, 3, Some(1), Some(4), Some(5));
         check_links(&t, 4, None, None, Some(3));
@@ -449,5 +480,11 @@ mod tests {
         assert!(t.rotate_right(0, 0).is_err());
         assert!(t.rotate_right(2, 5).is_err());
         assert_eq!(t, tree);
+    }
+
+    #[test]
+    fn test_node_size() {
+        let tree = build_tree();
+        assert_eq!(size_of::<Node>(), 104);
     }
 }
