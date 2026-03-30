@@ -1,12 +1,10 @@
 use std::cmp::{Ordering, Reverse};
 
-use num::Integer;
-
 // Some premature optimization, just for fun. Used to lookup all cached function blocks covering a
 // given address.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct IntervalTree {
-    nodes: Vec<Option<Node>>,
+    nodes: Vec<Node>,
 }
 
 #[derive(Clone, Default, PartialEq, Eq, Debug)]
@@ -14,71 +12,69 @@ struct Node {
     center: u32,
     sorted_by_first: Vec<(u32, u32)>,
     sorted_by_last: Vec<(u32, u32)>,
+    left: Option<usize>,
+    right: Option<usize>,
+    parent: Option<usize>,
     balance: i8,
 }
 
 impl IntervalTree {
+    /// Insert a new interval. Has no effect if tree already contains the interval.
     pub fn insert(&mut self, ival: (u32, u32)) {
-        if self.nodes[0].is_none() {
-            self.nodes[0] = Some(Node::new(ival));
+        if self.nodes.is_empty() {
+            self.nodes.push(Node::new(ival, None));
             return;
         };
-        let mut curr = 0;
+        let mut n = 0;
         loop {
-            let node = match &mut self.nodes[curr] {
-                None => {
-                    self.nodes[curr] = Some(Node::new(ival));
-                    return;
-                }
-                Some(node) => node,
-            };
-            if *node < ival {
-                match self.left_ind(curr) {
-                    Ok(l) => {
-                        curr = l;
+            if self.nodes[n] < ival {
+                match self.nodes[n].left {
+                    Some(l) => {
+                        n = l;
                     }
-                    Err(l) => {
-                        curr = l;
-                        self.increase_height();
+                    None => {
+                        self.nodes.push(Node::new(ival, Some(n)));
+                        self.nodes[n].left = Some(self.nodes.len());
+                        self.retrace(n);
                     }
                 }
-            } else if *node > ival {
-                match self.right_ind(curr) {
-                    Ok(r) => {
-                        curr = r;
+            } else if self.nodes[n] > ival {
+                match self.nodes[n].right {
+                    Some(r) => {
+                        n = r;
                     }
-                    Err(r) => {
-                        curr = r;
-                        self.increase_height();
+                    None => {
+                        self.nodes.push(Node::new(ival, Some(n)));
+                        self.nodes[n].right = Some(self.nodes.len());
+                        self.retrace(n);
                     }
                 }
             } else {
-                node.add(ival);
+                self.nodes[n].add(ival);
             }
         }
     }
 
+    /// Return all intervals containing x
     pub fn search(&self, x: u32) -> Vec<(u32, u32)> {
-        let mut curr = match self.nodes[0] {
-            Some(_) => 0,
-            None => return vec![],
-        };
+        if self.nodes.is_empty() {
+            return vec![];
+        }
+        let mut n = 0;
         loop {
-            let node = match &self.nodes[curr] {
-                None => return vec![],
-                Some(node) => node,
-            };
+            let node = &self.nodes[n];
+
             if x == node.center {
                 return node.sorted_by_first.clone();
             } else if x < node.center {
                 let i = node.sorted_by_first.partition_point(|&r| r.0 <= x);
                 if i == 0 {
-                    match self.left_ind(i) {
-                        Ok(l) => {
-                            curr = l;
+                    match node.left {
+                        Some(l) => {
+                            n = l;
                             continue;
                         }
-                        Err(_) => return vec![],
+                        None => return vec![],
                     }
                 } else {
                     return node.sorted_by_first[0..i].to_vec();
@@ -86,12 +82,12 @@ impl IntervalTree {
             } else {
                 let i = node.sorted_by_last.partition_point(|&r| r.1 >= x);
                 if i == 0 {
-                    match self.right_ind(curr) {
-                        Ok(r) => {
-                            curr = r;
+                    match node.right {
+                        Some(r) => {
+                            n = r;
                             continue;
                         }
-                        Err(_) => return vec![],
+                        None => return vec![],
                     }
                 } else {
                     return node.sorted_by_last[0..i].to_vec();
@@ -100,80 +96,100 @@ impl IntervalTree {
         }
     }
 
-    fn left_ind(&self, i: usize) -> Result<usize, usize> {
-        let l = 2 * i + 1;
-        if l >= self.nodes.len() { Err(l) } else { Ok(l) }
-    }
-
-    fn right_ind(&self, i: usize) -> Result<usize, usize> {
-        let r = 2 * i + 2;
-        if r >= self.nodes.len() { Err(r) } else { Ok(r) }
-    }
-
-    fn parent_ind(&self, i: usize) -> Option<usize> {
-        if i == 0 { None } else { Some((i - 1) / 2) }
-    }
-
-    fn increase_height(&mut self) {
-        let new_len = (self.nodes.len() + 1) * 2 - 1;
-        self.nodes.resize(new_len, None);
-    }
-
+    /// Re-trace the tree from child node `c` towards the root, performing re-balancing operations
+    /// as needed.
     fn retrace(&mut self, mut c: usize) {
         let mut n: Option<usize> = None;
         let mut g: Option<usize> = None;
 
-        while let Some(p) = self.parent_ind(c) {
-            let curr_balance = self.nodes[c].as_ref().unwrap().balance;
-            let parent = self.nodes[p].as_mut().unwrap();
+        while let Some(p) = self.nodes[c].parent {
+            let is_right_child = match self.nodes[p].right {
+                Some(r) => c == r,
+                None => false,
+            };
+            let c_balance = self.nodes[c].balance;
+            let p_balance = self.nodes[p].balance;
 
-            let is_right_child = c.is_odd();
             if is_right_child {
-                if parent.balance > 0 {
+                if self.nodes[p].balance > 0 {
                     // unbalanced to the right
-                    g = self.parent_ind(p);
-                    if curr_balance < 0 {
-                        let n = Some(self.rotate_right_left(p, c));
+                    g = self.nodes[p].parent;
+                    if c_balance < 0 {
+                        n = Some(self.rotate_right_left(p, c));
                     } else {
-                        let n = Some(self.rotate_left(p, c));
+                        n = Some(self.rotate_left(p, c));
                     }
-                } else if parent.balance < 0 {
-                    parent.balance = 0;
+                } else if p_balance < 0 {
+                    self.nodes[p].balance = 0;
                     break;
                 } else {
-                    parent.balance = 1;
+                    self.nodes[p].balance = 1;
                     c = p;
                     continue;
                 }
             } else {
-                if parent.balance < 0 {
+                if p_balance < 0 {
                     // unbalanced to the left
-                    g = self.parent_ind(p);
-                    if curr_balance > 0 {
+                    g = self.nodes[p].parent;
+                    if c_balance > 0 {
                         n = Some(self.rotate_left_right(p, c));
                     } else {
                         n = Some(self.rotate_right(p, c));
                     }
-                } else if parent.balance > 0 {
-                    parent.balance = 0;
+                } else if p_balance > 0 {
+                    self.nodes[p].balance = 0;
                     break;
                 } else {
-                    parent.balance = -1;
+                    self.nodes[p].balance = -1;
                     c = p;
                     continue;
                 }
             }
         }
+        println!("{:?}", n);
+        println!("{:?}", g);
     }
 
+    // p_balance = +1, c_balance in (0, +1)
     fn rotate_left(&mut self, p: usize, c: usize) -> usize {
-        let child = self.nodes[c].take();
-        let parent = self.nodes[p].take();
-        let c_lchild = self.nodes[self.left_ind(c).unwrap()].take();
-        // 
-        
+        let c_left_child = self.nodes[c].left;
 
-        let 
+        self.nodes[p].right = c_left_child;
+        if let Some(n) = c_left_child {
+            self.nodes[n].parent = Some(p);
+        }
+
+        let g = self.nodes[p].parent;
+        self.nodes[p].parent = Some(c);
+        self.nodes[c].parent = g;
+
+        if self.nodes[c].balance == 0 {
+            self.nodes[p].balance = 1;
+            self.nodes[c].balance = -1;
+        } else {
+            self.nodes[p].balance = 0;
+            self.nodes[c].balance = 0;
+        }
+        c
+    }
+
+    // p_balance = +1, c_balance = -1
+    fn rotate_right_left(&mut self, p: usize, c: usize) -> usize {
+        // Guaranteed to not be None, by balance of c
+        let y = self.nodes[c].left.unwrap();
+
+        // 1st right rotation
+        let y_right_child = self.nodes[y].right;
+        self.nodes[c].left = y_right_child;
+        if let Some(n) = y_right_child {
+            self.nodes[n].parent = Some(c);
+        }
+        self.nodes[c].parent = Some(y);
+        self.nodes[y].right = Some(c);
+
+        // 2nd left rotation
+
+        y
     }
 
     fn rotate_right(&mut self, p: usize, c: usize) -> usize {
@@ -183,36 +199,28 @@ impl IntervalTree {
     fn rotate_left_right(&mut self, p: usize, c: usize) -> usize {
         todo!();
     }
-
-    fn rotate_right_left(&mut self, p: usize, c: usize) -> usize {
-        todo!();
-    }
-}
-
-impl Default for IntervalTree {
-    fn default() -> Self {
-        Self {
-            // Just picking a power of 2 - 1 (num elements for complete tree) for initial size
-            nodes: vec![None; 15],
-        }
-    }
 }
 
 impl Node {
-    fn new(ival: (u32, u32)) -> Self {
+    fn new(ival: (u32, u32), parent: Option<usize>) -> Self {
         Self {
             center: (ival.0 + ival.1) / 2,
             sorted_by_first: vec![ival],
             sorted_by_last: vec![ival],
+            left: None,
+            right: None,
+            parent,
             balance: 0,
         }
     }
 
     fn add(&mut self, ival: (u32, u32)) {
-        self.sorted_by_first.push(ival);
-        self.sorted_by_first.sort_by_key(|i| i.0);
-        self.sorted_by_last.push(ival);
-        self.sorted_by_last.sort_by_key(|i| Reverse(i.1));
+        if !self.sorted_by_first.contains(&ival) {
+            self.sorted_by_first.push(ival);
+            self.sorted_by_first.sort_by_key(|i| i.0);
+            self.sorted_by_last.push(ival);
+            self.sorted_by_last.sort_by_key(|i| Reverse(i.1));
+        }
     }
 }
 
