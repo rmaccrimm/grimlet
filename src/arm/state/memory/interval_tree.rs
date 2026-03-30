@@ -395,7 +395,7 @@ mod tests {
         t.rotate_left(3, 5).unwrap();
         assert_eq!(t.root, Some(5));
         check_links(&t, 0, None, None, Some(1));
-        check_links(&t, 1, Some(0), Some(2), Some(3));
+        check_links(&t, 1, Some(0), Some(3), Some(3));
         check_links(&t, 2, None, None, Some(1));
         check_links(&t, 3, Some(1), Some(4), Some(5));
         check_links(&t, 4, None, None, Some(3));
@@ -408,10 +408,46 @@ mod tests {
         let tree = build_tree();
         let mut t = tree.clone();
         assert!(t.rotate_left(5, 3).is_err());
-        assert_eq!(t, tree);
         assert!(t.rotate_left(0, 0).is_err());
-        assert_eq!(t, tree);
         assert!(t.rotate_left(4, 1).is_err());
+        assert!(t.rotate_left(3, 1).is_err());
+        assert_eq!(t, tree);
+    }
+
+    #[test]
+    fn test_rotate_right() {
+        let tree = build_tree();
+        let mut t = tree.clone();
+        t.rotate_right(1, 0).unwrap();
+        check_links(&t, 0, None, Some(1), Some(3));
+        check_links(&t, 1, None, Some(2), Some(0));
+        check_links(&t, 2, None, None, Some(1));
+        check_links(&t, 3, Some(0), Some(5), None);
+        check_links(&t, 4, None, None, Some(5));
+        check_links(&t, 5, Some(4), Some(6), Some(3));
+        check_links(&t, 6, None, None, Some(5));
+
+        let mut t = tree.clone();
+        t.rotate_right(3, 1).unwrap();
+        assert_eq!(t.root, Some(1));
+        check_links(&t, 0, None, None, Some(1));
+        check_links(&t, 1, Some(0), Some(3), None);
+        check_links(&t, 2, None, None, Some(3));
+        check_links(&t, 3, Some(2), Some(5), Some(1));
+        check_links(&t, 4, None, None, Some(5));
+        check_links(&t, 5, Some(4), Some(6), Some(3));
+        check_links(&t, 6, None, None, Some(5));
+    }
+
+    #[test]
+    fn test_invalid_rotate_right() {
+        let tree = build_tree();
+        let mut t = tree.clone();
+        assert!(t.rotate_right(1, 5).is_err());
+        assert!(t.rotate_right(3, 5).is_err());
+        assert!(t.rotate_right(3, 3).is_err());
+        assert!(t.rotate_right(0, 0).is_err());
+        assert!(t.rotate_right(2, 5).is_err());
         assert_eq!(t, tree);
     }
 }
