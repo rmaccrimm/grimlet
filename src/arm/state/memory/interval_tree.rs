@@ -1,6 +1,6 @@
 use std::cmp::Reverse;
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Result, bail};
 
 // Some premature optimization, just for fun. Used to lookup all cached function blocks covering a
 // given address.
@@ -39,50 +39,40 @@ impl IntervalTree {
                 self.root = Some(0);
                 return;
             }
-            Some(r) => r,
+            Some(root) => root,
         };
-        loop {
+        let left = loop {
             if ival.1 < self.nodes[n].center {
                 match self.nodes[n].left {
-                    Some(l) => {
-                        n = l;
-                    }
-                    None => {
-                        self.nodes.push(Node::new(ival, Some(n)));
-                        let c = self.nodes.len() - 1;
-                        self.nodes[n].left = Some(c);
-                        self.retrace(c);
-                        break;
-                    }
-                }
+                    Some(l) => n = l,
+                    None => break true,
+                };
             } else if ival.0 > self.nodes[n].center {
                 match self.nodes[n].right {
-                    Some(r) => {
-                        n = r;
-                    }
-                    None => {
-                        self.nodes.push(Node::new(ival, Some(n)));
-                        let c = self.nodes.len() - 1;
-                        self.nodes[n].right = Some(c);
-                        self.retrace(c);
-                        break;
-                    }
-                }
+                    Some(r) => n = r,
+                    None => break false,
+                };
             } else {
                 self.nodes[n].add(ival);
-                break;
+                return;
             }
+        };
+        self.nodes.push(Node::new(ival, Some(n)));
+        let c = self.nodes.len() - 1;
+        if left {
+            self.nodes[n].left = Some(c)
+        } else {
+            self.nodes[n].right = Some(c)
         }
+        self.retrace(c);
     }
 
     /// Return all intervals containing x
     pub fn search(&self, x: u32) -> Vec<(u32, u32)> {
-        let mut n = match self.root {
-            None => return vec![],
-            Some(r) => r,
-        };
+        let mut curr = self.root;
         let mut results = vec![];
-        loop {
+
+        while let Some(n) = curr {
             let node = &self.nodes[n];
 
             if x == node.center {
@@ -91,20 +81,48 @@ impl IntervalTree {
             } else if x < node.center {
                 let i = node.sorted_by_first.partition_point(|&r| r.0 <= x);
                 results.extend_from_slice(&node.sorted_by_first[0..i]);
-                match node.left {
-                    Some(l) => {
-                        n = l;
-                    }
-                    None => return results,
-                }
+                curr = node.left;
             } else {
                 let i = node.sorted_by_last.partition_point(|&r| r.1 >= x);
                 results.extend_from_slice(&node.sorted_by_last[0..i]);
-                match node.right {
+                curr = node.right;
+            }
+        }
+        results
+    }
+
+    pub fn remove(&mut self, ival: (u32, u32)) -> Result<()> {
+        let mut n = match self.root {
+            None => bail!("tree is empty"),
+            Some(r) => r,
+        };
+        loop {
+            if ival.1 < self.nodes[n].center {
+                match self.nodes[n].left {
+                    Some(l) => {
+                        n = l;
+                    }
+                    None => bail!("interval not found"),
+                }
+            } else if ival.0 > self.nodes[n].center {
+                match self.nodes[n].right {
                     Some(r) => {
                         n = r;
                     }
-                    None => return results,
+                    None => bail!("interval not found"),
+                }
+            } else {
+                let node = &mut self.nodes[n];
+                let p1 = node.sorted_by_first.iter().position(|&i| i == ival);
+                let p2 = node.sorted_by_last.iter().position(|&i| i == ival);
+                match (p1, p2) {
+                    (Some(i), Some(j)) => {
+                        let node = &mut self.nodes[n];
+                        node.sorted_by_first.remove(i);
+                        node.sorted_by_last.remove(j);
+                        return Ok(());
+                    }
+                    _ => bail!("Interval not found"),
                 }
             }
         }
@@ -573,5 +591,14 @@ mod tests {
         assert!(t.rotate_left_right(1, 1).is_err());
         assert!(t.rotate_left_right(3, 14).is_err());
         assert_eq!(t, tree);
+    }
+
+    #[test]
+    fn test_overlapping_inserts() {
+        let mut t = IntervalTree::default();
+        t.insert((20, 60));
+        t.insert((20, 30));
+        t.insert((22, 24));
+        t.insert((24, 24));
     }
 }
