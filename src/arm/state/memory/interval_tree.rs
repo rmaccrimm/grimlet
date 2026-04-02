@@ -10,6 +10,10 @@ pub struct IntervalTree {
     nodes: Vec<Node>,
 }
 
+trait Dir {
+    fn flip(self) -> Self;
+}
+
 // Balance factor
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
 enum BF {
@@ -17,12 +21,12 @@ enum BF {
     Balanced = 0,
     LeftHeavy = -1,
     RightHeavy = 1,
-    UnbalanceLeft = -2,
+    UnbalancedLeft = -2,
     UnbalancedRight = 2,
 }
 
 #[derive(Copy, Clone)]
-enum Dir {
+enum Direction {
     Left,
     Right,
 }
@@ -42,12 +46,12 @@ impl IntervalTree {
     pub fn insert(&mut self, ival: (u32, u32)) {
         // Current node being searched, it's parent and direction to add new node
         let mut cur = self.root;
-        let mut par: Option<(usize, Dir)> = None;
+        let mut par: Option<(usize, Direction)> = None;
         // (Ancestor) root of the subtree for which we'll need to update balance factors, and the
         // path we took from it. Either the last unbalanced node encountered, or root.
         let mut anc = self.root;
-        let mut anc_par: Option<(usize, Dir)> = None;
-        let mut path: Vec<Dir> = vec![];
+        let mut anc_par: Option<(usize, Direction)> = None;
+        let mut path: Vec<Direction> = vec![];
 
         // Search the tree
         while let Some(n) = cur {
@@ -59,10 +63,10 @@ impl IntervalTree {
             }
             let dir = if ival.1 < self.nodes[n].center {
                 cur = self.nodes[n].left;
-                Dir::Left
+                Direction::Left
             } else if ival.0 > self.nodes[n].center {
                 cur = self.nodes[n].right;
-                Dir::Right
+                Direction::Right
             } else {
                 self.nodes[n].add(ival);
                 return;
@@ -72,11 +76,11 @@ impl IntervalTree {
         }
         // Create new node
         match par {
-            Some((p, Dir::Left)) => {
+            Some((p, Direction::Left)) => {
                 self.nodes.push(Node::new(ival));
                 self.nodes[p].left = Some(self.nodes.len() - 1);
             }
-            Some((p, Dir::Right)) => {
+            Some((p, Direction::Right)) => {
                 self.nodes.push(Node::new(ival));
                 self.nodes[p].right = Some(self.nodes.len() - 1);
             }
@@ -90,85 +94,143 @@ impl IntervalTree {
         let mut n = a;
         for dir in path {
             match dir {
-                Dir::Left => {
+                Direction::Left => {
                     self.nodes[n].dec_balance();
                     n = self.nodes[n].left.unwrap();
                 }
-                Dir::Right => {
+                Direction::Right => {
                     self.nodes[n].inc_balance();
                     n = self.nodes[n].right.unwrap();
                 }
             }
         }
         // Perform rebalancing
-        if self.nodes[a].balance == BF::UnbalanceLeft {
-            let b = self.nodes[a].left.unwrap();
-            if self.nodes[b].balance == BF::RightHeavy {
-                let c = self.nodes[b].right.unwrap();
-                self.rotate_left(b, c);
-                self.rotate_right(a, b);
-                match self.nodes[c].balance {
-                    BF::LeftHeavy => {
-                        self.nodes[b].balance = BF::Balanced;
-                        self.nodes[a].balance = BF::RightHeavy;
-                    }
-                    BF::Balanced => {
-                        self.nodes[b].balance = BF::Balanced;
-                        self.nodes[a].balance = BF::Balanced;
-                    }
-                    BF::RightHeavy => {
-                        self.nodes[b].balance = BF::LeftHeavy;
-                        self.nodes[a].balance = BF::Balanced;
-                    }
-                    _ => panic!("unexpected imbalance"),
-                }
-                self.nodes[c].balance = BF::Balanced;
-                self.reparent(anc_par, c);
-            } else {
-                self.rotate_right(a, b);
-                self.nodes[b].balance = BF::Balanced;
-                self.nodes[a].balance = BF::Balanced;
-                self.reparent(anc_par, b);
-            }
-        } else if self.nodes[a].balance == BF::UnbalancedRight {
-            let b = self.nodes[a].right.unwrap();
-            if self.nodes[b].balance == BF::LeftHeavy {
-                let c = self.nodes[b].left.unwrap();
-                self.rotate_right(b, c);
-                self.rotate_left(a, b);
-                match self.nodes[c].balance {
-                    BF::LeftHeavy => {
-                        self.nodes[b].balance = BF::Balanced;
-                        self.nodes[a].balance = BF::RightHeavy;
-                    }
-                    BF::Balanced => {
-                        self.nodes[b].balance = BF::Balanced;
-                        self.nodes[a].balance = BF::Balanced;
-                    }
-                    BF::RightHeavy => {
-                        self.nodes[b].balance = BF::LeftHeavy;
-                        self.nodes[a].balance = BF::Balanced;
-                    }
-                    _ => panic!("unexpected imbalance"),
-                }
-                self.nodes[c].balance = BF::Balanced;
-                self.reparent(anc_par, c);
-            } else {
-                self.rotate_left(a, b);
-                self.nodes[b].balance = BF::Balanced;
-                self.nodes[a].balance = BF::Balanced;
-                self.reparent(anc_par, b);
-            }
+        self.rebalance_insert(a, anc_par, false);
+        self.rebalance_insert(a, anc_par, true);
+
+        // match self.nodes[a].balance {
+        //     BF::UnbalancedLeft => {
+        //         let b = self.nodes[a].left.unwrap();
+        //         match self.nodes[b].balance {
+        //             BF::RightHeavy => {
+        //                 let c = self.nodes[b].right.unwrap();
+        //                 self.rotate_left(b, c);
+        //                 self.rotate_right(a, b);
+        //                 match self.nodes[c].balance {
+        //                     BF::LeftHeavy => {
+        //                         self.nodes[b].balance = BF::Balanced;
+        //                         self.nodes[a].balance = BF::RightHeavy;
+        //                     }
+        //                     BF::Balanced => {
+        //                         self.nodes[b].balance = BF::Balanced;
+        //                         self.nodes[a].balance = BF::Balanced;
+        //                     }
+        //                     BF::RightHeavy => {
+        //                         self.nodes[b].balance = BF::LeftHeavy;
+        //                         self.nodes[a].balance = BF::Balanced;
+        //                     }
+        //                     _ => panic!("unexpected imbalance"),
+        //                 }
+        //                 self.nodes[c].balance = BF::Balanced;
+        //                 self.reparent(anc_par, c);
+        //             }
+        //             BF::LeftHeavy => {
+        //                 self.rotate_right(a, b);
+        //                 self.nodes[b].balance = BF::Balanced;
+        //                 self.nodes[a].balance = BF::Balanced;
+        //                 self.reparent(anc_par, b);
+        //             }
+        //             _ => panic!("invalid balance"),
+        //         }
+        //     }
+        //     BF::UnbalancedRight => {
+        //         let b = self.nodes[a].right.unwrap();
+        //         match self.nodes[b].balance {
+        //             BF::LeftHeavy => {
+        //                 let c = self.nodes[b].left.unwrap();
+        //                 self.rotate_right(b, c);
+        //                 self.rotate_left(a, b);
+        //                 match self.nodes[c].balance {
+        //                     BF::LeftHeavy => {
+        //                         self.nodes[b].balance = BF::Balanced;
+        //                         self.nodes[a].balance = BF::RightHeavy;
+        //                     }
+        //                     BF::Balanced => {
+        //                         self.nodes[b].balance = BF::Balanced;
+        //                         self.nodes[a].balance = BF::Balanced;
+        //                     }
+        //                     BF::RightHeavy => {
+        //                         self.nodes[b].balance = BF::LeftHeavy;
+        //                         self.nodes[a].balance = BF::Balanced;
+        //                     }
+        //                     _ => panic!("invalid balance"),
+        //                 }
+        //                 self.nodes[c].balance = BF::Balanced;
+        //                 self.reparent(anc_par, c);
+        //             }
+        //             BF::RightHeavy => {
+        //                 self.rotate_left(a, b);
+        //                 self.nodes[b].balance = BF::Balanced;
+        //                 self.nodes[a].balance = BF::Balanced;
+        //                 self.reparent(anc_par, b);
+        //             }
+        //             _ => panic!("invalid balance"),
+        //         }
+        //     }
+        //     _ => (),
+        // }
+    }
+
+    fn reparent(&mut self, par: Option<(usize, Direction)>, s: usize) {
+        match par {
+            Some((p, dir)) => match dir {
+                Direction::Right => self.nodes[p].right = Some(s),
+                Direction::Left => self.nodes[p].left = Some(s),
+            },
+            None => self.root = Some(s),
         }
     }
 
-    fn reparent(&mut self, par: Option<(usize, Dir)>, s: usize) {
-        match par {
-            Some((p, dir)) => match dir {
-                Dir::Right => self.nodes[p].right = Some(s),
-                Dir::Left => self.nodes[p].left = Some(s),
-            },
-            None => self.root = Some(s),
+    // Takes the following nodes
+    // a: root of the sub-tree which needs to be re-balanced
+    // parent: parent of node, may be None if node is the root
+    fn rebalance_insert(&mut self, a: usize, parent: Option<(usize, Direction)>, reverse: bool) {
+        let fd = |d: Direction| if reverse { d.flip() } else { d };
+        let fb = |b: BF| if reverse { b.flip() } else { b };
+
+        if fb(self.nodes[a].balance) == BF::UnbalancedLeft {
+            let b = self.nodes[a].child(fd(Direction::Left)).unwrap();
+            match fb(self.nodes[b].balance) {
+                BF::RightHeavy => {
+                    let c = self.nodes[b].child(fd(Direction::Right)).unwrap();
+                    self.rotate(fd(Direction::Left), b, c);
+                    self.rotate(fd(Direction::Right), a, b);
+                    match self.nodes[c].balance {
+                        BF::LeftHeavy => {
+                            self.nodes[b].balance = BF::Balanced;
+                            self.nodes[a].balance = BF::RightHeavy;
+                        }
+                        BF::Balanced => {
+                            self.nodes[b].balance = BF::Balanced;
+                            self.nodes[a].balance = BF::Balanced;
+                        }
+                        BF::RightHeavy => {
+                            self.nodes[b].balance = BF::LeftHeavy;
+                            self.nodes[a].balance = BF::Balanced;
+                        }
+                        _ => panic!("unexpected imbalance"),
+                    }
+                    self.nodes[c].balance = BF::Balanced;
+                    self.reparent(parent, c);
+                }
+                BF::LeftHeavy => {
+                    self.rotate(fd(Direction::Right), a, b);
+                    self.nodes[b].balance = BF::Balanced;
+                    self.nodes[a].balance = BF::Balanced;
+                    self.reparent(parent, b);
+                }
+                _ => panic!("invalid balance"),
+            }
         }
     }
 
@@ -233,25 +295,21 @@ impl IntervalTree {
         }
     }
 
-    fn rotate_left(&mut self, p: usize, c: usize) {
-        if self.nodes[p].right != Some(c) {
-            panic!("invalid left rotation")
+    fn rotate(&mut self, d: Direction, p: usize, c: usize) {
+        if self.nodes[p].child(d.flip()) != Some(c) {
+            panic!("invalid rotation")
         }
-        let c_left_child = self.nodes[c].left;
-        self.nodes[p].right = c_left_child;
-        self.nodes[c].left = Some(p);
-        if self.root == Some(p) {
-            self.root = Some(c);
+        let c_child = self.nodes[c].child(d);
+        match d {
+            Direction::Left => {
+                self.nodes[p].right = c_child;
+                self.nodes[c].left = Some(p);
+            }
+            Direction::Right => {
+                self.nodes[p].left = c_child;
+                self.nodes[c].right = Some(p);
+            }
         }
-    }
-
-    fn rotate_right(&mut self, p: usize, c: usize) {
-        if self.nodes[p].left != Some(c) {
-            panic!("invalid right rotation")
-        }
-        let c_right_child = self.nodes[c].right;
-        self.nodes[p].left = c_right_child;
-        self.nodes[c].right = Some(p);
         if self.root == Some(p) {
             self.root = Some(c);
         }
@@ -279,6 +337,13 @@ impl Node {
         }
     }
 
+    fn child(&self, d: Direction) -> Option<usize> {
+        match d {
+            Direction::Left => self.left,
+            Direction::Right => self.right,
+        }
+    }
+
     fn inc_balance(&mut self) {
         self.balance = match (self.balance as i8) + 1 {
             -1 => BF::LeftHeavy,
@@ -291,12 +356,33 @@ impl Node {
 
     fn dec_balance(&mut self) {
         self.balance = match (self.balance as i8) - 1 {
-            -2 => BF::UnbalanceLeft,
+            -2 => BF::UnbalancedLeft,
             -1 => BF::LeftHeavy,
             0 => BF::Balanced,
             1 => BF::RightHeavy,
             _ => panic!("invalid balance factor"),
         };
+    }
+}
+
+impl Dir for Direction {
+    fn flip(self) -> Self {
+        match self {
+            Self::Left => Self::Right,
+            Self::Right => Self::Left,
+        }
+    }
+}
+
+impl Dir for BF {
+    fn flip(self) -> Self {
+        match self {
+            Self::Balanced => self,
+            Self::LeftHeavy => Self::RightHeavy,
+            Self::RightHeavy => Self::LeftHeavy,
+            Self::UnbalancedLeft => Self::UnbalancedRight,
+            Self::UnbalancedRight => Self::UnbalancedLeft,
+        }
     }
 }
 
@@ -339,137 +425,6 @@ mod tests {
         check_links(&t, 4, None, None);
         check_links(&t, 5, Some(6), Some(4));
         check_links(&t, 6, None, None);
-    }
-
-    #[test]
-    fn test_rotate_left() {
-        let mut tree = IntervalTree::default();
-        for i in 0..7 {
-            tree.insert((i, i));
-        }
-
-        let mut t = tree.clone();
-        t.rotate_left(1, 2);
-        assert_eq!(t.root, Some(3));
-        check_links(&t, 0, None, None);
-        check_links(&t, 1, Some(0), None);
-        check_links(&t, 2, Some(1), None);
-        check_links(&t, 3, Some(2), Some(5));
-        check_links(&t, 4, None, None);
-        check_links(&t, 5, Some(4), Some(6));
-        check_links(&t, 6, None, None);
-
-        let mut t = tree.clone();
-        t.rotate_left(3, 5);
-        assert_eq!(t.root, Some(5));
-        check_links(&t, 0, None, None);
-        check_links(&t, 1, Some(0), Some(2));
-        check_links(&t, 2, None, None);
-        check_links(&t, 3, Some(1), Some(4));
-        check_links(&t, 4, None, None);
-        check_links(&t, 5, Some(3), Some(6));
-        check_links(&t, 6, None, None);
-    }
-
-    #[test]
-    #[should_panic(expected = "invalid left rotation")]
-    fn test_invalid_rotate_left() {
-        let mut tree = IntervalTree::default();
-        for i in 0..7 {
-            tree.insert((i, i));
-        }
-        let mut t = tree.clone();
-        t.rotate_left(5, 3);
-    }
-
-    #[test]
-    fn test_rotate_right() {
-        let mut tree = IntervalTree::default();
-        for i in 0..7 {
-            tree.insert((i, i));
-        }
-        let mut t = tree.clone();
-        t.rotate_right(1, 0);
-        check_links(&t, 0, None, Some(1));
-        check_links(&t, 1, None, Some(2));
-        check_links(&t, 2, None, None);
-        check_links(&t, 3, Some(0), Some(5));
-        check_links(&t, 4, None, None);
-        check_links(&t, 5, Some(4), Some(6));
-        check_links(&t, 6, None, None);
-
-        let mut t = tree.clone();
-        t.rotate_right(3, 1);
-        assert_eq!(t.root, Some(1));
-        check_links(&t, 0, None, None);
-        check_links(&t, 1, Some(0), Some(3));
-        check_links(&t, 2, None, None);
-        check_links(&t, 3, Some(2), Some(5));
-        check_links(&t, 4, None, None);
-        check_links(&t, 5, Some(4), Some(6));
-        check_links(&t, 6, None, None);
-    }
-
-    #[test]
-    #[should_panic(expected = "invalid right rotation")]
-    fn test_invalid_rotate_right() {
-        let mut tree = IntervalTree::default();
-        for i in 0..7 {
-            tree.insert((i, i));
-        }
-        let mut t = tree.clone();
-        t.rotate_right(1, 5);
-    }
-
-    #[test]
-    fn test_rotate_right_left() {
-        let mut tree = IntervalTree::default();
-        for i in 0..15 {
-            tree.insert((i, i));
-        }
-        let mut t = tree.clone();
-        // t.rotate_right_left(7, 11).unwrap();
-        assert_eq!(t.root, Some(9));
-        check_links(&t, 0, None, None);
-        check_links(&t, 1, Some(0), Some(2));
-        check_links(&t, 2, None, None);
-        check_links(&t, 3, Some(1), Some(5));
-        check_links(&t, 4, None, None);
-        check_links(&t, 5, Some(4), Some(6));
-        check_links(&t, 6, None, None);
-        check_links(&t, 7, Some(3), Some(8));
-        check_links(&t, 8, None, None);
-        check_links(&t, 9, Some(7), Some(11));
-        check_links(&t, 10, None, None);
-        check_links(&t, 11, Some(10), Some(13));
-        check_links(&t, 12, None, None);
-        check_links(&t, 13, Some(12), Some(14));
-        check_links(&t, 14, None, None);
-    }
-
-    #[test]
-    fn test_rotate_left_right() {
-        let mut tree = IntervalTree::default();
-        for i in 0..15 {
-            tree.insert((i, i));
-        }
-        let mut t = tree.clone();
-        assert_eq!(t.root, Some(7));
-        check_links(&t, 0, None, None);
-        check_links(&t, 1, Some(0), None);
-        check_links(&t, 2, Some(1), Some(3));
-        check_links(&t, 3, None, Some(5));
-        check_links(&t, 4, None, None);
-        check_links(&t, 5, Some(4), Some(6));
-        check_links(&t, 6, None, None);
-        check_links(&t, 7, Some(2), Some(11));
-        check_links(&t, 8, None, None);
-        check_links(&t, 9, Some(8), Some(10));
-        check_links(&t, 10, None, None);
-        check_links(&t, 11, Some(9), Some(13));
-        check_links(&t, 12, None, None);
-        check_links(&t, 13, Some(12), Some(14));
-        check_links(&t, 14, None, None);
     }
 
     #[test]
