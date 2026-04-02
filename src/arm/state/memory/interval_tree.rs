@@ -1,5 +1,3 @@
-use std::cmp::Reverse;
-
 use anyhow::{Result, bail};
 
 // Some premature optimization, just for fun. Used to lookup all cached function blocks covering a
@@ -8,10 +6,6 @@ use anyhow::{Result, bail};
 pub struct IntervalTree {
     root: Option<usize>,
     nodes: Vec<Node>,
-}
-
-trait Dir {
-    fn flip(self) -> Self;
 }
 
 // Balance factor
@@ -26,7 +20,7 @@ enum BF {
 }
 
 #[derive(Copy, Clone)]
-enum Direction {
+enum Traversal {
     Left,
     Right,
 }
@@ -41,17 +35,31 @@ struct Node {
     balance: BF,
 }
 
+trait Symmetric {
+    fn flip(self) -> Self;
+}
+
+trait Transform {
+    fn t<S>(s: S) -> S
+    where
+        S: Symmetric;
+}
+
+struct Forward();
+
+struct Reverse();
+
 impl IntervalTree {
     /// Insert a new interval. Has no effect if tree already contains the interval.
     pub fn insert(&mut self, ival: (u32, u32)) {
         // Current node being searched, it's parent and direction to add new node
         let mut cur = self.root;
-        let mut par: Option<(usize, Direction)> = None;
+        let mut par: Option<(usize, Traversal)> = None;
         // (Ancestor) root of the subtree for which we'll need to update balance factors, and the
         // path we took from it. Either the last unbalanced node encountered, or root.
         let mut anc = self.root;
-        let mut anc_par: Option<(usize, Direction)> = None;
-        let mut path: Vec<Direction> = vec![];
+        let mut anc_par: Option<(usize, Traversal)> = None;
+        let mut path: Vec<Traversal> = vec![];
 
         // Search the tree
         while let Some(n) = cur {
@@ -63,10 +71,10 @@ impl IntervalTree {
             }
             let dir = if ival.1 < self.nodes[n].center {
                 cur = self.nodes[n].left;
-                Direction::Left
+                Traversal::Left
             } else if ival.0 > self.nodes[n].center {
                 cur = self.nodes[n].right;
-                Direction::Right
+                Traversal::Right
             } else {
                 self.nodes[n].add(ival);
                 return;
@@ -76,11 +84,11 @@ impl IntervalTree {
         }
         // Create new node
         match par {
-            Some((p, Direction::Left)) => {
+            Some((p, Traversal::Left)) => {
                 self.nodes.push(Node::new(ival));
                 self.nodes[p].left = Some(self.nodes.len() - 1);
             }
-            Some((p, Direction::Right)) => {
+            Some((p, Traversal::Right)) => {
                 self.nodes.push(Node::new(ival));
                 self.nodes[p].right = Some(self.nodes.len() - 1);
             }
@@ -94,19 +102,19 @@ impl IntervalTree {
         let mut n = a;
         for dir in path {
             match dir {
-                Direction::Left => {
+                Traversal::Left => {
                     self.nodes[n].dec_balance();
                     n = self.nodes[n].left.unwrap();
                 }
-                Direction::Right => {
+                Traversal::Right => {
                     self.nodes[n].inc_balance();
                     n = self.nodes[n].right.unwrap();
                 }
             }
         }
         // Perform rebalancing
-        self.rebalance_insert(a, anc_par, false);
-        self.rebalance_insert(a, anc_par, true);
+        self.rebalance_insert::<Forward>(a, anc_par);
+        self.rebalance_insert::<Reverse>(a, anc_par);
 
         // match self.nodes[a].balance {
         //     BF::UnbalancedLeft => {
@@ -181,11 +189,11 @@ impl IntervalTree {
         // }
     }
 
-    fn reparent(&mut self, par: Option<(usize, Direction)>, s: usize) {
+    fn reparent(&mut self, par: Option<(usize, Traversal)>, s: usize) {
         match par {
             Some((p, dir)) => match dir {
-                Direction::Right => self.nodes[p].right = Some(s),
-                Direction::Left => self.nodes[p].left = Some(s),
+                Traversal::Right => self.nodes[p].right = Some(s),
+                Traversal::Left => self.nodes[p].left = Some(s),
             },
             None => self.root = Some(s),
         }
@@ -194,17 +202,17 @@ impl IntervalTree {
     // Takes the following nodes
     // a: root of the sub-tree which needs to be re-balanced
     // parent: parent of node, may be None if node is the root
-    fn rebalance_insert(&mut self, a: usize, parent: Option<(usize, Direction)>, reverse: bool) {
-        let fd = |d: Direction| if reverse { d.flip() } else { d };
-        let fb = |b: BF| if reverse { b.flip() } else { b };
-
-        if fb(self.nodes[a].balance) == BF::UnbalancedLeft {
-            let b = self.nodes[a].child(fd(Direction::Left)).unwrap();
-            match fb(self.nodes[b].balance) {
+    fn rebalance_insert<T>(&mut self, a: usize, parent: Option<(usize, Traversal)>)
+    where
+        T: Transform,
+    {
+        if T::t(self.nodes[a].balance) == BF::UnbalancedLeft {
+            let b = self.nodes[a].child(T::t(Traversal::Left)).unwrap();
+            match T::t(self.nodes[b].balance) {
                 BF::RightHeavy => {
-                    let c = self.nodes[b].child(fd(Direction::Right)).unwrap();
-                    self.rotate(fd(Direction::Left), b, c);
-                    self.rotate(fd(Direction::Right), a, b);
+                    let c = self.nodes[b].child(T::t(Traversal::Right)).unwrap();
+                    self.rotate(T::t(Traversal::Left), b, c);
+                    self.rotate(T::t(Traversal::Right), a, b);
                     match self.nodes[c].balance {
                         BF::LeftHeavy => {
                             self.nodes[b].balance = BF::Balanced;
@@ -224,7 +232,7 @@ impl IntervalTree {
                     self.reparent(parent, c);
                 }
                 BF::LeftHeavy => {
-                    self.rotate(fd(Direction::Right), a, b);
+                    self.rotate(T::t(Traversal::Right), a, b);
                     self.nodes[b].balance = BF::Balanced;
                     self.nodes[a].balance = BF::Balanced;
                     self.reparent(parent, b);
@@ -295,17 +303,17 @@ impl IntervalTree {
         }
     }
 
-    fn rotate(&mut self, d: Direction, p: usize, c: usize) {
+    fn rotate(&mut self, d: Traversal, p: usize, c: usize) {
         if self.nodes[p].child(d.flip()) != Some(c) {
             panic!("invalid rotation")
         }
         let c_child = self.nodes[c].child(d);
         match d {
-            Direction::Left => {
+            Traversal::Left => {
                 self.nodes[p].right = c_child;
                 self.nodes[c].left = Some(p);
             }
-            Direction::Right => {
+            Traversal::Right => {
                 self.nodes[p].left = c_child;
                 self.nodes[c].right = Some(p);
             }
@@ -333,14 +341,14 @@ impl Node {
             self.sorted_by_first.push(ival);
             self.sorted_by_first.sort_by_key(|i| i.0);
             self.sorted_by_last.push(ival);
-            self.sorted_by_last.sort_by_key(|i| Reverse(i.1));
+            self.sorted_by_last.sort_by_key(|i| std::cmp::Reverse(i.1));
         }
     }
 
-    fn child(&self, d: Direction) -> Option<usize> {
+    fn child(&self, d: Traversal) -> Option<usize> {
         match d {
-            Direction::Left => self.left,
-            Direction::Right => self.right,
+            Traversal::Left => self.left,
+            Traversal::Right => self.right,
         }
     }
 
@@ -365,7 +373,7 @@ impl Node {
     }
 }
 
-impl Dir for Direction {
+impl Symmetric for Traversal {
     fn flip(self) -> Self {
         match self {
             Self::Left => Self::Right,
@@ -374,7 +382,7 @@ impl Dir for Direction {
     }
 }
 
-impl Dir for BF {
+impl Symmetric for BF {
     fn flip(self) -> Self {
         match self {
             Self::Balanced => self,
@@ -383,6 +391,24 @@ impl Dir for BF {
             Self::UnbalancedLeft => Self::UnbalancedRight,
             Self::UnbalancedRight => Self::UnbalancedLeft,
         }
+    }
+}
+
+impl Transform for Forward {
+    fn t<S>(s: S) -> S
+    where
+        S: Symmetric,
+    {
+        s
+    }
+}
+
+impl Transform for Reverse {
+    fn t<S>(s: S) -> S
+    where
+        S: Symmetric,
+    {
+        s.flip()
     }
 }
 
