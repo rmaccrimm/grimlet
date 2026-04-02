@@ -42,10 +42,11 @@ impl IntervalTree {
     pub fn insert(&mut self, ival: (u32, u32)) {
         // Current node being searched, it's parent and direction to add new node
         let mut cur = self.root;
-        let mut prt: Option<(usize, Dir)> = None;
+        let mut par: Option<(usize, Dir)> = None;
         // (Ancestor) root of the subtree for which we'll need to update balance factors, and the
-        // path we took from it
-        let mut anc: Option<usize> = self.root;
+        // path we took from it. Either the last unbalanced node encountered, or root.
+        let mut anc = self.root;
+        let mut anc_par: Option<(usize, Dir)> = None;
         let mut path: Vec<Dir> = vec![];
 
         // Search the tree
@@ -53,7 +54,8 @@ impl IntervalTree {
             // Only need to go as far back as the last unbalanced node we saw on our way
             if self.nodes[n].balance != BF::Balanced {
                 path.clear();
-                anc = Some(n);
+                anc = cur;
+                anc_par = par;
             }
             let dir = if ival.1 < self.nodes[n].center {
                 cur = self.nodes[n].left;
@@ -66,10 +68,10 @@ impl IntervalTree {
                 return;
             };
             path.push(dir);
-            prt = Some((n, dir));
+            par = Some((n, dir));
         }
         // Create new node
-        match prt {
+        match par {
             Some((p, Dir::Left)) => {
                 self.nodes.push(Node::new(ival));
                 self.nodes[p].left = Some(self.nodes.len() - 1);
@@ -83,9 +85,9 @@ impl IntervalTree {
                 self.root = Some(0);
             }
         }
-        let Some(y) = anc else { return };
+        let Some(a) = anc else { return };
         // Update balance factors
-        let mut n = y;
+        let mut n = a;
         for dir in path {
             match dir {
                 Dir::Left => {
@@ -99,40 +101,94 @@ impl IntervalTree {
             }
         }
         // Perform rebalancing
-        if self.nodes[y].balance == BF::UnbalanceLeft {
-            let x = self.nodes[y].left.unwrap();
-            if self.nodes[x].balance == BF::RightHeavy {
-                let w = self.nodes[x].right.unwrap();
-                self.rotate_left(x, w);
+        if self.nodes[a].balance == BF::UnbalanceLeft {
+            let b = self.nodes[a].left.unwrap();
+            if self.nodes[b].balance == BF::RightHeavy {
+                let c = self.nodes[b].right.unwrap();
+                self.rotate_left(b, c);
+                self.rotate_right(a, b);
+                match self.nodes[c].balance {
+                    BF::LeftHeavy => {
+                        self.nodes[b].balance = BF::Balanced;
+                        self.nodes[a].balance = BF::RightHeavy;
+                    }
+                    BF::Balanced => {
+                        self.nodes[b].balance = BF::Balanced;
+                        self.nodes[a].balance = BF::Balanced;
+                    }
+                    BF::RightHeavy => {
+                        self.nodes[b].balance = BF::LeftHeavy;
+                        self.nodes[a].balance = BF::Balanced;
+                    }
+                    _ => panic!("unexpected imbalance"),
+                }
+                self.nodes[c].balance = BF::Balanced;
+                self.reparent(anc_par, c);
+            } else {
+                self.rotate_right(a, b);
+                self.nodes[b].balance = BF::Balanced;
+                self.nodes[a].balance = BF::Balanced;
+                self.reparent(anc_par, b);
             }
-            self.rotate_right(y, x);
-        } else if self.nodes[y].balance == BF::UnbalancedRight {
-            let x = self.nodes[y].right.unwrap();
-            if self.nodes[x].balance == BF::LeftHeavy {
-                let w = self.nodes[x].left.unwrap();
-                self.rotate_right(x, w);
+        } else if self.nodes[a].balance == BF::UnbalancedRight {
+            let b = self.nodes[a].right.unwrap();
+            if self.nodes[b].balance == BF::LeftHeavy {
+                let c = self.nodes[b].left.unwrap();
+                self.rotate_right(b, c);
+                self.rotate_left(a, b);
+                match self.nodes[c].balance {
+                    BF::LeftHeavy => {
+                        self.nodes[b].balance = BF::Balanced;
+                        self.nodes[a].balance = BF::RightHeavy;
+                    }
+                    BF::Balanced => {
+                        self.nodes[b].balance = BF::Balanced;
+                        self.nodes[a].balance = BF::Balanced;
+                    }
+                    BF::RightHeavy => {
+                        self.nodes[b].balance = BF::LeftHeavy;
+                        self.nodes[a].balance = BF::Balanced;
+                    }
+                    _ => panic!("unexpected imbalance"),
+                }
+                self.nodes[c].balance = BF::Balanced;
+                self.reparent(anc_par, c);
+            } else {
+                self.rotate_left(a, b);
+                self.nodes[b].balance = BF::Balanced;
+                self.nodes[a].balance = BF::Balanced;
+                self.reparent(anc_par, b);
             }
-            self.rotate_left(y, x);
         }
     }
 
-    /// Return all intervals containing x
-    pub fn search(&self, x: u32) -> Vec<(u32, u32)> {
+    fn reparent(&mut self, par: Option<(usize, Dir)>, s: usize) {
+        match par {
+            Some((p, dir)) => match dir {
+                Dir::Right => self.nodes[p].right = Some(s),
+                Dir::Left => self.nodes[p].left = Some(s),
+            },
+            None => self.root = Some(s),
+        }
+    }
+
+    /// Return all intervals containing b
+    pub fn search(&self, b: u32) -> Vec<(u32, u32)> {
         let mut curr = self.root;
         let mut results = vec![];
 
         while let Some(n) = curr {
             let node = &self.nodes[n];
 
-            if x == node.center {
+            if b == node.center {
                 results.extend_from_slice(&node.sorted_by_first);
                 return results;
-            } else if x < node.center {
-                let i = node.sorted_by_first.partition_point(|&r| r.0 <= x);
+            } else if b < node.center {
+                let i = node.sorted_by_first.partition_point(|&r| r.0 <= b);
                 results.extend_from_slice(&node.sorted_by_first[0..i]);
                 curr = node.left;
             } else {
-                let i = node.sorted_by_last.partition_point(|&r| r.1 >= x);
+                let i = node.sorted_by_last.partition_point(|&r| r.1 >= b);
                 results.extend_from_slice(&node.sorted_by_last[0..i]);
                 curr = node.right;
             }
@@ -182,21 +238,10 @@ impl IntervalTree {
             panic!("invalid left rotation")
         }
         let c_left_child = self.nodes[c].left;
-
         self.nodes[p].right = c_left_child;
         self.nodes[c].left = Some(p);
-        match self.nodes[c].balance {
-            BF::Balanced => {
-                self.nodes[p].balance = BF::RightHeavy;
-                self.nodes[c].balance = BF::LeftHeavy;
-            }
-            BF::RightHeavy => {
-                self.nodes[p].balance = BF::Balanced;
-                self.nodes[c].balance = BF::Balanced;
-            }
-            _ => {
-                panic!("invalid left rotation")
-            }
+        if self.root == Some(p) {
+            self.root = Some(c);
         }
     }
 
@@ -205,21 +250,10 @@ impl IntervalTree {
             panic!("invalid right rotation")
         }
         let c_right_child = self.nodes[c].right;
-
         self.nodes[p].left = c_right_child;
         self.nodes[c].right = Some(p);
-        match self.nodes[c].balance {
-            BF::Balanced => {
-                self.nodes[p].balance = BF::LeftHeavy;
-                self.nodes[c].balance = BF::RightHeavy;
-            }
-            BF::LeftHeavy => {
-                self.nodes[p].balance = BF::Balanced;
-                self.nodes[c].balance = BF::Balanced;
-            }
-            _ => {
-                panic!("invalid right rotation")
-            }
+        if self.root == Some(p) {
+            self.root = Some(c);
         }
     }
 }
@@ -288,6 +322,22 @@ mod tests {
         check_links(&t, 3, Some(1), Some(5));
         check_links(&t, 4, None, None);
         check_links(&t, 5, Some(4), Some(6));
+        check_links(&t, 6, None, None);
+    }
+
+    #[test]
+    fn test_reverse_order_inserts() {
+        let mut t = IntervalTree::default();
+        for i in (0..7).rev() {
+            t.insert((i, i));
+        }
+        assert_eq!(t.root, Some(3));
+        check_links(&t, 0, None, None);
+        check_links(&t, 1, Some(2), Some(0));
+        check_links(&t, 2, None, None);
+        check_links(&t, 3, Some(5), Some(1));
+        check_links(&t, 4, None, None);
+        check_links(&t, 5, Some(6), Some(4));
         check_links(&t, 6, None, None);
     }
 
