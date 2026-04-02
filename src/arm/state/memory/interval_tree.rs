@@ -8,6 +8,16 @@ pub struct IntervalTree {
     nodes: Vec<Node>,
 }
 
+#[derive(Clone, Default, PartialEq, Eq, Debug)]
+struct Node {
+    center: u32,
+    sorted_by_first: Vec<(u32, u32)>,
+    sorted_by_last: Vec<(u32, u32)>,
+    left: Option<usize>,
+    right: Option<usize>,
+    balance: BF,
+}
+
 // Balance factor
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
 enum BF {
@@ -20,19 +30,9 @@ enum BF {
 }
 
 #[derive(Copy, Clone)]
-enum Traversal {
+enum Direction {
     Left,
     Right,
-}
-
-#[derive(Clone, Default, PartialEq, Eq, Debug)]
-struct Node {
-    center: u32,
-    sorted_by_first: Vec<(u32, u32)>,
-    sorted_by_last: Vec<(u32, u32)>,
-    left: Option<usize>,
-    right: Option<usize>,
-    balance: BF,
 }
 
 trait Symmetric {
@@ -40,7 +40,7 @@ trait Symmetric {
 }
 
 trait Transform {
-    fn t<S>(s: S) -> S
+    fn transform<S>(s: S) -> S
     where
         S: Symmetric;
 }
@@ -54,12 +54,12 @@ impl IntervalTree {
     pub fn insert(&mut self, ival: (u32, u32)) {
         // Current node being searched, it's parent and direction to add new node
         let mut cur = self.root;
-        let mut par: Option<(usize, Traversal)> = None;
+        let mut par: Option<(usize, Direction)> = None;
         // (Ancestor) root of the subtree for which we'll need to update balance factors, and the
         // path we took from it. Either the last unbalanced node encountered, or root.
         let mut anc = self.root;
-        let mut anc_par: Option<(usize, Traversal)> = None;
-        let mut path: Vec<Traversal> = vec![];
+        let mut anc_par: Option<(usize, Direction)> = None;
+        let mut path: Vec<Direction> = vec![];
 
         // Search the tree
         while let Some(n) = cur {
@@ -70,9 +70,9 @@ impl IntervalTree {
                 anc_par = par;
             }
             let dir = if ival.1 < self.nodes[n].center {
-                Traversal::Left
+                Direction::Left
             } else if ival.0 > self.nodes[n].center {
-                Traversal::Right
+                Direction::Right
             } else {
                 self.nodes[n].add(ival);
                 return;
@@ -97,46 +97,30 @@ impl IntervalTree {
         // Update balance factors
         let mut n = a;
         for dir in path {
-            match dir {
-                Traversal::Left => {
-                    self.nodes[n].dec_balance();
-                    n = self.nodes[n].left.unwrap();
-                }
-                Traversal::Right => {
-                    self.nodes[n].inc_balance();
-                    n = self.nodes[n].right.unwrap();
-                }
-            }
+            self.nodes[n].adjust_balance(dir);
+            n = self.nodes[n].child(dir).unwrap();
         }
         // Perform rebalancing
         self.rebalance_insert::<Forward>(a, anc_par);
         self.rebalance_insert::<Reverse>(a, anc_par);
     }
 
-    fn reparent(&mut self, par: Option<(usize, Traversal)>, s: usize) {
-        match par {
-            Some((p, dir)) => match dir {
-                Traversal::Right => self.nodes[p].right = Some(s),
-                Traversal::Left => self.nodes[p].left = Some(s),
-            },
-            None => self.root = Some(s),
-        }
-    }
-
     // Takes the following nodes
     // a: root of the sub-tree which needs to be re-balanced
     // parent: parent of node, may be None if node is the root
-    fn rebalance_insert<T>(&mut self, a: usize, parent: Option<(usize, Traversal)>)
+    fn rebalance_insert<T>(&mut self, a: usize, parent: Option<(usize, Direction)>)
     where
         T: Transform,
     {
-        if T::t(self.nodes[a].balance) == BF::UnbalancedLeft {
-            let b = self.nodes[a].child(T::t(Traversal::Left)).unwrap();
-            match T::t(self.nodes[b].balance) {
+        if T::transform(self.nodes[a].balance) == BF::UnbalancedLeft {
+            let b = self.nodes[a].child(T::transform(Direction::Left)).unwrap();
+            match T::transform(self.nodes[b].balance) {
                 BF::RightHeavy => {
-                    let c = self.nodes[b].child(T::t(Traversal::Right)).unwrap();
-                    self.rotate(T::t(Traversal::Left), b, c);
-                    self.rotate(T::t(Traversal::Right), a, b);
+                    let c = self.nodes[b].child(T::transform(Direction::Right)).unwrap();
+                    self.rotate(T::transform(Direction::Left), b, c);
+                    self.nodes[a].set_child(T::transform(Direction::Left), Some(c));
+                    self.rotate(T::transform(Direction::Right), a, c);
+                    self.reparent(parent, c);
                     match self.nodes[c].balance {
                         BF::LeftHeavy => {
                             self.nodes[b].balance = BF::Balanced;
@@ -153,10 +137,9 @@ impl IntervalTree {
                         _ => panic!("unexpected imbalance"),
                     }
                     self.nodes[c].balance = BF::Balanced;
-                    self.reparent(parent, c);
                 }
                 BF::LeftHeavy => {
-                    self.rotate(T::t(Traversal::Right), a, b);
+                    self.rotate(T::transform(Direction::Right), a, b);
                     self.nodes[b].balance = BF::Balanced;
                     self.nodes[a].balance = BF::Balanced;
                     self.reparent(parent, b);
@@ -227,7 +210,7 @@ impl IntervalTree {
         }
     }
 
-    fn rotate(&mut self, d: Traversal, p: usize, c: usize) {
+    fn rotate(&mut self, d: Direction, p: usize, c: usize) {
         if self.nodes[p].child(d.flip()) != Some(c) {
             panic!("invalid rotation")
         }
@@ -236,6 +219,15 @@ impl IntervalTree {
         self.nodes[c].set_child(d, Some(p));
         if self.root == Some(p) {
             self.root = Some(c);
+        }
+    }
+
+    fn reparent(&mut self, par: Option<(usize, Direction)>, s: usize) {
+        match par {
+            Some((p, dir)) => {
+                self.nodes[p].set_child(dir, Some(s));
+            }
+            None => self.root = Some(s),
         }
     }
 }
@@ -261,17 +253,24 @@ impl Node {
         }
     }
 
-    fn set_child(&mut self, d: Traversal, c: Option<usize>) {
+    fn set_child(&mut self, d: Direction, c: Option<usize>) {
         match d {
-            Traversal::Left => self.left = c,
-            Traversal::Right => self.right = c,
+            Direction::Left => self.left = c,
+            Direction::Right => self.right = c,
         }
     }
 
-    fn child(&self, d: Traversal) -> Option<usize> {
+    fn child(&self, d: Direction) -> Option<usize> {
         match d {
-            Traversal::Left => self.left,
-            Traversal::Right => self.right,
+            Direction::Left => self.left,
+            Direction::Right => self.right,
+        }
+    }
+
+    fn adjust_balance(&mut self, d: Direction) {
+        match d {
+            Direction::Left => self.dec_balance(),
+            Direction::Right => self.inc_balance(),
         }
     }
 
@@ -296,7 +295,7 @@ impl Node {
     }
 }
 
-impl Symmetric for Traversal {
+impl Symmetric for Direction {
     fn flip(self) -> Self {
         match self {
             Self::Left => Self::Right,
@@ -318,7 +317,7 @@ impl Symmetric for BF {
 }
 
 impl Transform for Forward {
-    fn t<S>(s: S) -> S
+    fn transform<S>(s: S) -> S
     where
         S: Symmetric,
     {
@@ -327,7 +326,7 @@ impl Transform for Forward {
 }
 
 impl Transform for Reverse {
-    fn t<S>(s: S) -> S
+    fn transform<S>(s: S) -> S
     where
         S: Symmetric,
     {
@@ -374,6 +373,23 @@ mod tests {
         check_links(&t, 4, None, None);
         check_links(&t, 5, Some(6), Some(4));
         check_links(&t, 6, None, None);
+    }
+
+    #[test]
+    fn test_double_rotates() {
+        let mut t = IntervalTree::default();
+        // order chosen to trigger double rotations in both directions
+        for i in [2u32, 6, 4, 0, 1, 3, 5] {
+            t.insert((i, i));
+        }
+        assert_eq!(t.root, Some(0));
+        check_links(&t, 0, Some(4), Some(2)); // 2
+        check_links(&t, 1, Some(6), None); // 6
+        check_links(&t, 2, Some(5), Some(1)); // 4
+        check_links(&t, 3, None, None); // 0
+        check_links(&t, 4, Some(3), None); // 1
+        check_links(&t, 5, None, None); // 3
+        check_links(&t, 6, None, None); //5
     }
 
     #[test]
