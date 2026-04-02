@@ -70,27 +70,23 @@ impl IntervalTree {
                 anc_par = par;
             }
             let dir = if ival.1 < self.nodes[n].center {
-                cur = self.nodes[n].left;
                 Traversal::Left
             } else if ival.0 > self.nodes[n].center {
-                cur = self.nodes[n].right;
                 Traversal::Right
             } else {
                 self.nodes[n].add(ival);
                 return;
             };
+            cur = self.nodes[n].child(dir);
             path.push(dir);
             par = Some((n, dir));
         }
         // Create new node
         match par {
-            Some((p, Traversal::Left)) => {
+            Some((p, dir)) => {
                 self.nodes.push(Node::new(ival));
-                self.nodes[p].left = Some(self.nodes.len() - 1);
-            }
-            Some((p, Traversal::Right)) => {
-                self.nodes.push(Node::new(ival));
-                self.nodes[p].right = Some(self.nodes.len() - 1);
+                let c = Some(self.nodes.len() - 1);
+                self.nodes[p].set_child(dir, c);
             }
             None => {
                 self.nodes.push(Node::new(ival));
@@ -115,78 +111,6 @@ impl IntervalTree {
         // Perform rebalancing
         self.rebalance_insert::<Forward>(a, anc_par);
         self.rebalance_insert::<Reverse>(a, anc_par);
-
-        // match self.nodes[a].balance {
-        //     BF::UnbalancedLeft => {
-        //         let b = self.nodes[a].left.unwrap();
-        //         match self.nodes[b].balance {
-        //             BF::RightHeavy => {
-        //                 let c = self.nodes[b].right.unwrap();
-        //                 self.rotate_left(b, c);
-        //                 self.rotate_right(a, b);
-        //                 match self.nodes[c].balance {
-        //                     BF::LeftHeavy => {
-        //                         self.nodes[b].balance = BF::Balanced;
-        //                         self.nodes[a].balance = BF::RightHeavy;
-        //                     }
-        //                     BF::Balanced => {
-        //                         self.nodes[b].balance = BF::Balanced;
-        //                         self.nodes[a].balance = BF::Balanced;
-        //                     }
-        //                     BF::RightHeavy => {
-        //                         self.nodes[b].balance = BF::LeftHeavy;
-        //                         self.nodes[a].balance = BF::Balanced;
-        //                     }
-        //                     _ => panic!("unexpected imbalance"),
-        //                 }
-        //                 self.nodes[c].balance = BF::Balanced;
-        //                 self.reparent(anc_par, c);
-        //             }
-        //             BF::LeftHeavy => {
-        //                 self.rotate_right(a, b);
-        //                 self.nodes[b].balance = BF::Balanced;
-        //                 self.nodes[a].balance = BF::Balanced;
-        //                 self.reparent(anc_par, b);
-        //             }
-        //             _ => panic!("invalid balance"),
-        //         }
-        //     }
-        //     BF::UnbalancedRight => {
-        //         let b = self.nodes[a].right.unwrap();
-        //         match self.nodes[b].balance {
-        //             BF::LeftHeavy => {
-        //                 let c = self.nodes[b].left.unwrap();
-        //                 self.rotate_right(b, c);
-        //                 self.rotate_left(a, b);
-        //                 match self.nodes[c].balance {
-        //                     BF::LeftHeavy => {
-        //                         self.nodes[b].balance = BF::Balanced;
-        //                         self.nodes[a].balance = BF::RightHeavy;
-        //                     }
-        //                     BF::Balanced => {
-        //                         self.nodes[b].balance = BF::Balanced;
-        //                         self.nodes[a].balance = BF::Balanced;
-        //                     }
-        //                     BF::RightHeavy => {
-        //                         self.nodes[b].balance = BF::LeftHeavy;
-        //                         self.nodes[a].balance = BF::Balanced;
-        //                     }
-        //                     _ => panic!("invalid balance"),
-        //                 }
-        //                 self.nodes[c].balance = BF::Balanced;
-        //                 self.reparent(anc_par, c);
-        //             }
-        //             BF::RightHeavy => {
-        //                 self.rotate_left(a, b);
-        //                 self.nodes[b].balance = BF::Balanced;
-        //                 self.nodes[a].balance = BF::Balanced;
-        //                 self.reparent(anc_par, b);
-        //             }
-        //             _ => panic!("invalid balance"),
-        //         }
-        //     }
-        //     _ => (),
-        // }
     }
 
     fn reparent(&mut self, par: Option<(usize, Traversal)>, s: usize) {
@@ -308,16 +232,8 @@ impl IntervalTree {
             panic!("invalid rotation")
         }
         let c_child = self.nodes[c].child(d);
-        match d {
-            Traversal::Left => {
-                self.nodes[p].right = c_child;
-                self.nodes[c].left = Some(p);
-            }
-            Traversal::Right => {
-                self.nodes[p].left = c_child;
-                self.nodes[c].right = Some(p);
-            }
-        }
+        self.nodes[p].set_child(d.flip(), c_child);
+        self.nodes[c].set_child(d, Some(p));
         if self.root == Some(p) {
             self.root = Some(c);
         }
@@ -342,6 +258,13 @@ impl Node {
             self.sorted_by_first.sort_by_key(|i| i.0);
             self.sorted_by_last.push(ival);
             self.sorted_by_last.sort_by_key(|i| std::cmp::Reverse(i.1));
+        }
+    }
+
+    fn set_child(&mut self, d: Traversal, c: Option<usize>) {
+        match d {
+            Traversal::Left => self.left = c,
+            Traversal::Right => self.right = c,
         }
     }
 
