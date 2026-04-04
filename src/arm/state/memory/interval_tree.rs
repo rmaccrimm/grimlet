@@ -9,7 +9,7 @@ pub struct IntervalTree {
 }
 
 #[derive(Clone, Default, PartialEq, Eq, Debug)]
-struct Node {
+pub struct Node {
     center: u32,
     sorted_by_first: Vec<(u32, u32)>,
     sorted_by_last: Vec<(u32, u32)>,
@@ -18,36 +18,20 @@ struct Node {
     balance: BF,
 }
 
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum Direction {
+    Left = 0,
+    Right = 1,
+}
+
 // Balance factor
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
-enum BF {
+pub enum BF {
     #[default]
-    Balanced = 0,
-    LeftHeavy = -1,
-    RightHeavy = 1,
-    UnbalancedLeft = -2,
-    UnbalancedRight = 2,
+    Balanced,
+    Heavy(Direction),
+    Unbalanced(Direction),
 }
-
-#[derive(Copy, Clone)]
-enum Direction {
-    Left,
-    Right,
-}
-
-trait Symmetric {
-    fn flip(self) -> Self;
-}
-
-trait Transform {
-    fn transform<S>(s: S) -> S
-    where
-        S: Symmetric;
-}
-
-struct Forward();
-
-struct Reverse();
 
 impl IntervalTree {
     /// Insert a new interval. Has no effect if tree already contains the interval.
@@ -97,54 +81,49 @@ impl IntervalTree {
         // Update balance factors
         let mut n = a;
         for dir in path {
-            self.nodes[n].adjust_balance(dir);
+            self.nodes[n].balance = self.nodes[n].balance.adjust(dir);
             n = self.nodes[n].child(dir).unwrap();
         }
         // Perform rebalancing
-        self.rebalance_insert::<Forward>(a, anc_par);
-        self.rebalance_insert::<Reverse>(a, anc_par);
+        self.rebalance_insert(a, anc_par);
     }
 
     // Takes the following nodes
     // a: root of the sub-tree which needs to be re-balanced
-    // parent: parent of node, may be None if node is the root
-    fn rebalance_insert<T>(&mut self, a: usize, parent: Option<(usize, Direction)>)
-    where
-        T: Transform,
-    {
-        if T::transform(self.nodes[a].balance) == BF::UnbalancedLeft {
-            let b = self.nodes[a].child(T::transform(Direction::Left)).unwrap();
-            match T::transform(self.nodes[b].balance) {
-                BF::RightHeavy => {
-                    let c = self.nodes[b].child(T::transform(Direction::Right)).unwrap();
-                    self.rotate(T::transform(Direction::Left), b, c);
-                    self.nodes[a].set_child(T::transform(Direction::Left), Some(c));
-                    self.rotate(T::transform(Direction::Right), a, c);
+    // parent: parent of a, may be None if node is the root
+    fn rebalance_insert(&mut self, a: usize, parent: Option<(usize, Direction)>) {
+        if let BF::Unbalanced(dir) = self.nodes[a].balance {
+            let b = self.nodes[a].child(dir).unwrap();
+            if let BF::Heavy(dir_bc) = self.nodes[b].balance {
+                if dir_bc == dir.flip() {
+                    let c = self.nodes[b].child(dir.flip()).unwrap();
+                    self.rotate(dir, b, c);
+                    self.nodes[a].set_child(dir, Some(c));
+                    self.rotate(dir.flip(), a, c);
                     self.reparent(parent, c);
                     match self.nodes[c].balance {
-                        BF::LeftHeavy => {
-                            self.nodes[b].balance = BF::Balanced;
-                            self.nodes[a].balance = BF::RightHeavy;
+                        BF::Heavy(dir_cd) => {
+                            if dir_cd == dir {
+                                self.nodes[b].balance = BF::Balanced;
+                                self.nodes[a].balance = BF::Heavy(dir.flip());
+                            } else {
+                                self.nodes[b].balance = BF::Heavy(dir);
+                                self.nodes[a].balance = BF::Balanced;
+                            }
                         }
                         BF::Balanced => {
                             self.nodes[b].balance = BF::Balanced;
                             self.nodes[a].balance = BF::Balanced;
                         }
-                        BF::RightHeavy => {
-                            self.nodes[b].balance = BF::LeftHeavy;
-                            self.nodes[a].balance = BF::Balanced;
-                        }
                         _ => panic!("unexpected imbalance"),
                     }
                     self.nodes[c].balance = BF::Balanced;
-                }
-                BF::LeftHeavy => {
-                    self.rotate(T::transform(Direction::Right), a, b);
+                } else {
+                    self.rotate(dir.flip(), a, b);
                     self.nodes[b].balance = BF::Balanced;
                     self.nodes[a].balance = BF::Balanced;
                     self.reparent(parent, b);
                 }
-                _ => panic!("invalid balance"),
             }
         }
     }
@@ -266,36 +245,9 @@ impl Node {
             Direction::Right => self.right,
         }
     }
-
-    fn adjust_balance(&mut self, d: Direction) {
-        match d {
-            Direction::Left => self.dec_balance(),
-            Direction::Right => self.inc_balance(),
-        }
-    }
-
-    fn inc_balance(&mut self) {
-        self.balance = match (self.balance as i8) + 1 {
-            -1 => BF::LeftHeavy,
-            0 => BF::Balanced,
-            1 => BF::RightHeavy,
-            2 => BF::UnbalancedRight,
-            _ => panic!("invalid balance factor"),
-        };
-    }
-
-    fn dec_balance(&mut self) {
-        self.balance = match (self.balance as i8) - 1 {
-            -2 => BF::UnbalancedLeft,
-            -1 => BF::LeftHeavy,
-            0 => BF::Balanced,
-            1 => BF::RightHeavy,
-            _ => panic!("invalid balance factor"),
-        };
-    }
 }
 
-impl Symmetric for Direction {
+impl Direction {
     fn flip(self) -> Self {
         match self {
             Self::Left => Self::Right,
@@ -304,33 +256,25 @@ impl Symmetric for Direction {
     }
 }
 
-impl Symmetric for BF {
-    fn flip(self) -> Self {
-        match self {
-            Self::Balanced => self,
-            Self::LeftHeavy => Self::RightHeavy,
-            Self::RightHeavy => Self::LeftHeavy,
-            Self::UnbalancedLeft => Self::UnbalancedRight,
-            Self::UnbalancedRight => Self::UnbalancedLeft,
+impl BF {
+    fn adjust(self, dir: Direction) -> Self {
+        match (self, dir) {
+            (BF::Balanced, dir) => BF::Heavy(dir),
+            (BF::Heavy(d1), d2) => {
+                if d1 == d2 {
+                    BF::Unbalanced(d1)
+                } else {
+                    BF::Balanced
+                }
+            }
+            (BF::Unbalanced(d1), d2) => {
+                if d1 != d2 {
+                    BF::Heavy(d1)
+                } else {
+                    panic!("balance out of bounds")
+                }
+            }
         }
-    }
-}
-
-impl Transform for Forward {
-    fn transform<S>(s: S) -> S
-    where
-        S: Symmetric,
-    {
-        s
-    }
-}
-
-impl Transform for Reverse {
-    fn transform<S>(s: S) -> S
-    where
-        S: Symmetric,
-    {
-        s.flip()
     }
 }
 
