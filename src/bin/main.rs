@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 
 use eframe::egui::{self, Color32, ColorImage, TextureOptions};
+use grimlet::arm::state::memory::interval_tree::{BF, Direction, IntervalTree, Node};
 
 const WIDTH: usize = 320;
 const HEIGHT: usize = 240;
@@ -15,16 +16,23 @@ struct World {
     velocity_y: i16,
 }
 
-fn main() -> eframe::Result {
-    let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([WIDTH as f32, HEIGHT as f32]),
-        ..Default::default()
-    };
-    eframe::run_native(
-        "Image Viewer",
-        options,
-        Box::new(|_| Ok(Box::new(MyApp::new()))),
-    )
+fn main() -> anyhow::Result<()> {
+    // let options = eframe::NativeOptions {
+    //     viewport: egui::ViewportBuilder::default().with_inner_size([WIDTH as f32, HEIGHT as f32]),
+    //     ..Default::default()
+    // };
+    // eframe::run_native(
+    //     "Image Viewer",
+    //     options,
+    //     Box::new(|_| Ok(Box::new(MyApp::new()))),
+    // )
+    println!("Node: {}", size_of::<Node<u32>>());
+    println!("BF: {}", size_of::<BF>());
+    println!("Direction: {}", size_of::<Direction>());
+    println!("IntervalTree: {}", size_of::<IntervalTree<u32>>());
+    println!("Option<usize>: {}", size_of::<Option<usize>>());
+    println!("Vec<(u32, u32)>: {}", size_of::<Vec<(u32, u32)>>());
+    Ok(())
 }
 
 struct MyApp {
