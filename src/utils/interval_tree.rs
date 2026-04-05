@@ -74,10 +74,10 @@ impl<T: Average + Copy + PartialEq + Display> IntervalTree<T> {
         // Create new node
         match par {
             Some((p, dir)) => {
-                self.nodes.insert(self.k, Node::new(ival));
+                let c = self.k;
                 self.k += 1;
-                let c = Some(self.nodes.len() - 1);
-                self.node(p).set_child(dir, c);
+                self.nodes.insert(c, Node::new(ival));
+                self.node(p).set_child(dir, Some(c));
             }
             None => {
                 self.nodes.insert(self.k, Node::new(ival));
@@ -167,6 +167,7 @@ impl<T: Average + Copy + PartialEq + Display> IntervalTree<T> {
                     self.node(path.last().unwrap().0).right = self.node(pred).left;
                     self.node(pred).left = removed.left;
                     self.node(pred).right = removed.right;
+                    self.node(pred).balance = removed.balance;
                     // Replace removed node on the stack
                     path[removed_pos] = (pred, Direction::Left);
                     Some(pred)
@@ -256,7 +257,11 @@ impl<T: Average + Copy + PartialEq + Display> IntervalTree<T> {
         }
     }
 
-    fn node(&mut self, k: usize) -> &mut Node<T> { self.nodes.get_mut(&k).expect("node not found") }
+    fn node(&mut self, k: usize) -> &mut Node<T> {
+        self.nodes
+            .get_mut(&k)
+            .unwrap_or_else(|| panic!("node {} not found", k))
+    }
 
     fn rotate(&mut self, d: Direction, p: usize, c: usize) {
         if self.node(p).child(d.flip()) != Some(c) {

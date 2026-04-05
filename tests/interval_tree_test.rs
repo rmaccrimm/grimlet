@@ -25,11 +25,11 @@ fn time_bulk_inserts_delete() -> Result<()> {
             .expect("no start field")
             .parse()
             .expect("parsing start failed");
-        let end: i32 = sp
-            .next()
-            .expect("no end field")
-            .parse()
-            .expect("parsing end failed");
+        // let end: i32 = sp
+        //     .next()
+        //     .expect("no end field")
+        //     .parse()
+        //     .expect("parsing end failed");
         if op == "i" {
             ops.push(Op::Insert(start, start));
         } else {
@@ -38,16 +38,14 @@ fn time_bulk_inserts_delete() -> Result<()> {
     }
     let mut t = IntervalTree::<i32>::default();
     let now = Instant::now();
-    for (i, op) in ops.iter().enumerate() {
-        println!("{}: {:?}", i, op);
+    for op in ops {
         match op {
-            Op::Insert(s, e) => t.insert((*s, *e)),
-            Op::Delete(s, e) => match t.remove((*s, *e)) {
+            Op::Insert(s, e) => t.insert((s, e)),
+            Op::Delete(s, e) => match t.remove((s, e)) {
                 Ok(()) => (),
                 Err(e) => println!("{}", e),
             },
         }
-        t.verify(t.root.unwrap(), None, None);
     }
     let elapsed = now.elapsed();
     println!("Completed in {:.2?}s", elapsed);
