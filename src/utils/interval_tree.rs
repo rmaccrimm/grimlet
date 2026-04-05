@@ -2,7 +2,7 @@ use std::collections::{HashMap, VecDeque};
 use std::fmt::Display;
 use std::ops::{Add, AddAssign};
 
-use anyhow::{Result, bail};
+use anyhow::{Result, anyhow, bail};
 use num::integer::Average;
 
 // Some premature optimization, just for fun. Used to lookup all cached function blocks covering a
@@ -291,6 +291,53 @@ impl<T: Average + Copy + PartialEq + Display> IntervalTree<T> {
             }
         }
     }
+
+    pub fn verify(&self, n: usize, left: Option<T>, right: Option<T>) -> i32 {
+        let node = self.nodes.get(&n).expect("missing node");
+        if let BF::Unbalanced(_) = node.balance {
+            panic!("node {} is not balanced", n);
+        }
+        if let Some(limit) = left {
+            for ival in node.sorted_by_first.iter() {
+                assert!(
+                    ival.0 > limit,
+                    "node {}: {} not greater than left limit {} ",
+                    n,
+                    ival.0,
+                    limit
+                )
+            }
+        }
+        if let Some(limit) = right {
+            for ival in node.sorted_by_first.iter() {
+                assert!(
+                    ival.1 < limit,
+                    "node {}: {} not greater than right limit {} ",
+                    n,
+                    ival.1,
+                    limit
+                )
+            }
+        }
+        let height_l = if let Some(l) = node.left {
+            self.verify(l, left, Some(node.center))
+        } else {
+            0
+        };
+        let height_r = if let Some(r) = node.right {
+            self.verify(r, Some(node.center), right)
+        } else {
+            0
+        };
+        assert_eq!(
+            BF::try_from((height_l, height_r)).unwrap(),
+            node.balance,
+            "node {}: incorrect balance",
+            n
+        );
+
+        std::cmp::max(height_l, height_r) + 1
+    }
 }
 
 impl<T: Average + Copy + PartialEq + Display> Display for IntervalTree<T> {
@@ -423,6 +470,22 @@ impl AddAssign<Direction> for BF {
     fn add_assign(&mut self, rhs: Direction) { *self = self.add(rhs); }
 }
 
+impl TryFrom<(i32, i32)> for BF {
+    type Error = String;
+
+    fn try_from(heights: (i32, i32)) -> std::result::Result<Self, Self::Error> {
+        let (l, r) = heights;
+        match r - l {
+            0 => Ok(BF::Balanced),
+            1 => Ok(BF::Heavy(Direction::Right)),
+            -1 => Ok(BF::Heavy(Direction::Left)),
+            2 => Ok(BF::Unbalanced(Direction::Right)),
+            -2 => Ok(BF::Unbalanced(Direction::Left)),
+            _ => Err("Heights differ by more than 2".into()),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -444,6 +507,8 @@ mod tests {
             t.insert((i, i));
         }
         assert_eq!(t.root, Some(3));
+        t.verify(3, None, None);
+
         check_links(&t, 0, None, None);
         check_links(&t, 1, Some(0), Some(2));
         check_links(&t, 2, None, None);
@@ -460,6 +525,8 @@ mod tests {
             t.insert((i, i));
         }
         assert_eq!(t.root, Some(3));
+        t.verify(3, None, None);
+
         check_links(&t, 0, None, None);
         check_links(&t, 1, Some(2), Some(0));
         check_links(&t, 2, None, None);
@@ -477,6 +544,8 @@ mod tests {
             t.insert((i, i));
         }
         assert_eq!(t.root, Some(0));
+        t.verify(0, None, None);
+
         check_links(&t, 0, Some(4), Some(2)); // 2
         check_links(&t, 1, Some(6), None); // 6
         check_links(&t, 2, Some(5), Some(1)); // 4
@@ -493,7 +562,9 @@ mod tests {
         t.insert((5, 15));
         t.insert((-9, -1));
         t.insert((1, 9));
-        println!("{}", t);
+
+        assert_eq!(t.root, Some(0));
+        t.verify(0, None, None);
 
         assert_eq!(t.search(8), vec![(-20, 20), (5, 15), (1, 9)]);
     }
@@ -505,8 +576,13 @@ mod tests {
             t.insert((i, i));
         }
         t.remove((0, 0)).unwrap();
+        assert_eq!(t.root, Some(7));
+        t.verify(7, None, None);
         check_links(&t, 1, None, Some(2));
+
         t.remove((6, 6)).unwrap();
+        assert_eq!(t.root, Some(7));
+        t.verify(7, None, None);
         check_links(&t, 5, Some(4), None);
 
         let mut t = IntervalTree::default();
@@ -524,6 +600,7 @@ mod tests {
         t.remove((0, 0)).unwrap();
         assert!(!t.nodes.contains_key(&0));
         assert_eq!(t.root, Some(1));
+        t.verify(1, None, None);
         check_links(&t, 1, None, None);
 
         let mut t = IntervalTree::default();
@@ -534,6 +611,8 @@ mod tests {
         t.remove((9, 9)).unwrap();
         assert!(!t.nodes.contains_key(&8));
         assert!(!t.nodes.contains_key(&9));
+        assert_eq!(t.root, Some(7));
+        t.verify(7, None, None);
         check_links(&t, 11, Some(10), Some(13));
         check_links(&t, 10, None, None);
     }
@@ -547,6 +626,7 @@ mod tests {
         t.remove((1, 1)).unwrap();
         assert!(!t.nodes.contains_key(&1));
         assert_eq!(t.root, Some(0));
+        t.verify(0, None, None);
         check_links(&t, 0, None, Some(2));
         check_links(&t, 2, None, None);
 
@@ -556,6 +636,8 @@ mod tests {
         }
         t.remove((10, 10)).unwrap();
         t.remove((11, 11)).unwrap();
+        assert_eq!(t.root, Some(7));
+        t.verify(0, None, None);
         assert!(!t.nodes.contains_key(&10));
         assert!(!t.nodes.contains_key(&11));
         check_links(&t, 7, Some(3), Some(9));
@@ -572,6 +654,7 @@ mod tests {
         t.remove((3, 3)).unwrap();
         assert!(!t.nodes.contains_key(&3));
         assert_eq!(t.root, Some(2));
+        t.verify(2, None, None);
         check_links(&t, 1, Some(0), None);
         check_links(&t, 2, Some(1), Some(5));
 
@@ -580,6 +663,8 @@ mod tests {
             t.insert((i, i));
         }
         t.remove((11, 11)).unwrap();
+        assert_eq!(t.root, Some(7));
+        t.verify(0, None, None);
         assert!(!t.nodes.contains_key(&11));
         check_links(&t, 7, Some(3), Some(10));
         check_links(&t, 9, Some(8), None);
@@ -588,11 +673,217 @@ mod tests {
 
     #[test]
     fn test_avl_delete_multiple_rebalances() {
+        //       __4_
+        //      /    \
+        //     1      9
+        //    / \    / \
+        //   0   3  7  10
+        //      /  / \   \
+        //     2  5   8  11
+        //         \
+        //          6
         let mut t = IntervalTree::default();
         for i in [4, 1, 9, 0, 3, 7, 10, 2, 5, 8, 11, 6] {
             t.insert((i, i));
         }
+        assert_eq!(t.root, Some(0));
+        t.verify(4, None, None);
+
         t.remove((0, 0)).unwrap();
-        println!("{}", t);
+        assert_eq!(t.root, Some(5));
+        t.verify(7, None, None);
+    }
+
+    #[test]
+    #[should_panic(expected = "6 not greater than right limit 5")]
+    fn test_verify_invalid_bst() {
+        let nodes = HashMap::from([
+            (
+                0,
+                Node {
+                    center: 5,
+                    sorted_by_first: vec![(5, 5)],
+                    sorted_by_last: vec![(5, 5)],
+                    left: Some(1),
+                    right: Some(3),
+                    balance: BF::Heavy(Direction::Left),
+                },
+            ),
+            (
+                1,
+                Node {
+                    center: 3,
+                    sorted_by_first: vec![(3, 3)],
+                    sorted_by_last: vec![(3, 3)],
+                    left: None,
+                    right: Some(2),
+                    balance: BF::Heavy(Direction::Right),
+                },
+            ),
+            (
+                2,
+                Node {
+                    center: 6,
+                    sorted_by_first: vec![(6, 6)],
+                    sorted_by_last: vec![(6, 6)],
+                    left: None,
+                    right: None,
+                    balance: BF::Balanced,
+                },
+            ),
+            (
+                3,
+                Node {
+                    center: 7,
+                    sorted_by_first: vec![(7, 7)],
+                    sorted_by_last: vec![(7, 7)],
+                    left: None,
+                    right: None,
+                    balance: BF::Balanced,
+                },
+            ),
+        ]);
+        let t = IntervalTree {
+            root: Some(0),
+            nodes,
+            k: 0,
+        };
+        t.verify(0, None, None);
+    }
+
+    #[test]
+    #[should_panic(expected = "incorrect balance")]
+    fn test_verify_incorrect_balance() {
+        let nodes = HashMap::from([
+            (
+                0,
+                Node {
+                    center: 3,
+                    sorted_by_first: vec![(3, 3)],
+                    sorted_by_last: vec![(3, 3)],
+                    left: None,
+                    right: Some(1),
+                    balance: BF::Heavy(Direction::Right),
+                },
+            ),
+            (
+                1,
+                Node {
+                    center: 5,
+                    sorted_by_first: vec![(5, 5)],
+                    sorted_by_last: vec![(5, 5)],
+                    left: Some(2),
+                    right: Some(3),
+                    balance: BF::Balanced,
+                },
+            ),
+            (
+                2,
+                Node {
+                    center: 4,
+                    sorted_by_first: vec![(4, 4)],
+                    sorted_by_last: vec![(4, 4)],
+                    left: None,
+                    right: None,
+                    balance: BF::Balanced,
+                },
+            ),
+            (
+                3,
+                Node {
+                    center: 7,
+                    sorted_by_first: vec![(7, 7)],
+                    sorted_by_last: vec![(7, 7)],
+                    left: None,
+                    right: None,
+                    balance: BF::Balanced,
+                },
+            ),
+        ]);
+        let t = IntervalTree {
+            root: Some(0),
+            nodes,
+            k: 0,
+        };
+        t.verify(0, None, None);
+    }
+
+    #[test]
+    #[should_panic(expected = "node 3 is not balanced")]
+    fn test_verify_invalid_avl_balance() {
+        let nodes = HashMap::from([
+            (
+                0,
+                Node {
+                    center: 1,
+                    sorted_by_first: vec![(1, 1)],
+                    sorted_by_last: vec![(1, 1)],
+                    left: None,
+                    right: None,
+                    balance: BF::Balanced,
+                },
+            ),
+            (
+                1,
+                Node {
+                    center: 2,
+                    sorted_by_first: vec![(2, 2)],
+                    sorted_by_last: vec![(2, 3)],
+                    left: Some(0),
+                    right: None,
+                    balance: BF::Heavy(Direction::Left),
+                },
+            ),
+            (
+                2,
+                Node {
+                    center: 3,
+                    sorted_by_first: vec![(3, 3)],
+                    sorted_by_last: vec![(3, 3)],
+                    left: Some(1),
+                    right: Some(3),
+                    balance: BF::Heavy(Direction::Right),
+                },
+            ),
+            (
+                3,
+                Node {
+                    center: 7,
+                    sorted_by_first: vec![(7, 7)],
+                    sorted_by_last: vec![(7, 7)],
+                    left: Some(4),
+                    right: None,
+                    balance: BF::Unbalanced(Direction::Left),
+                },
+            ),
+            (
+                4,
+                Node {
+                    center: 4,
+                    sorted_by_first: vec![(4, 4)],
+                    sorted_by_last: vec![(4, 4)],
+                    left: None,
+                    right: Some(5),
+                    balance: BF::Heavy(Direction::Right),
+                },
+            ),
+            (
+                5,
+                Node {
+                    center: 5,
+                    sorted_by_first: vec![(5, 5)],
+                    sorted_by_last: vec![(5, 5)],
+                    left: None,
+                    right: None,
+                    balance: BF::Balanced,
+                },
+            ),
+        ]);
+        let t = IntervalTree {
+            root: Some(2),
+            nodes,
+            k: 0,
+        };
+        t.verify(2, None, None);
     }
 }
