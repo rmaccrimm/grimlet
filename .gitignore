@@ -7,3 +7,5 @@
 /.vscode
 .github/
 *.sna
+tests/*.py
+tests/*.txt
