@@ -1,9 +1,13 @@
-use std::fs::{self, File};
+use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::time::Instant;
 
 use anyhow::Result;
-use grimlet::utils::interval_tree::{self, IntervalTree};
+use grimlet::utils::interval_tree::IntervalTree;
+
+#[cfg(feature = "dhat-heap")]
+#[global_allocator]
+static ALLOC: dhat::Alloc = dhat::Alloc;
 
 #[derive(Debug)]
 enum Op {
@@ -36,6 +40,10 @@ fn time_bulk_inserts_delete() -> Result<()> {
             ops.push(Op::Delete(start, start));
         }
     }
+
+    #[cfg(feature = "dhat-heap")]
+    let _profiler = dhat::Profiler::new_heap();
+
     let mut t = IntervalTree::<i32>::default();
     let now = Instant::now();
     for op in ops {

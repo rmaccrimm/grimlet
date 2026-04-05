@@ -23,3 +23,9 @@ clap = { version = "4.6.0", features = ["derive"] }
 num = "0.4.3"
 eframe = "0.34.0"
 uuid = { version = "1.23.0", features = ["v4"] }
+
+[dev-dependencies]
+dhat = "0.3.3"
+
+[features]
+dhat-heap = []  
