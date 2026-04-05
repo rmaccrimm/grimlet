@@ -11,6 +11,7 @@ use num::integer::Average;
 pub struct IntervalTree<T: Average + Copy + PartialEq + Display> {
     root: Option<usize>,
     nodes: HashMap<usize, Node<T>>,
+    k: usize,
 }
 
 #[derive(Clone, Default, PartialEq, Eq, Debug)]
@@ -73,12 +74,14 @@ impl<T: Average + Copy + PartialEq + Display> IntervalTree<T> {
         // Create new node
         match par {
             Some((p, dir)) => {
-                self.nodes.insert(self.nodes.len(), Node::new(ival));
+                self.nodes.insert(self.k, Node::new(ival));
+                self.k += 1;
                 let c = Some(self.nodes.len() - 1);
                 self.node(p).set_child(dir, c);
             }
             None => {
-                self.nodes.insert(self.nodes.len(), Node::new(ival));
+                self.nodes.insert(self.k, Node::new(ival));
+                self.k += 1;
                 self.root = Some(0);
             }
         }
@@ -118,7 +121,7 @@ impl<T: Average + Copy + PartialEq + Display> IntervalTree<T> {
 
     pub fn remove(&mut self, ival: (T, T)) -> Result<()> {
         let mut cur = self.root;
-        let mut par: Option<(usize, Direction)> = None;
+        let mut path: Vec<(usize, Direction)> = vec![];
 
         while let Some(n) = cur {
             let dir = if ival.1 < self.node(n).center {
@@ -128,8 +131,8 @@ impl<T: Average + Copy + PartialEq + Display> IntervalTree<T> {
             } else {
                 break;
             };
+            path.push((n, dir));
             cur = self.node(n).child(dir);
-            par = Some((n, dir));
         }
         let rm = match cur {
             None => bail!("interval not found"),
@@ -139,27 +142,41 @@ impl<T: Average + Copy + PartialEq + Display> IntervalTree<T> {
             return Ok(());
         }
 
+        // We'll potentially be modifying path further, so copy removed's parent
+        let par = path.last().copied();
         let removed = self.nodes.remove(&rm).unwrap();
+
         let rep = match removed.left {
             None => removed.right,
             Some(l) => {
                 if self.node(l).right.is_none() {
+                    // l Just shifts up to replace removed, and needs to be check for rebalancing
                     self.node(l).right = removed.right;
+                    // ???
+                    // self.node(l).balance = removed.balance;
+                    path.push((l, Direction::Left));
                     Some(l)
                 } else {
-                    let (pred, pred_par) = self.subtree_max(l);
+                    // Reserve the spot that will be filled by predecessor on search path.
+                    let removed_pos = path.len();
+                    path.push((usize::MAX, Direction::Left));
+                    let pred = self.subtree_max(&mut path, l);
                     if self.node(pred).right.is_some() {
                         bail!("invalid predecessor");
                     }
-                    self.node(pred_par).right = self.node(pred).left.take();
+                    self.node(path.last().unwrap().0).right = self.node(pred).left;
                     self.node(pred).left = removed.left;
                     self.node(pred).right = removed.right;
+                    // Replace removed node on the stack
+                    path[removed_pos] = (pred, Direction::Left);
                     Some(pred)
                 }
             }
         };
         match par {
-            Some((p, dir)) => self.node(p).set_child(dir, rep),
+            Some((p, dir)) => {
+                self.node(p).set_child(dir, rep);
+            }
             None => self.root = rep,
         }
         Ok(())
@@ -230,16 +247,15 @@ impl<T: Average + Copy + PartialEq + Display> IntervalTree<T> {
         }
     }
 
-    fn subtree_max(&self, s: usize) -> (usize, usize) {
-        let mut cur = s;
-        let mut par = s;
+    fn subtree_max(&self, path: &mut Vec<(usize, Direction)>, sub_root: usize) -> usize {
+        let mut cur = sub_root;
         loop {
             match self.nodes.get(&cur).unwrap().right {
                 Some(r) => {
-                    par = cur;
+                    path.push((cur, Direction::Right));
                     cur = r;
                 }
-                None => return (cur, par),
+                None => return cur,
             }
         }
     }
@@ -448,5 +464,93 @@ mod tests {
         println!("{}", t);
 
         assert_eq!(t.search(8), vec![(-20, 20), (5, 15), (1, 9)]);
+    }
+
+    #[test]
+    fn test_bst_delete_leaf() {
+        let mut t = IntervalTree::default();
+        for i in 0..15 {
+            t.insert((i, i));
+        }
+        t.remove((0, 0)).unwrap();
+        check_links(&t, 1, None, Some(2));
+        t.remove((6, 6)).unwrap();
+        check_links(&t, 5, Some(4), None);
+
+        let mut t = IntervalTree::default();
+        t.insert((10, 10));
+        t.remove((10, 10)).unwrap();
+        assert_eq!(t.root, None);
+        assert_eq!(t.nodes.len(), 0);
+    }
+
+    #[test]
+    fn test_bst_delete_no_left_child() {
+        let mut t = IntervalTree::default();
+        t.insert((0, 0));
+        t.insert((1, 1));
+        t.remove((0, 0)).unwrap();
+        assert!(!t.nodes.contains_key(&0));
+        assert_eq!(t.root, Some(1));
+        check_links(&t, 1, None, None);
+
+        let mut t = IntervalTree::default();
+        for i in 0..15 {
+            t.insert((i, i));
+        }
+        t.remove((8, 8)).unwrap();
+        t.remove((9, 9)).unwrap();
+        assert!(!t.nodes.contains_key(&8));
+        assert!(!t.nodes.contains_key(&9));
+        check_links(&t, 11, Some(10), Some(13));
+        check_links(&t, 10, None, None);
+    }
+
+    #[test]
+    fn test_bst_delete_with_left_without_right() {
+        let mut t = IntervalTree::default();
+        for i in 0..3 {
+            t.insert((i, i));
+        }
+        t.remove((1, 1)).unwrap();
+        assert!(!t.nodes.contains_key(&1));
+        assert_eq!(t.root, Some(0));
+        check_links(&t, 0, None, Some(2));
+        check_links(&t, 2, None, None);
+
+        let mut t = IntervalTree::default();
+        for i in 0..15 {
+            t.insert((i, i));
+        }
+        t.remove((10, 10)).unwrap();
+        t.remove((11, 11)).unwrap();
+        assert!(!t.nodes.contains_key(&10));
+        assert!(!t.nodes.contains_key(&11));
+        check_links(&t, 7, Some(3), Some(9));
+        check_links(&t, 8, None, None);
+        check_links(&t, 9, Some(8), Some(13));
+    }
+
+    #[test]
+    fn test_bst_delete_with_left_with_right() {
+        let mut t = IntervalTree::default();
+        for i in [0, 1, 2, 3, 4, 5, 6] {
+            t.insert((i, i));
+        }
+        t.remove((3, 3)).unwrap();
+        assert!(!t.nodes.contains_key(&3));
+        assert_eq!(t.root, Some(2));
+        check_links(&t, 1, Some(0), None);
+        check_links(&t, 2, Some(1), Some(5));
+
+        let mut t = IntervalTree::default();
+        for i in 0..15 {
+            t.insert((i, i));
+        }
+        t.remove((11, 11)).unwrap();
+        assert!(!t.nodes.contains_key(&11));
+        check_links(&t, 7, Some(3), Some(10));
+        check_links(&t, 9, Some(8), None);
+        check_links(&t, 10, Some(9), Some(13));
     }
 }
