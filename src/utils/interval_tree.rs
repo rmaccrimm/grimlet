@@ -140,22 +140,27 @@ impl<T: Average + Copy + PartialEq + Display> IntervalTree<T> {
         }
 
         let removed = self.nodes.remove(&rm).unwrap();
-        match removed.left {
-            None => match par {
-                None => self.root = removed.right,
-                Some((p, dir)) => {
-                    self.node(p).set_child(dir, removed.right);
-                }
-            },
+        let rep = match removed.left {
+            None => removed.right,
             Some(l) => {
-                let pred = self.subtree_max(l);
-                match par {
-                    None => self.root = Some(pred),
-                    Some((p, dir)) => {
-                        self.node(p).set_child(dir, Some(pred));
+                if self.node(l).right.is_none() {
+                    self.node(l).right = removed.right;
+                    Some(l)
+                } else {
+                    let (pred, pred_par) = self.subtree_max(l);
+                    if self.node(pred).right.is_some() {
+                        bail!("invalid predecessor");
                     }
+                    self.node(pred_par).right = self.node(pred).left.take();
+                    self.node(pred).left = removed.left;
+                    self.node(pred).right = removed.right;
+                    Some(pred)
                 }
             }
+        };
+        match par {
+            Some((p, dir)) => self.node(p).set_child(dir, rep),
+            None => self.root = rep,
         }
         Ok(())
     }
@@ -225,14 +230,18 @@ impl<T: Average + Copy + PartialEq + Display> IntervalTree<T> {
         }
     }
 
-    fn subtree_max(&self, s: usize) -> usize {
-        let mut smax = s;
-        let mut cur = Some(s);
-        while let Some(n) = cur {
-            smax = n;
-            cur = self.nodes.get(&n).unwrap().right;
+    fn subtree_max(&self, s: usize) -> (usize, usize) {
+        let mut cur = s;
+        let mut par = s;
+        loop {
+            match self.nodes.get(&cur).unwrap().right {
+                Some(r) => {
+                    par = cur;
+                    cur = r;
+                }
+                None => return (cur, par),
+            }
         }
-        smax
     }
 }
 
@@ -436,7 +445,7 @@ mod tests {
         t.insert((5, 15));
         t.insert((-9, -1));
         t.insert((1, 9));
-        println!("{:#?}", t);
+        println!("{}", t);
 
         assert_eq!(t.search(8), vec![(-20, 20), (5, 15), (1, 9)]);
     }
