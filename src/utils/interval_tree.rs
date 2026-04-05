@@ -2,14 +2,14 @@ use std::collections::{HashMap, VecDeque};
 use std::fmt::Display;
 use std::ops::{Add, AddAssign};
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Result, bail};
 use num::integer::Average;
 
 // Some premature optimization, just for fun. Used to lookup all cached function blocks covering a
 // given address.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct IntervalTree<T: Average + Copy + PartialEq + Display> {
-    root: Option<usize>,
+    pub root: Option<usize>,
     nodes: HashMap<usize, Node<T>>,
     k: usize,
 }
