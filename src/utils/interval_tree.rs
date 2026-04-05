@@ -1,19 +1,20 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
+use std::fmt::Display;
 use std::ops::{Add, AddAssign};
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Result, bail};
 use num::integer::Average;
 
 // Some premature optimization, just for fun. Used to lookup all cached function blocks covering a
 // given address.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct IntervalTree<T: Average + Copy + PartialEq> {
+pub struct IntervalTree<T: Average + Copy + PartialEq + Display> {
     root: Option<usize>,
     nodes: HashMap<usize, Node<T>>,
 }
 
 #[derive(Clone, Default, PartialEq, Eq, Debug)]
-pub struct Node<T: Average + Copy + PartialEq> {
+pub struct Node<T: Average + Copy + PartialEq + Display> {
     center: T,
     sorted_by_first: Vec<(T, T)>,
     sorted_by_last: Vec<(T, T)>,
@@ -37,7 +38,7 @@ pub enum BF {
     Unbalanced(Direction),
 }
 
-impl<T: Average + Copy + PartialEq> IntervalTree<T> {
+impl<T: Average + Copy + PartialEq + Display> IntervalTree<T> {
     /// Insert a new interval. Has no effect if tree already contains the interval.
     pub fn insert(&mut self, ival: (T, T)) {
         // Current node being searched, it's parent and direction to add new node
@@ -235,7 +236,33 @@ impl<T: Average + Copy + PartialEq> IntervalTree<T> {
     }
 }
 
-impl<T: Average + Copy + PartialEq> Node<T> {
+impl<T: Average + Copy + PartialEq + Display> Display for IntervalTree<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "flowchart TD")?;
+        let mut q = VecDeque::new();
+        match self.root {
+            None => {
+                return Ok(());
+            }
+            Some(n) => q.push_back(n),
+        };
+        while let Some(n) = q.pop_front() {
+            let node = self.nodes.get(&n).unwrap();
+            writeln!(f, "{}(\"{}\")", n, node)?;
+            if let Some(l) = node.left {
+                writeln!(f, "{}-->{}", n, l)?;
+                q.push_back(l);
+            }
+            if let Some(r) = node.right {
+                writeln!(f, "{}-->{}", n, r)?;
+                q.push_back(r);
+            }
+        }
+        Ok(())
+    }
+}
+
+impl<T: Average + Copy + PartialEq + Display> Node<T> {
     fn new(ival: (T, T)) -> Self {
         Self {
             center: ival.0.average_floor(&ival.1),
@@ -277,11 +304,36 @@ impl<T: Average + Copy + PartialEq> Node<T> {
     }
 }
 
+impl<T: Average + Copy + PartialEq + Display> Display for Node<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}\\n", self.center)?;
+        let ival = self.sorted_by_first[0];
+        write!(f, "[{}, {}]", ival.0, ival.1)?;
+        for ival in self.sorted_by_first[1..].iter() {
+            write!(f, ", [{}, {}]", ival.0, ival.1)?;
+        }
+        write!(f, "\\n{}", self.balance)?;
+        Ok(())
+    }
+}
+
 impl Direction {
     fn flip(self) -> Self {
         match self {
             Self::Left => Self::Right,
             Self::Right => Self::Left,
+        }
+    }
+}
+
+impl Display for BF {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BF::Balanced => write!(f, "-"),
+            BF::Heavy(Direction::Left) => write!(f, "<-"),
+            BF::Heavy(Direction::Right) => write!(f, "->"),
+            BF::Unbalanced(Direction::Left) => write!(f, "<--"),
+            BF::Unbalanced(Direction::Right) => write!(f, "-->"),
         }
     }
 }
@@ -318,7 +370,7 @@ impl AddAssign<Direction> for BF {
 mod tests {
     use super::*;
 
-    fn check_links<T: Average + Copy>(
+    fn check_links<T: Average + Copy + PartialEq + Display>(
         t: &IntervalTree<T>,
         i: usize,
         l: Option<usize>,
