@@ -92,7 +92,7 @@ impl<T: Average + Copy + PartialEq + Display> IntervalTree<T> {
             self.node(n).balance += dir;
             n = self.node(n).child(dir).unwrap();
         }
-        self.rebalance_insert(a, anc_par);
+        self.rebalance(a, anc_par);
     }
 
     /// Return all intervals containing b
@@ -152,8 +152,8 @@ impl<T: Average + Copy + PartialEq + Display> IntervalTree<T> {
                 if self.node(l).right.is_none() {
                     // l Just shifts up to replace removed, and needs to be check for rebalancing
                     self.node(l).right = removed.right;
-                    // ???
-                    // self.node(l).balance = removed.balance;
+                    // this is just it's "initial" balance, not final
+                    self.node(l).balance = removed.balance;
                     path.push((l, Direction::Left));
                     Some(l)
                 } else {
@@ -179,48 +179,80 @@ impl<T: Average + Copy + PartialEq + Display> IntervalTree<T> {
             }
             None => self.root = rep,
         }
+
+        while let Some((n, dir)) = path.pop() {
+            // Height decreased in the direction we travelled
+            self.node(n).balance += dir.flip();
+            match self.node(n).balance {
+                // tree height decreased (heavy -> balanced)
+                BF::Balanced => continue,
+                // tree height did not decrease (balanced -> heavy)
+                BF::Heavy(_) => break,
+                // tree height may or may not decrease
+                BF::Unbalanced(_) => {
+                    let par = path.last().copied();
+                    if !self.rebalance(n, par) {
+                        break;
+                    }
+                }
+            }
+        }
         Ok(())
     }
 
     // Takes the following nodes
     // a: root of the sub-tree which needs to be re-balanced
     // parent: parent of a, may be None if node is the root
-    fn rebalance_insert(&mut self, a: usize, parent: Option<(usize, Direction)>) {
+    // Returns true if the height of the sub-tree decreased
+    fn rebalance(&mut self, a: usize, parent: Option<(usize, Direction)>) -> bool {
         if let BF::Unbalanced(dir) = self.node(a).balance {
             let b = self.node(a).child(dir).unwrap();
-            if let BF::Heavy(dir_bc) = self.node(b).balance {
-                if dir_bc == dir.flip() {
-                    let c = self.node(b).child(dir.flip()).unwrap();
-                    self.rotate(dir, b, c);
-                    self.node(a).set_child(dir, Some(c));
-                    self.rotate(dir.flip(), a, c);
-                    self.reparent(parent, c);
-                    match self.node(c).balance {
-                        BF::Heavy(dir_cd) => {
-                            if dir_cd == dir {
-                                self.node(b).balance = BF::Balanced;
-                                self.node(a).balance = BF::Heavy(dir.flip());
-                            } else {
-                                self.node(b).balance = BF::Heavy(dir);
-                                self.node(a).balance = BF::Balanced;
-                            }
-                        }
-                        BF::Balanced => {
-                            self.node(b).balance = BF::Balanced;
-                            self.node(a).balance = BF::Balanced;
-                        }
-                        _ => panic!("invalid balance"),
-                    }
-                    self.node(c).balance = BF::Balanced;
-                } else {
-                    self.rotate(dir.flip(), a, b);
-                    self.node(b).balance = BF::Balanced;
-                    self.node(a).balance = BF::Balanced;
-                    self.reparent(parent, b);
-                }
-            } else {
+            let b_bal = self.node(b).balance;
+            if let BF::Unbalanced(_) = b_bal {
                 panic!("invalid balance");
             }
+            if let BF::Heavy(dir_bc) = b_bal
+                && dir_bc != dir
+            {
+                let c = self.node(b).child(dir.flip()).unwrap();
+                self.rotate(dir, b, c);
+                self.node(a).set_child(dir, Some(c));
+                self.rotate(dir.flip(), a, c);
+                self.reparent(parent, c);
+                match self.node(c).balance {
+                    BF::Heavy(dir_cd) => {
+                        if dir_cd == dir {
+                            self.node(b).balance = BF::Balanced;
+                            self.node(a).balance = BF::Heavy(dir.flip());
+                        } else {
+                            self.node(b).balance = BF::Heavy(dir);
+                            self.node(a).balance = BF::Balanced;
+                        }
+                    }
+                    BF::Balanced => {
+                        self.node(b).balance = BF::Balanced;
+                        self.node(a).balance = BF::Balanced;
+                    }
+                    _ => panic!("invalid balance"),
+                }
+                self.node(c).balance = BF::Balanced;
+                true
+            } else {
+                // either unbalanced in the same direction or balanced
+                self.rotate(dir.flip(), a, b);
+                self.reparent(parent, b);
+                if b_bal == BF::Balanced {
+                    self.node(a).balance = BF::Heavy(dir);
+                    self.node(b).balance = BF::Heavy(dir.flip());
+                    false
+                } else {
+                    self.node(b).balance = BF::Balanced;
+                    self.node(a).balance = BF::Balanced;
+                    true
+                }
+            }
+        } else {
+            false
         }
     }
 
@@ -552,5 +584,15 @@ mod tests {
         check_links(&t, 7, Some(3), Some(10));
         check_links(&t, 9, Some(8), None);
         check_links(&t, 10, Some(9), Some(13));
+    }
+
+    #[test]
+    fn test_avl_delete_multiple_rebalances() {
+        let mut t = IntervalTree::default();
+        for i in [4, 1, 9, 0, 3, 7, 10, 2, 5, 8, 11, 6] {
+            t.insert((i, i));
+        }
+        t.remove((0, 0)).unwrap();
+        println!("{}", t);
     }
 }
