@@ -1,17 +1,17 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::fmt::Display;
 use std::ops::{Add, AddAssign};
 
 use anyhow::{Result, bail};
 use num::integer::Average;
+use slab::Slab;
 
 // Some premature optimization, just for fun. Used to lookup all cached function blocks covering a
 // given address.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub struct IntervalTree<T: Average + Copy + PartialEq + Display> {
     pub root: Option<usize>,
-    nodes: HashMap<usize, Node<T>>,
-    k: usize,
+    nodes: Slab<Node<T>>,
 }
 
 #[derive(Clone, Default, PartialEq, Eq, Debug)]
@@ -54,43 +54,40 @@ impl<T: Average + Copy + PartialEq + Display> IntervalTree<T> {
         // Search the tree
         while let Some(n) = cur {
             // Only need to go as far back as the last unbalanced node we saw on our way
-            if self.node(n).balance != BF::Balanced {
+            if self.nodes[n].balance != BF::Balanced {
                 path.clear();
                 anc = cur;
                 anc_par = par;
             }
-            let dir = if ival.1 < self.node(n).center {
+            let dir = if ival.1 < self.nodes[n].center {
                 Direction::Left
-            } else if ival.0 > self.node(n).center {
+            } else if ival.0 > self.nodes[n].center {
                 Direction::Right
             } else {
-                self.node(n).add(ival);
+                self.nodes[n].add(ival);
                 return;
             };
-            cur = self.node(n).child(dir);
+            cur = self.nodes[n].child(dir);
             path.push(dir);
             par = Some((n, dir));
         }
         // Create new node
         match par {
             Some((p, dir)) => {
-                let c = self.k;
-                self.k += 1;
-                self.nodes.insert(c, Node::new(ival));
-                self.node(p).set_child(dir, Some(c));
+                let k = self.nodes.insert(Node::new(ival));
+                self.nodes[p].set_child(dir, Some(k));
             }
             None => {
-                self.nodes.insert(self.k, Node::new(ival));
-                self.k += 1;
-                self.root = Some(0);
+                let k = self.nodes.insert(Node::new(ival));
+                self.root = Some(k);
             }
         }
         let Some(a) = anc else { return };
         // Update balance factors
         let mut n = a;
         for dir in path {
-            self.node(n).balance += dir;
-            n = self.node(n).child(dir).unwrap();
+            self.nodes[n].balance += dir;
+            n = self.nodes[n].child(dir).unwrap();
         }
         self.rebalance(a, anc_par);
     }
@@ -101,7 +98,7 @@ impl<T: Average + Copy + PartialEq + Display> IntervalTree<T> {
         let mut results = vec![];
 
         while let Some(n) = curr {
-            let node = self.nodes.get(&n).unwrap();
+            let node = &self.nodes[n];
 
             if b == node.center {
                 results.extend_from_slice(&node.sorted_by_first);
@@ -124,36 +121,36 @@ impl<T: Average + Copy + PartialEq + Display> IntervalTree<T> {
         let mut path: Vec<(usize, Direction)> = vec![];
 
         while let Some(n) = cur {
-            let dir = if ival.1 < self.node(n).center {
+            let dir = if ival.1 < self.nodes[n].center {
                 Direction::Left
-            } else if ival.0 > self.node(n).center {
+            } else if ival.0 > self.nodes[n].center {
                 Direction::Right
             } else {
                 break;
             };
             path.push((n, dir));
-            cur = self.node(n).child(dir);
+            cur = self.nodes[n].child(dir);
         }
         let rm = match cur {
             None => bail!("interval not found"),
             Some(n) => n,
         };
-        if !self.node(rm).remove(ival) {
+        if !self.nodes[rm].remove(ival) {
             return Ok(());
         }
 
         // We'll potentially be modifying path further, so copy removed's parent
         let par = path.last().copied();
-        let removed = self.nodes.remove(&rm).unwrap();
+        let removed = self.nodes.remove(rm);
 
         let rep = match removed.left {
             None => removed.right,
             Some(l) => {
-                if self.node(l).right.is_none() {
+                if self.nodes[l].right.is_none() {
                     // l Just shifts up to replace removed, and needs to be check for rebalancing
-                    self.node(l).right = removed.right;
+                    self.nodes[l].right = removed.right;
                     // this is just it's "initial" balance, not final
-                    self.node(l).balance = removed.balance;
+                    self.nodes[l].balance = removed.balance;
                     path.push((l, Direction::Left));
                     Some(l)
                 } else {
@@ -161,13 +158,13 @@ impl<T: Average + Copy + PartialEq + Display> IntervalTree<T> {
                     let removed_pos = path.len();
                     path.push((usize::MAX, Direction::Left));
                     let pred = self.subtree_max(&mut path, l);
-                    if self.node(pred).right.is_some() {
+                    if self.nodes[pred].right.is_some() {
                         bail!("invalid predecessor");
                     }
-                    self.node(path.last().unwrap().0).right = self.node(pred).left;
-                    self.node(pred).left = removed.left;
-                    self.node(pred).right = removed.right;
-                    self.node(pred).balance = removed.balance;
+                    self.nodes[path.last().unwrap().0].right = self.nodes[pred].left;
+                    self.nodes[pred].left = removed.left;
+                    self.nodes[pred].right = removed.right;
+                    self.nodes[pred].balance = removed.balance;
                     // Replace removed node on the stack
                     path[removed_pos] = (pred, Direction::Left);
                     Some(pred)
@@ -176,15 +173,15 @@ impl<T: Average + Copy + PartialEq + Display> IntervalTree<T> {
         };
         match par {
             Some((p, dir)) => {
-                self.node(p).set_child(dir, rep);
+                self.nodes[p].set_child(dir, rep);
             }
             None => self.root = rep,
         }
 
         while let Some((n, dir)) = path.pop() {
             // Height decreased in the direction we travelled
-            self.node(n).balance += dir.flip();
-            match self.node(n).balance {
+            self.nodes[n].balance += dir.flip();
+            match &self.nodes[n].balance {
                 // tree height decreased (heavy -> balanced)
                 BF::Balanced => continue,
                 // tree height did not decrease (balanced -> heavy)
@@ -206,49 +203,49 @@ impl<T: Average + Copy + PartialEq + Display> IntervalTree<T> {
     // parent: parent of a, may be None if node is the root
     // Returns true if the height of the sub-tree decreased
     fn rebalance(&mut self, a: usize, parent: Option<(usize, Direction)>) -> bool {
-        if let BF::Unbalanced(dir) = self.node(a).balance {
-            let b = self.node(a).child(dir).unwrap();
-            let b_bal = self.node(b).balance;
+        if let BF::Unbalanced(dir) = self.nodes[a].balance {
+            let b = self.nodes[a].child(dir).unwrap();
+            let b_bal = self.nodes[b].balance;
             if let BF::Unbalanced(_) = b_bal {
                 panic!("invalid balance");
             }
             if let BF::Heavy(dir_bc) = b_bal
                 && dir_bc != dir
             {
-                let c = self.node(b).child(dir.flip()).unwrap();
+                let c = self.nodes[b].child(dir.flip()).unwrap();
                 self.rotate(dir, b, c);
-                self.node(a).set_child(dir, Some(c));
+                self.nodes[a].set_child(dir, Some(c));
                 self.rotate(dir.flip(), a, c);
                 self.reparent(parent, c);
-                match self.node(c).balance {
+                match self.nodes[c].balance {
                     BF::Heavy(dir_cd) => {
                         if dir_cd == dir {
-                            self.node(b).balance = BF::Balanced;
-                            self.node(a).balance = BF::Heavy(dir.flip());
+                            self.nodes[b].balance = BF::Balanced;
+                            self.nodes[a].balance = BF::Heavy(dir.flip());
                         } else {
-                            self.node(b).balance = BF::Heavy(dir);
-                            self.node(a).balance = BF::Balanced;
+                            self.nodes[b].balance = BF::Heavy(dir);
+                            self.nodes[a].balance = BF::Balanced;
                         }
                     }
                     BF::Balanced => {
-                        self.node(b).balance = BF::Balanced;
-                        self.node(a).balance = BF::Balanced;
+                        self.nodes[b].balance = BF::Balanced;
+                        self.nodes[a].balance = BF::Balanced;
                     }
                     _ => panic!("invalid balance"),
                 }
-                self.node(c).balance = BF::Balanced;
+                self.nodes[c].balance = BF::Balanced;
                 true
             } else {
                 // either unbalanced in the same direction or balanced
                 self.rotate(dir.flip(), a, b);
                 self.reparent(parent, b);
                 if b_bal == BF::Balanced {
-                    self.node(a).balance = BF::Heavy(dir);
-                    self.node(b).balance = BF::Heavy(dir.flip());
+                    self.nodes[a].balance = BF::Heavy(dir);
+                    self.nodes[b].balance = BF::Heavy(dir.flip());
                     false
                 } else {
-                    self.node(b).balance = BF::Balanced;
-                    self.node(a).balance = BF::Balanced;
+                    self.nodes[b].balance = BF::Balanced;
+                    self.nodes[a].balance = BF::Balanced;
                     true
                 }
             }
@@ -257,19 +254,13 @@ impl<T: Average + Copy + PartialEq + Display> IntervalTree<T> {
         }
     }
 
-    fn node(&mut self, k: usize) -> &mut Node<T> {
-        self.nodes
-            .get_mut(&k)
-            .unwrap_or_else(|| panic!("node {} not found", k))
-    }
-
     fn rotate(&mut self, d: Direction, p: usize, c: usize) {
-        if self.node(p).child(d.flip()) != Some(c) {
+        if self.nodes[p].child(d.flip()) != Some(c) {
             panic!("invalid rotation")
         }
-        let c_child = self.node(c).child(d);
-        self.node(p).set_child(d.flip(), c_child);
-        self.node(c).set_child(d, Some(p));
+        let c_child = self.nodes[c].child(d);
+        self.nodes[p].set_child(d.flip(), c_child);
+        self.nodes[c].set_child(d, Some(p));
         if self.root == Some(p) {
             self.root = Some(c);
         }
@@ -278,7 +269,7 @@ impl<T: Average + Copy + PartialEq + Display> IntervalTree<T> {
     fn reparent(&mut self, par: Option<(usize, Direction)>, s: usize) {
         match par {
             Some((p, dir)) => {
-                self.node(p).set_child(dir, Some(s));
+                self.nodes[p].set_child(dir, Some(s));
             }
             None => self.root = Some(s),
         }
@@ -287,7 +278,7 @@ impl<T: Average + Copy + PartialEq + Display> IntervalTree<T> {
     fn subtree_max(&self, path: &mut Vec<(usize, Direction)>, sub_root: usize) -> usize {
         let mut cur = sub_root;
         loop {
-            match self.nodes.get(&cur).unwrap().right {
+            match self.nodes[cur].right {
                 Some(r) => {
                     path.push((cur, Direction::Right));
                     cur = r;
@@ -298,7 +289,7 @@ impl<T: Average + Copy + PartialEq + Display> IntervalTree<T> {
     }
 
     pub fn verify(&self, n: usize, left: Option<T>, right: Option<T>) -> i32 {
-        let node = self.nodes.get(&n).expect("missing node");
+        let node = &self.nodes[n];
         if let BF::Unbalanced(_) = node.balance {
             panic!("node {} is not balanced", n);
         }
@@ -345,6 +336,15 @@ impl<T: Average + Copy + PartialEq + Display> IntervalTree<T> {
     }
 }
 
+impl<T: Average + Copy + PartialEq + Display> Default for IntervalTree<T> {
+    fn default() -> Self {
+        Self {
+            root: None,
+            nodes: Slab::new(),
+        }
+    }
+}
+
 impl<T: Average + Copy + PartialEq + Display> Display for IntervalTree<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "flowchart TD")?;
@@ -356,7 +356,7 @@ impl<T: Average + Copy + PartialEq + Display> Display for IntervalTree<T> {
             Some(n) => q.push_back(n),
         };
         while let Some(n) = q.pop_front() {
-            let node = self.nodes.get(&n).unwrap();
+            let node = &self.nodes[n];
             writeln!(f, "{}(\"{}\")", n, node)?;
             if let Some(l) = node.left {
                 writeln!(f, "{}-->{}", n, l)?;
@@ -501,8 +501,8 @@ mod tests {
         l: Option<usize>,
         r: Option<usize>,
     ) {
-        let Node { left, right, .. } = t.nodes.get(&i).unwrap();
-        assert_eq!((*left, *right), (l, r), "node {}", i);
+        let Node { left, right, .. } = t.nodes[i];
+        assert_eq!((left, right), (l, r), "node {}", i);
     }
 
     #[test]
@@ -603,7 +603,7 @@ mod tests {
         t.insert((0, 0));
         t.insert((1, 1));
         t.remove((0, 0)).unwrap();
-        assert!(!t.nodes.contains_key(&0));
+        assert!(!t.nodes.contains(0));
         assert_eq!(t.root, Some(1));
         t.verify(1, None, None);
         check_links(&t, 1, None, None);
@@ -614,8 +614,8 @@ mod tests {
         }
         t.remove((8, 8)).unwrap();
         t.remove((9, 9)).unwrap();
-        assert!(!t.nodes.contains_key(&8));
-        assert!(!t.nodes.contains_key(&9));
+        assert!(!t.nodes.contains(8));
+        assert!(!t.nodes.contains(9));
         assert_eq!(t.root, Some(7));
         t.verify(7, None, None);
         check_links(&t, 11, Some(10), Some(13));
@@ -629,7 +629,7 @@ mod tests {
             t.insert((i, i));
         }
         t.remove((1, 1)).unwrap();
-        assert!(!t.nodes.contains_key(&1));
+        assert!(!t.nodes.contains(1));
         assert_eq!(t.root, Some(0));
         t.verify(0, None, None);
         check_links(&t, 0, None, Some(2));
@@ -642,9 +642,9 @@ mod tests {
         t.remove((10, 10)).unwrap();
         t.remove((11, 11)).unwrap();
         assert_eq!(t.root, Some(7));
-        t.verify(0, None, None);
-        assert!(!t.nodes.contains_key(&10));
-        assert!(!t.nodes.contains_key(&11));
+        t.verify(7, None, None);
+        assert!(!t.nodes.contains(10));
+        assert!(!t.nodes.contains(11));
         check_links(&t, 7, Some(3), Some(9));
         check_links(&t, 8, None, None);
         check_links(&t, 9, Some(8), Some(13));
@@ -657,7 +657,7 @@ mod tests {
             t.insert((i, i));
         }
         t.remove((3, 3)).unwrap();
-        assert!(!t.nodes.contains_key(&3));
+        assert!(!t.nodes.contains(3));
         assert_eq!(t.root, Some(2));
         t.verify(2, None, None);
         check_links(&t, 1, Some(0), None);
@@ -669,8 +669,8 @@ mod tests {
         }
         t.remove((11, 11)).unwrap();
         assert_eq!(t.root, Some(7));
-        t.verify(0, None, None);
-        assert!(!t.nodes.contains_key(&11));
+        t.verify(7, None, None);
+        assert!(!t.nodes.contains(11));
         check_links(&t, 7, Some(3), Some(10));
         check_links(&t, 9, Some(8), None);
         check_links(&t, 10, Some(9), Some(13));
@@ -702,56 +702,42 @@ mod tests {
     #[test]
     #[should_panic(expected = "6 not greater than right limit 5")]
     fn test_verify_invalid_bst() {
-        let nodes = HashMap::from([
-            (
-                0,
-                Node {
-                    center: 5,
-                    sorted_by_first: vec![(5, 5)],
-                    sorted_by_last: vec![(5, 5)],
-                    left: Some(1),
-                    right: Some(3),
-                    balance: BF::Heavy(Direction::Left),
-                },
-            ),
-            (
-                1,
-                Node {
-                    center: 3,
-                    sorted_by_first: vec![(3, 3)],
-                    sorted_by_last: vec![(3, 3)],
-                    left: None,
-                    right: Some(2),
-                    balance: BF::Heavy(Direction::Right),
-                },
-            ),
-            (
-                2,
-                Node {
-                    center: 6,
-                    sorted_by_first: vec![(6, 6)],
-                    sorted_by_last: vec![(6, 6)],
-                    left: None,
-                    right: None,
-                    balance: BF::Balanced,
-                },
-            ),
-            (
-                3,
-                Node {
-                    center: 7,
-                    sorted_by_first: vec![(7, 7)],
-                    sorted_by_last: vec![(7, 7)],
-                    left: None,
-                    right: None,
-                    balance: BF::Balanced,
-                },
-            ),
-        ]);
+        let mut nodes = Slab::new();
+        nodes.insert(Node {
+            center: 5,
+            sorted_by_first: vec![(5, 5)],
+            sorted_by_last: vec![(5, 5)],
+            left: Some(1),
+            right: Some(3),
+            balance: BF::Heavy(Direction::Left),
+        });
+        nodes.insert(Node {
+            center: 3,
+            sorted_by_first: vec![(3, 3)],
+            sorted_by_last: vec![(3, 3)],
+            left: None,
+            right: Some(2),
+            balance: BF::Heavy(Direction::Right),
+        });
+        nodes.insert(Node {
+            center: 6,
+            sorted_by_first: vec![(6, 6)],
+            sorted_by_last: vec![(6, 6)],
+            left: None,
+            right: None,
+            balance: BF::Balanced,
+        });
+        nodes.insert(Node {
+            center: 7,
+            sorted_by_first: vec![(7, 7)],
+            sorted_by_last: vec![(7, 7)],
+            left: None,
+            right: None,
+            balance: BF::Balanced,
+        });
         let t = IntervalTree {
             root: Some(0),
             nodes,
-            k: 0,
         };
         t.verify(0, None, None);
     }
@@ -759,56 +745,42 @@ mod tests {
     #[test]
     #[should_panic(expected = "incorrect balance")]
     fn test_verify_incorrect_balance() {
-        let nodes = HashMap::from([
-            (
-                0,
-                Node {
-                    center: 3,
-                    sorted_by_first: vec![(3, 3)],
-                    sorted_by_last: vec![(3, 3)],
-                    left: None,
-                    right: Some(1),
-                    balance: BF::Heavy(Direction::Right),
-                },
-            ),
-            (
-                1,
-                Node {
-                    center: 5,
-                    sorted_by_first: vec![(5, 5)],
-                    sorted_by_last: vec![(5, 5)],
-                    left: Some(2),
-                    right: Some(3),
-                    balance: BF::Balanced,
-                },
-            ),
-            (
-                2,
-                Node {
-                    center: 4,
-                    sorted_by_first: vec![(4, 4)],
-                    sorted_by_last: vec![(4, 4)],
-                    left: None,
-                    right: None,
-                    balance: BF::Balanced,
-                },
-            ),
-            (
-                3,
-                Node {
-                    center: 7,
-                    sorted_by_first: vec![(7, 7)],
-                    sorted_by_last: vec![(7, 7)],
-                    left: None,
-                    right: None,
-                    balance: BF::Balanced,
-                },
-            ),
-        ]);
+        let mut nodes = Slab::new();
+        nodes.insert(Node {
+            center: 3,
+            sorted_by_first: vec![(3, 3)],
+            sorted_by_last: vec![(3, 3)],
+            left: None,
+            right: Some(1),
+            balance: BF::Heavy(Direction::Right),
+        });
+        nodes.insert(Node {
+            center: 5,
+            sorted_by_first: vec![(5, 5)],
+            sorted_by_last: vec![(5, 5)],
+            left: Some(2),
+            right: Some(3),
+            balance: BF::Balanced,
+        });
+        nodes.insert(Node {
+            center: 4,
+            sorted_by_first: vec![(4, 4)],
+            sorted_by_last: vec![(4, 4)],
+            left: None,
+            right: None,
+            balance: BF::Balanced,
+        });
+        nodes.insert(Node {
+            center: 7,
+            sorted_by_first: vec![(7, 7)],
+            sorted_by_last: vec![(7, 7)],
+            left: None,
+            right: None,
+            balance: BF::Balanced,
+        });
         let t = IntervalTree {
             root: Some(0),
             nodes,
-            k: 0,
         };
         t.verify(0, None, None);
     }
@@ -816,78 +788,58 @@ mod tests {
     #[test]
     #[should_panic(expected = "node 3 is not balanced")]
     fn test_verify_invalid_avl_balance() {
-        let nodes = HashMap::from([
-            (
-                0,
-                Node {
-                    center: 1,
-                    sorted_by_first: vec![(1, 1)],
-                    sorted_by_last: vec![(1, 1)],
-                    left: None,
-                    right: None,
-                    balance: BF::Balanced,
-                },
-            ),
-            (
-                1,
-                Node {
-                    center: 2,
-                    sorted_by_first: vec![(2, 2)],
-                    sorted_by_last: vec![(2, 3)],
-                    left: Some(0),
-                    right: None,
-                    balance: BF::Heavy(Direction::Left),
-                },
-            ),
-            (
-                2,
-                Node {
-                    center: 3,
-                    sorted_by_first: vec![(3, 3)],
-                    sorted_by_last: vec![(3, 3)],
-                    left: Some(1),
-                    right: Some(3),
-                    balance: BF::Heavy(Direction::Right),
-                },
-            ),
-            (
-                3,
-                Node {
-                    center: 7,
-                    sorted_by_first: vec![(7, 7)],
-                    sorted_by_last: vec![(7, 7)],
-                    left: Some(4),
-                    right: None,
-                    balance: BF::Unbalanced(Direction::Left),
-                },
-            ),
-            (
-                4,
-                Node {
-                    center: 4,
-                    sorted_by_first: vec![(4, 4)],
-                    sorted_by_last: vec![(4, 4)],
-                    left: None,
-                    right: Some(5),
-                    balance: BF::Heavy(Direction::Right),
-                },
-            ),
-            (
-                5,
-                Node {
-                    center: 5,
-                    sorted_by_first: vec![(5, 5)],
-                    sorted_by_last: vec![(5, 5)],
-                    left: None,
-                    right: None,
-                    balance: BF::Balanced,
-                },
-            ),
-        ]);
+        let mut nodes = Slab::new();
+        nodes.insert(Node {
+            center: 1,
+            sorted_by_first: vec![(1, 1)],
+            sorted_by_last: vec![(1, 1)],
+            left: None,
+            right: None,
+            balance: BF::Balanced,
+        });
+        nodes.insert(Node {
+            center: 2,
+            sorted_by_first: vec![(2, 2)],
+            sorted_by_last: vec![(2, 3)],
+            left: Some(0),
+            right: None,
+            balance: BF::Heavy(Direction::Left),
+        });
+        nodes.insert(Node {
+            center: 3,
+            sorted_by_first: vec![(3, 3)],
+            sorted_by_last: vec![(3, 3)],
+            left: Some(1),
+            right: Some(3),
+            balance: BF::Heavy(Direction::Right),
+        });
+        nodes.insert(Node {
+            center: 7,
+            sorted_by_first: vec![(7, 7)],
+            sorted_by_last: vec![(7, 7)],
+            left: Some(4),
+            right: None,
+            balance: BF::Unbalanced(Direction::Left),
+        });
+        nodes.insert(Node {
+            center: 4,
+            sorted_by_first: vec![(4, 4)],
+            sorted_by_last: vec![(4, 4)],
+            left: None,
+            right: Some(5),
+            balance: BF::Heavy(Direction::Right),
+        });
+        nodes.insert(Node {
+            center: 5,
+            sorted_by_first: vec![(5, 5)],
+            sorted_by_last: vec![(5, 5)],
+            left: None,
+            right: None,
+            balance: BF::Balanced,
+        });
         let t = IntervalTree {
             root: Some(2),
             nodes,
-            k: 0,
         };
         t.verify(2, None, None);
     }

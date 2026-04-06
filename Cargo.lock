@@ -1513,6 +1513,7 @@ dependencies = [
  "eframe",
  "inkwell",
  "num",
+ "slab",
  "uuid",
 ]
 
