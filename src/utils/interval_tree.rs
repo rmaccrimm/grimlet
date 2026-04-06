@@ -3,19 +3,21 @@ use std::fmt::Display;
 use std::ops::{Add, AddAssign};
 
 use anyhow::{Result, bail};
-use num::integer::Average;
+use num::integer::{Average, Integer};
 use slab::Slab;
+
+pub trait IntervalT = Integer + Average + Copy + Display;
 
 // Some premature optimization, just for fun. Used to lookup all cached function blocks covering a
 // given address.
 #[derive(Clone, Debug)]
-pub struct IntervalTree<T: Average + Copy + PartialEq + Display> {
+pub struct IntervalTree<T: IntervalT> {
     pub root: Option<usize>,
     nodes: Slab<Node<T>>,
 }
 
 #[derive(Clone, Default, PartialEq, Eq, Debug)]
-pub struct Node<T: Average + Copy + PartialEq + Display> {
+pub struct Node<T: IntervalT> {
     center: T,
     sorted_by_first: Vec<(T, T)>,
     sorted_by_last: Vec<(T, T)>,
@@ -39,7 +41,7 @@ pub enum BF {
     Unbalanced(Direction),
 }
 
-impl<T: Average + Copy + PartialEq + Display> IntervalTree<T> {
+impl<T: IntervalT> IntervalTree<T> {
     /// Insert a new interval. Has no effect if tree already contains the interval.
     pub fn insert(&mut self, ival: (T, T)) {
         // Current node being searched, it's parent and direction to add new node
@@ -371,7 +373,7 @@ impl<T: Average + Copy + PartialEq + Display> Display for IntervalTree<T> {
     }
 }
 
-impl<T: Average + Copy + PartialEq + Display> Node<T> {
+impl<T: IntervalT> Node<T> {
     fn new(ival: (T, T)) -> Self {
         Self {
             center: ival.0.average_floor(&ival.1),

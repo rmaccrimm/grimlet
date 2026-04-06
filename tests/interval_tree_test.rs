@@ -56,7 +56,7 @@ fn time_bulk_inserts_delete() -> Result<()> {
         }
     }
     let elapsed = now.elapsed();
-    println!("Completed in {:.2?}s", elapsed);
+    println!("Completed in {:.2?}", elapsed);
     t.verify(t.root.unwrap(), None, None);
     Ok(())
 }
