@@ -23,6 +23,7 @@ pub struct Node<T: IntervalT> {
     sorted_by_last: Vec<(T, T)>,
     left: Option<usize>,
     right: Option<usize>,
+    parent: Option<usize>,
     balance: BF,
 }
 
@@ -77,7 +78,7 @@ impl<T: IntervalT> IntervalTree<T> {
         match par {
             Some((p, dir)) => {
                 let k = self.nodes.insert(Node::new(ival));
-                self.nodes[p].set_child(dir, Some(k));
+                self.set_child(p, dir, Some(k));
             }
             None => {
                 let k = self.nodes.insert(Node::new(ival));
@@ -150,7 +151,7 @@ impl<T: IntervalT> IntervalTree<T> {
             Some(l) => {
                 if self.nodes[l].right.is_none() {
                     // l Just shifts up to replace removed, and needs to be check for rebalancing
-                    self.nodes[l].right = removed.right;
+                    self.set_child(l, Direction::Right, removed.right);
                     // this is just it's "initial" balance, not final
                     self.nodes[l].balance = removed.balance;
                     path.push((l, Direction::Left));
@@ -163,9 +164,13 @@ impl<T: IntervalT> IntervalTree<T> {
                     if self.nodes[pred].right.is_some() {
                         bail!("invalid predecessor");
                     }
-                    self.nodes[path.last().unwrap().0].right = self.nodes[pred].left;
-                    self.nodes[pred].left = removed.left;
-                    self.nodes[pred].right = removed.right;
+                    self.set_child(
+                        path.last().unwrap().0,
+                        Direction::Right,
+                        self.nodes[pred].left,
+                    );
+                    self.set_child(pred, Direction::Left, removed.left);
+                    self.set_child(pred, Direction::Right, removed.right);
                     self.nodes[pred].balance = removed.balance;
                     // Replace removed node on the stack
                     path[removed_pos] = (pred, Direction::Left);
@@ -175,9 +180,14 @@ impl<T: IntervalT> IntervalTree<T> {
         };
         match par {
             Some((p, dir)) => {
-                self.nodes[p].set_child(dir, rep);
+                self.set_child(p, dir, rep);
             }
-            None => self.root = rep,
+            None => {
+                self.root = rep;
+                if let Some(r) = rep {
+                    self.nodes[r].parent = None;
+                }
+            }
         }
 
         while let Some((n, dir)) = path.pop() {
@@ -216,7 +226,7 @@ impl<T: IntervalT> IntervalTree<T> {
             {
                 let c = self.nodes[b].child(dir.flip()).unwrap();
                 self.rotate(dir, b, c);
-                self.nodes[a].set_child(dir, Some(c));
+                self.set_child(a, dir, Some(c));
                 self.rotate(dir.flip(), a, c);
                 self.reparent(parent, c);
                 match self.nodes[c].balance {
@@ -256,13 +266,23 @@ impl<T: IntervalT> IntervalTree<T> {
         }
     }
 
+    fn set_child(&mut self, parent: usize, dir: Direction, child: Option<usize>) {
+        match dir {
+            Direction::Left => self.nodes[parent].left = child,
+            Direction::Right => self.nodes[parent].right = child,
+        };
+        if let Some(c) = child {
+            self.nodes[c].parent = Some(parent);
+        }
+    }
+
     fn rotate(&mut self, d: Direction, p: usize, c: usize) {
         if self.nodes[p].child(d.flip()) != Some(c) {
             panic!("invalid rotation")
         }
         let c_child = self.nodes[c].child(d);
-        self.nodes[p].set_child(d.flip(), c_child);
-        self.nodes[c].set_child(d, Some(p));
+        self.set_child(p, d.flip(), c_child);
+        self.set_child(c, d, Some(p));
         if self.root == Some(p) {
             self.root = Some(c);
         }
@@ -271,9 +291,12 @@ impl<T: IntervalT> IntervalTree<T> {
     fn reparent(&mut self, par: Option<(usize, Direction)>, s: usize) {
         match par {
             Some((p, dir)) => {
-                self.nodes[p].set_child(dir, Some(s));
+                self.set_child(p, dir, Some(s));
             }
-            None => self.root = Some(s),
+            None => {
+                self.root = Some(s);
+                self.nodes[s].parent = None;
+            }
         }
     }
 
@@ -318,11 +341,23 @@ impl<T: IntervalT> IntervalTree<T> {
             }
         }
         let height_l = if let Some(l) = node.left {
+            assert_eq!(
+                self.nodes[l].parent,
+                Some(n),
+                "node {}: incorrect parent",
+                l
+            );
             self.verify(l, left, Some(node.center))
         } else {
             0
         };
         let height_r = if let Some(r) = node.right {
+            assert_eq!(
+                self.nodes[r].parent,
+                Some(n),
+                "node {}: incorrect parent",
+                r
+            );
             self.verify(r, Some(node.center), right)
         } else {
             0
@@ -381,6 +416,7 @@ impl<T: IntervalT> Node<T> {
             sorted_by_last: vec![ival],
             left: None,
             right: None,
+            parent: None,
             balance: BF::Balanced,
         }
     }
@@ -398,13 +434,6 @@ impl<T: IntervalT> Node<T> {
         self.sorted_by_first.retain(|i| *i != ival);
         self.sorted_by_last.retain(|i| *i != ival);
         self.sorted_by_first.is_empty()
-    }
-
-    fn set_child(&mut self, d: Direction, c: Option<usize>) {
-        match d {
-            Direction::Left => self.left = c,
-            Direction::Right => self.right = c,
-        }
     }
 
     fn child(&self, d: Direction) -> Option<usize> {
@@ -711,6 +740,7 @@ mod tests {
             sorted_by_last: vec![(5, 5)],
             left: Some(1),
             right: Some(3),
+            parent: None,
             balance: BF::Heavy(Direction::Left),
         });
         nodes.insert(Node {
@@ -719,6 +749,7 @@ mod tests {
             sorted_by_last: vec![(3, 3)],
             left: None,
             right: Some(2),
+            parent: Some(0),
             balance: BF::Heavy(Direction::Right),
         });
         nodes.insert(Node {
@@ -727,6 +758,7 @@ mod tests {
             sorted_by_last: vec![(6, 6)],
             left: None,
             right: None,
+            parent: Some(1),
             balance: BF::Balanced,
         });
         nodes.insert(Node {
@@ -735,6 +767,7 @@ mod tests {
             sorted_by_last: vec![(7, 7)],
             left: None,
             right: None,
+            parent: Some(0),
             balance: BF::Balanced,
         });
         let t = IntervalTree {
@@ -754,6 +787,7 @@ mod tests {
             sorted_by_last: vec![(3, 3)],
             left: None,
             right: Some(1),
+            parent: None,
             balance: BF::Heavy(Direction::Right),
         });
         nodes.insert(Node {
@@ -762,6 +796,7 @@ mod tests {
             sorted_by_last: vec![(5, 5)],
             left: Some(2),
             right: Some(3),
+            parent: Some(0),
             balance: BF::Balanced,
         });
         nodes.insert(Node {
@@ -770,6 +805,7 @@ mod tests {
             sorted_by_last: vec![(4, 4)],
             left: None,
             right: None,
+            parent: Some(1),
             balance: BF::Balanced,
         });
         nodes.insert(Node {
@@ -778,6 +814,7 @@ mod tests {
             sorted_by_last: vec![(7, 7)],
             left: None,
             right: None,
+            parent: Some(1),
             balance: BF::Balanced,
         });
         let t = IntervalTree {
@@ -797,6 +834,7 @@ mod tests {
             sorted_by_last: vec![(1, 1)],
             left: None,
             right: None,
+            parent: Some(1),
             balance: BF::Balanced,
         });
         nodes.insert(Node {
@@ -805,6 +843,7 @@ mod tests {
             sorted_by_last: vec![(2, 3)],
             left: Some(0),
             right: None,
+            parent: Some(2),
             balance: BF::Heavy(Direction::Left),
         });
         nodes.insert(Node {
@@ -813,6 +852,7 @@ mod tests {
             sorted_by_last: vec![(3, 3)],
             left: Some(1),
             right: Some(3),
+            parent: None,
             balance: BF::Heavy(Direction::Right),
         });
         nodes.insert(Node {
@@ -821,6 +861,7 @@ mod tests {
             sorted_by_last: vec![(7, 7)],
             left: Some(4),
             right: None,
+            parent: Some(2),
             balance: BF::Unbalanced(Direction::Left),
         });
         nodes.insert(Node {
@@ -829,6 +870,7 @@ mod tests {
             sorted_by_last: vec![(4, 4)],
             left: None,
             right: Some(5),
+            parent: Some(3),
             balance: BF::Heavy(Direction::Right),
         });
         nodes.insert(Node {
@@ -837,6 +879,7 @@ mod tests {
             sorted_by_last: vec![(5, 5)],
             left: None,
             right: None,
+            parent: Some(4),
             balance: BF::Balanced,
         });
         let t = IntervalTree {
@@ -844,5 +887,10 @@ mod tests {
             nodes,
         };
         t.verify(2, None, None);
+    }
+
+    #[test]
+    fn print_size_of_node() {
+        println!("{}", size_of::<Node<i32>>());
     }
 }
