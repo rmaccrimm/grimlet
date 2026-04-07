@@ -50,12 +50,10 @@ impl<T: IntervalT> IntervalTree<T> {
         // (Ancestor) root of the subtree for which we'll need to update balance factors, and the
         // path we took from it. Either the last unbalanced node encountered, or root.
         let mut anc = self.root;
-        let mut path: Vec<Direction> = vec![];
 
         while let Some(n) = cur {
             // Only need to go as far back as the last unbalanced node we saw on our way
             if self.nodes[n].balance != BF::Balanced {
-                path.clear();
                 anc = cur;
             }
             let dir = if ival.1 < self.nodes[n].center {
@@ -67,25 +65,22 @@ impl<T: IntervalT> IntervalTree<T> {
                 return;
             };
             cur = self.nodes[n].child(dir);
-            path.push(dir);
             par = Some((n, dir));
         }
+        let k = self.nodes.insert(Node::new(ival));
         match par {
-            Some((p, dir)) => {
-                let k = self.nodes.insert(Node::new(ival));
-                self.set_child(Some((p, dir)), Some(k));
-            }
-            None => {
-                let k = self.nodes.insert(Node::new(ival));
-                self.root = Some(k);
-            }
-        }
+            Some((p, dir)) => self.set_child(Some((p, dir)), Some(k)),
+            None => self.root = Some(k),
+        };
         let Some(a) = anc else { return };
 
-        let mut n = a;
-        for dir in path {
-            self.nodes[n].balance += dir;
-            n = self.nodes[n].child(dir).unwrap();
+        let mut n = k;
+        while let Some((p, dir)) = self.get_parent(n) {
+            self.nodes[p].balance += dir;
+            if p == a {
+                break;
+            }
+            n = p;
         }
         self.rebalance(a);
     }
