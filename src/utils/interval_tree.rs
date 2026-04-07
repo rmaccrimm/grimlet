@@ -45,22 +45,18 @@ pub enum BF {
 impl<T: IntervalT> IntervalTree<T> {
     /// Insert a new interval. Has no effect if tree already contains the interval.
     pub fn insert(&mut self, ival: (T, T)) {
-        // Current node being searched, it's parent and direction to add new node
         let mut cur = self.root;
         let mut par: Option<(usize, Direction)> = None;
         // (Ancestor) root of the subtree for which we'll need to update balance factors, and the
         // path we took from it. Either the last unbalanced node encountered, or root.
         let mut anc = self.root;
-        let mut anc_par: Option<(usize, Direction)> = None;
         let mut path: Vec<Direction> = vec![];
 
-        // Search the tree
         while let Some(n) = cur {
             // Only need to go as far back as the last unbalanced node we saw on our way
             if self.nodes[n].balance != BF::Balanced {
                 path.clear();
                 anc = cur;
-                anc_par = par;
             }
             let dir = if ival.1 < self.nodes[n].center {
                 Direction::Left
@@ -74,11 +70,10 @@ impl<T: IntervalT> IntervalTree<T> {
             path.push(dir);
             par = Some((n, dir));
         }
-        // Create new node
         match par {
             Some((p, dir)) => {
                 let k = self.nodes.insert(Node::new(ival));
-                self.set_child(p, dir, Some(k));
+                self.set_child(Some((p, dir)), Some(k));
             }
             None => {
                 let k = self.nodes.insert(Node::new(ival));
@@ -86,13 +81,13 @@ impl<T: IntervalT> IntervalTree<T> {
             }
         }
         let Some(a) = anc else { return };
-        // Update balance factors
+
         let mut n = a;
         for dir in path {
             self.nodes[n].balance += dir;
             n = self.nodes[n].child(dir).unwrap();
         }
-        self.rebalance(a, anc_par);
+        self.rebalance(a);
     }
 
     /// Return all intervals containing b
@@ -121,8 +116,6 @@ impl<T: IntervalT> IntervalTree<T> {
 
     pub fn remove(&mut self, ival: (T, T)) -> Result<()> {
         let mut cur = self.root;
-        let mut path: Vec<(usize, Direction)> = vec![];
-
         while let Some(n) = cur {
             let dir = if ival.1 < self.nodes[n].center {
                 Direction::Left
@@ -131,7 +124,6 @@ impl<T: IntervalT> IntervalTree<T> {
             } else {
                 break;
             };
-            path.push((n, dir));
             cur = self.nodes[n].child(dir);
         }
         let rm = match cur {
@@ -141,80 +133,64 @@ impl<T: IntervalT> IntervalTree<T> {
         if !self.nodes[rm].remove(ival) {
             return Ok(());
         }
-
-        // We'll potentially be modifying path further, so copy removed's parent
-        let par = path.last().copied();
+        let rm_parent = self.get_parent(rm);
         let removed = self.nodes.remove(rm);
-
-        let rep = match removed.left {
-            None => removed.right,
+        // Stores the point from which we need to do re-balancing, continuing up towards the root
+        let mut rebal = match removed.left {
+            None => {
+                self.set_child(rm_parent, removed.right);
+                rm_parent
+            }
             Some(l) => {
                 if self.nodes[l].right.is_none() {
                     // l Just shifts up to replace removed, and needs to be check for rebalancing
-                    self.set_child(l, Direction::Right, removed.right);
+                    self.set_child(Some((l, Direction::Right)), removed.right);
+                    self.set_child(rm_parent, Some(l));
                     // this is just it's "initial" balance, not final
                     self.nodes[l].balance = removed.balance;
-                    path.push((l, Direction::Left));
-                    Some(l)
+                    Some((l, Direction::Left))
                 } else {
                     // Reserve the spot that will be filled by predecessor on search path.
-                    let removed_pos = path.len();
-                    path.push((usize::MAX, Direction::Left));
-                    let pred = self.subtree_max(&mut path, l);
+                    let pred = self.subtree_max(l);
                     if self.nodes[pred].right.is_some() {
                         bail!("invalid predecessor");
                     }
-                    self.set_child(
-                        path.last().unwrap().0,
-                        Direction::Right,
-                        self.nodes[pred].left,
-                    );
-                    self.set_child(pred, Direction::Left, removed.left);
-                    self.set_child(pred, Direction::Right, removed.right);
+                    let pred_parent = self.get_parent(pred);
+                    self.set_child(pred_parent, self.nodes[pred].left);
+                    self.set_child(Some((pred, Direction::Left)), removed.left);
+                    self.set_child(Some((pred, Direction::Right)), removed.right);
                     self.nodes[pred].balance = removed.balance;
-                    // Replace removed node on the stack
-                    path[removed_pos] = (pred, Direction::Left);
-                    Some(pred)
+                    self.set_child(rm_parent, Some(pred));
+                    pred_parent
                 }
             }
         };
-        match par {
-            Some((p, dir)) => {
-                self.set_child(p, dir, rep);
-            }
-            None => {
-                self.root = rep;
-                if let Some(r) = rep {
-                    self.nodes[r].parent = None;
-                }
-            }
-        }
 
-        while let Some((n, dir)) = path.pop() {
+        while let Some((n, dir)) = rebal {
             // Height decreased in the direction we travelled
             self.nodes[n].balance += dir.flip();
             match &self.nodes[n].balance {
                 // tree height decreased (heavy -> balanced)
-                BF::Balanced => continue,
+                BF::Balanced => rebal = self.get_parent(n),
                 // tree height did not decrease (balanced -> heavy)
                 BF::Heavy(_) => break,
                 // tree height may or may not decrease
                 BF::Unbalanced(_) => {
-                    let par = path.last().copied();
-                    if !self.rebalance(n, par) {
+                    let (r, decreased) = self.rebalance(n);
+                    if !decreased {
                         break;
                     }
+                    rebal = self.get_parent(r);
                 }
             }
         }
         Ok(())
     }
 
-    // Takes the following nodes
     // a: root of the sub-tree which needs to be re-balanced
-    // parent: parent of a, may be None if node is the root
-    // Returns true if the height of the sub-tree decreased
-    fn rebalance(&mut self, a: usize, parent: Option<(usize, Direction)>) -> bool {
+    // Returns new root of the subtree and true if the height of the sub-tree decreased
+    fn rebalance(&mut self, a: usize) -> (usize, bool) {
+        let parent = self.get_parent(a);
         if let BF::Unbalanced(dir) = self.nodes[a].balance {
             let b = self.nodes[a].child(dir).unwrap();
             let b_bal = self.nodes[b].balance;
@@ -226,9 +202,10 @@ impl<T: IntervalT> IntervalTree<T> {
             {
                 let c = self.nodes[b].child(dir.flip()).unwrap();
                 self.rotate(dir, b, c);
-                self.set_child(a, dir, Some(c));
+                self.set_child(Some((a, dir)), Some(c));
                 self.rotate(dir.flip(), a, c);
-                self.reparent(parent, c);
+                self.set_child(parent, Some(c));
+
                 match self.nodes[c].balance {
                     BF::Heavy(dir_cd) => {
                         if dir_cd == dir {
@@ -246,34 +223,49 @@ impl<T: IntervalT> IntervalTree<T> {
                     _ => panic!("invalid balance"),
                 }
                 self.nodes[c].balance = BF::Balanced;
-                true
+                (c, true)
             } else {
                 // either unbalanced in the same direction or balanced
                 self.rotate(dir.flip(), a, b);
-                self.reparent(parent, b);
+                self.set_child(parent, Some(b));
                 if b_bal == BF::Balanced {
                     self.nodes[a].balance = BF::Heavy(dir);
                     self.nodes[b].balance = BF::Heavy(dir.flip());
-                    false
+                    (b, false)
                 } else {
                     self.nodes[b].balance = BF::Balanced;
                     self.nodes[a].balance = BF::Balanced;
-                    true
+                    (b, true)
                 }
             }
         } else {
-            false
+            (a, false)
         }
     }
 
-    fn set_child(&mut self, parent: usize, dir: Direction, child: Option<usize>) {
-        match dir {
-            Direction::Left => self.nodes[parent].left = child,
-            Direction::Right => self.nodes[parent].right = child,
-        };
-        if let Some(c) = child {
-            self.nodes[c].parent = Some(parent);
+    fn get_parent(&self, n: usize) -> Option<(usize, Direction)> {
+        if let Some(p) = self.nodes[n].parent {
+            let dir = if self.nodes[p].left == Some(n) {
+                Direction::Left
+            } else {
+                Direction::Right
+            };
+            Some((p, dir))
+        } else {
+            None
         }
+    }
+
+    // If parent is None, updates the root
+    fn set_child(&mut self, parent: Option<(usize, Direction)>, child: Option<usize>) {
+        if let Some(c) = child {
+            self.nodes[c].parent = parent.map(|p| p.0);
+        }
+        match parent {
+            Some((p, Direction::Left)) => self.nodes[p].left = child,
+            Some((p, Direction::Right)) => self.nodes[p].right = child,
+            None => self.root = child,
+        };
     }
 
     fn rotate(&mut self, d: Direction, p: usize, c: usize) {
@@ -281,31 +273,18 @@ impl<T: IntervalT> IntervalTree<T> {
             panic!("invalid rotation")
         }
         let c_child = self.nodes[c].child(d);
-        self.set_child(p, d.flip(), c_child);
-        self.set_child(c, d, Some(p));
+        self.set_child(Some((p, d.flip())), c_child);
+        self.set_child(Some((c, d)), Some(p));
         if self.root == Some(p) {
             self.root = Some(c);
         }
     }
 
-    fn reparent(&mut self, par: Option<(usize, Direction)>, s: usize) {
-        match par {
-            Some((p, dir)) => {
-                self.set_child(p, dir, Some(s));
-            }
-            None => {
-                self.root = Some(s);
-                self.nodes[s].parent = None;
-            }
-        }
-    }
-
-    fn subtree_max(&self, path: &mut Vec<(usize, Direction)>, sub_root: usize) -> usize {
+    fn subtree_max(&self, sub_root: usize) -> usize {
         let mut cur = sub_root;
         loop {
             match self.nodes[cur].right {
                 Some(r) => {
-                    path.push((cur, Direction::Right));
                     cur = r;
                 }
                 None => return cur,
@@ -722,8 +701,9 @@ mod tests {
         for i in [4, 1, 9, 0, 3, 7, 10, 2, 5, 8, 11, 6] {
             t.insert((i, i));
         }
+        println!("{}", t);
         assert_eq!(t.root, Some(0));
-        t.verify(4, None, None);
+        t.verify(0, None, None);
 
         t.remove((0, 0)).unwrap();
         assert_eq!(t.root, Some(5));
