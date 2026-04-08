@@ -23,7 +23,7 @@ pub struct RegMap<'a> {
 impl<'a> RegMap<'a> {
     pub fn new() -> Self {
         Self {
-            items: vec![None; NUM_REGS],
+            items: vec![None; NUM_REGS as usize],
         }
     }
 
@@ -37,7 +37,7 @@ impl<'a> RegMap<'a> {
 
     pub fn update(&mut self, reg: Reg, value: IntValue<'a>) {
         let item =
-            self.items[reg as usize].unwrap_or_else(|| panic!("reg {:?} has not been loaded", reg));
+            self.items[reg as usize].unwrap_or_else(|| panic!("reg {reg:?} has not been loaded"));
         self.items[reg as usize] = Some(RegMapItem {
             current_value: value,
             state_ptr: item.state_ptr,
@@ -47,7 +47,7 @@ impl<'a> RegMap<'a> {
 
     pub fn get(&self, reg: Reg) -> IntValue<'a> {
         self.items[reg as usize]
-            .unwrap_or_else(|| panic!("reg {:?} has not been loaded", reg))
+            .unwrap_or_else(|| panic!("reg {reg:?} has not been loaded"))
             .current_value
     }
 }

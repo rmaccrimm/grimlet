@@ -13,91 +13,91 @@ struct AddrMode<'a> {
     addr: IntValue<'a>,
 }
 
-impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
-    pub(super) fn arm_ldr(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::ldr::<u32>)
+impl<'a> FunctionBuilder<'_, 'a> {
+    pub(super) fn arm_ldr(&mut self, instr: &ArmInstruction) {
+        exec_instr!(self, exec_conditional, instr, Self::ldr::<u32>);
     }
 
-    pub(super) fn arm_ldrb(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::ldr::<u8>)
+    pub(super) fn arm_ldrb(&mut self, instr: &ArmInstruction) {
+        exec_instr!(self, exec_conditional, instr, Self::ldr::<u8>);
     }
 
-    pub(super) fn arm_ldrh(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::ldr::<u16>)
+    pub(super) fn arm_ldrh(&mut self, instr: &ArmInstruction) {
+        exec_instr!(self, exec_conditional, instr, Self::ldr::<u16>);
     }
 
-    pub(super) fn arm_ldrsb(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::ldr::<i8>)
+    pub(super) fn arm_ldrsb(&mut self, instr: &ArmInstruction) {
+        exec_instr!(self, exec_conditional, instr, Self::ldr::<i8>);
     }
 
-    pub(super) fn arm_ldrsh(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::ldr::<i16>)
+    pub(super) fn arm_ldrsh(&mut self, instr: &ArmInstruction) {
+        exec_instr!(self, exec_conditional, instr, Self::ldr::<i16>);
     }
 
-    pub(super) fn arm_ldmia(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::ldmia)
+    pub(super) fn arm_ldmia(&mut self, instr: &ArmInstruction) {
+        exec_instr!(self, exec_conditional, instr, Self::ldmia);
     }
 
-    pub(super) fn arm_ldmib(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::ldmib)
+    pub(super) fn arm_ldmib(&mut self, instr: &ArmInstruction) {
+        exec_instr!(self, exec_conditional, instr, Self::ldmib);
     }
 
-    pub(super) fn arm_ldmda(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::ldmda)
+    pub(super) fn arm_ldmda(&mut self, instr: &ArmInstruction) {
+        exec_instr!(self, exec_conditional, instr, Self::ldmda);
     }
 
-    pub(super) fn arm_ldmdb(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::ldmdb)
+    pub(super) fn arm_ldmdb(&mut self, instr: &ArmInstruction) {
+        exec_instr!(self, exec_conditional, instr, Self::ldmdb);
     }
 
-    pub(super) fn arm_str(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::str::<u32>)
+    pub(super) fn arm_str(&mut self, instr: &ArmInstruction) {
+        exec_instr!(self, exec_conditional, instr, Self::str::<u32>);
     }
 
-    pub(super) fn arm_strb(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::str::<u8>)
+    pub(super) fn arm_strb(&mut self, instr: &ArmInstruction) {
+        exec_instr!(self, exec_conditional, instr, Self::str::<u8>);
     }
 
-    pub(super) fn arm_strh(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::str::<u16>)
+    pub(super) fn arm_strh(&mut self, instr: &ArmInstruction) {
+        exec_instr!(self, exec_conditional, instr, Self::str::<u16>);
     }
 
-    pub(super) fn arm_stmia(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::stmia)
+    pub(super) fn arm_stmia(&mut self, instr: &ArmInstruction) {
+        exec_instr!(self, exec_conditional, instr, Self::stmia);
     }
 
-    pub(super) fn arm_stmib(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::stmib)
+    pub(super) fn arm_stmib(&mut self, instr: &ArmInstruction) {
+        exec_instr!(self, exec_conditional, instr, Self::stmib);
     }
 
-    pub(super) fn arm_stmda(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::stmda)
+    pub(super) fn arm_stmda(&mut self, instr: &ArmInstruction) {
+        exec_instr!(self, exec_conditional, instr, Self::stmda);
     }
 
-    pub(super) fn arm_stmdb(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::stmdb)
+    pub(super) fn arm_stmdb(&mut self, instr: &ArmInstruction) {
+        exec_instr!(self, exec_conditional, instr, Self::stmdb);
     }
 
-    pub(super) fn arm_push(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::push)
+    pub(super) fn arm_push(&mut self, instr: &ArmInstruction) {
+        exec_instr!(self, exec_conditional, instr, Self::push);
     }
 
-    pub(super) fn arm_pop(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::pop)
+    pub(super) fn arm_pop(&mut self, instr: &ArmInstruction) {
+        exec_instr!(self, exec_conditional, instr, Self::pop);
     }
 
-    /// Not a real ARMv4 instruction, but Capstone decodes some instrutions like
+    /// Not a real `ARMv4` instruction, but Capstone decodes some instrutions like
     /// `ldr r0, =label` to this
-    pub(super) fn arm_adr(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::adr)
+    pub(super) fn arm_adr(&mut self, instr: &ArmInstruction) {
+        exec_instr!(self, exec_conditional, instr, Self::adr);
     }
 
-    pub(super) fn arm_swp(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::swp::<u32>)
+    pub(super) fn arm_swp(&mut self, instr: &ArmInstruction) {
+        exec_instr!(self, exec_conditional, instr, Self::swp::<u32>);
     }
 
-    pub(super) fn arm_swpb(&mut self, instr: ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::swp::<u8>)
+    pub(super) fn arm_swpb(&mut self, instr: &ArmInstruction) {
+        exec_instr!(self, exec_conditional, instr, Self::swp::<u8>);
     }
 
     fn addressing_mode(&self, mem_op: &MemOperand) -> Result<AddrMode<'a>> {
@@ -229,7 +229,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let mut updates = vec![];
         let mut addr = base_addr;
         let mut cycles = imm!(self, 0);
-        for &reg in reg_list.iter() {
+        for &reg in &reg_list {
             // TODO - are these just additive?
             let (value, read_cycles) = self.call_mem_read::<u32>(addr)?;
             cycles = bd.build_int_add(cycles, read_cycles, "cycle")?;
@@ -237,7 +237,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             addr = bd.build_int_add(addr, imm!(self, 4), "addr")?;
         }
         if instr.writeback {
-            updates.push(RegUpdate(rn, addr))
+            updates.push(RegUpdate(rn, addr));
         }
         Ok(InstrEffect { updates, cycles })
     }
@@ -251,7 +251,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let mut updates = vec![];
         let mut addr = base_addr;
         let mut cycles = imm!(self, 0);
-        for &reg in reg_list.iter() {
+        for &reg in &reg_list {
             addr = bd.build_int_add(addr, imm!(self, 4), "ib")?;
             // TODO - are these just additive?
             let (value, read_cycles) = self.call_mem_read::<u32>(addr)?;
@@ -259,7 +259,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             updates.push(RegUpdate(reg, value));
         }
         if instr.writeback {
-            updates.push(RegUpdate(rn, addr))
+            updates.push(RegUpdate(rn, addr));
         }
         Ok(InstrEffect { updates, cycles })
     }
@@ -274,7 +274,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let mut addr =
             bd.build_int_sub(base_addr, imm!(self, 4 * (reg_list.len() - 1)), "start")?;
         let mut cycles = imm!(self, 0);
-        for &reg in reg_list.iter() {
+        for &reg in &reg_list {
             // TODO - are these just additive?
             let (value, read_cycles) = self.call_mem_read::<u32>(addr)?;
             cycles = bd.build_int_add(cycles, read_cycles, "cycle")?;
@@ -285,7 +285,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             updates.push(RegUpdate(
                 rn,
                 bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "wb")?,
-            ))
+            ));
         }
         Ok(InstrEffect { updates, cycles })
     }
@@ -299,7 +299,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let mut updates = vec![];
         let mut addr = bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "start")?;
         let mut cycles = imm!(self, 0);
-        for &reg in reg_list.iter() {
+        for &reg in &reg_list {
             // TODO - are these just additive?
             let (value, read_cycles) = self.call_mem_read::<u32>(addr)?;
             cycles = bd.build_int_add(cycles, read_cycles, "cycle")?;
@@ -310,7 +310,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             updates.push(RegUpdate(
                 rn,
                 bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "wb")?,
-            ))
+            ));
         }
         Ok(InstrEffect { updates, cycles })
     }
@@ -326,7 +326,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         let mut updates = vec![];
         if let Some(wb) = addr_mode.writeback {
-            updates.push(wb)
+            updates.push(wb);
         }
         Ok(InstrEffect { updates, cycles })
     }
@@ -340,14 +340,14 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let mut updates = vec![];
         let mut addr = base_addr;
         let mut cycles = imm!(self, 0);
-        for &reg in reg_list.iter() {
+        for &reg in &reg_list {
             let value = self.reg_map.get(reg);
             let write_cycles = self.call_mem_write::<u32>(addr, value)?;
             cycles = bd.build_int_add(cycles, write_cycles, "cycles")?;
             addr = bd.build_int_add(addr, imm!(self, 4), "addr")?;
         }
         if instr.writeback {
-            updates.push(RegUpdate(rn, addr))
+            updates.push(RegUpdate(rn, addr));
         }
         Ok(InstrEffect { updates, cycles })
     }
@@ -361,14 +361,14 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let mut updates = vec![];
         let mut addr = base_addr;
         let mut cycles = imm!(self, 0);
-        for &reg in reg_list.iter() {
+        for &reg in &reg_list {
             addr = bd.build_int_add(addr, imm!(self, 4), "ib")?;
             let value = self.reg_map.get(reg);
             let write_cycles = self.call_mem_write::<u32>(addr, value)?;
             cycles = bd.build_int_add(cycles, write_cycles, "cycles")?;
         }
         if instr.writeback {
-            updates.push(RegUpdate(rn, addr))
+            updates.push(RegUpdate(rn, addr));
         }
         Ok(InstrEffect { updates, cycles })
     }
@@ -383,7 +383,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let mut addr =
             bd.build_int_sub(base_addr, imm!(self, 4 * (reg_list.len() - 1)), "start")?;
         let mut cycles = imm!(self, 0);
-        for &reg in reg_list.iter() {
+        for &reg in &reg_list {
             let value = self.reg_map.get(reg);
             let write_cycles = self.call_mem_write::<u32>(addr, value)?;
             cycles = bd.build_int_add(cycles, write_cycles, "cycles")?;
@@ -393,7 +393,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             updates.push(RegUpdate(
                 rn,
                 bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "wb")?,
-            ))
+            ));
         }
         Ok(InstrEffect { updates, cycles })
     }
@@ -407,7 +407,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let mut updates = vec![];
         let mut addr = bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "start")?;
         let mut cycles = imm!(self, 0);
-        for &reg in reg_list.iter() {
+        for &reg in &reg_list {
             let value = self.reg_map.get(reg);
             let write_cycles = self.call_mem_write::<u32>(addr, value)?;
             cycles = bd.build_int_add(cycles, write_cycles, "cycles")?;
@@ -417,7 +417,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             updates.push(RegUpdate(
                 rn,
                 bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "wb")?,
-            ))
+            ));
         }
         Ok(InstrEffect { updates, cycles })
     }
@@ -431,7 +431,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let mut updates = vec![];
         let mut addr = bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "start")?;
         let mut cycles = imm!(self, 0);
-        for &reg in reg_list.iter() {
+        for &reg in &reg_list {
             let value = self.reg_map.get(reg);
             let write_cycles = self.call_mem_write::<u32>(addr, value)?;
             cycles = bd.build_int_add(cycles, write_cycles, "cycles")?;
@@ -453,7 +453,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let mut updates = vec![];
         let mut addr = base_addr;
         let mut cycles = imm!(self, 0);
-        for &reg in reg_list.iter() {
+        for &reg in &reg_list {
             let (value, read_cycles) = self.call_mem_read::<u32>(addr)?;
             cycles = bd.build_int_add(cycles, read_cycles, "cycle")?;
             updates.push(RegUpdate(reg, value));
@@ -532,7 +532,7 @@ mod tests {
             state.regs[Reg::CPSR] = if c { C.0 } else { 0 }
         }
         unsafe {
-            f.call(&mut state);
+            f.call(&raw mut state);
         }
         state.regs[Reg::R0]
     }
@@ -541,12 +541,12 @@ mod tests {
     fn test_imm_shift_asr() {
         let ctx = Context::create();
         let cases = vec![
-            ((0xf0f00000, 2), 0xfc3c0000),
-            ((0x00f00000, 2), 0x003c0000),
-            ((0xf0f00000, 31), 0xffffffff),
-            ((0xf0f00000, 32), 0xffffffff),
-            ((0xf0f00000, 31), 0xffffffff),
-            ((0x70f00000, 32), 0),
+            ((0xf0f0_0000, 2), 0xfc3c_0000),
+            ((0x00f0_0000, 2), 0x003c_0000),
+            ((0xf0f0_0000, 31), 0xffff_ffff),
+            ((0xf0f0_0000, 32), 0xffff_ffff),
+            ((0xf0f0_0000, 31), 0xffff_ffff),
+            ((0x70f0_0000, 32), 0),
         ];
         for ((r0, sh), expected) in cases {
             assert_eq!(
@@ -557,14 +557,14 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "assertion failed")]
     fn test_imm_shift_asr_0_panics() {
         let ctx = Context::create();
         shift_test_case(&ctx, 0xf0f0, Some(ArmShift::AsrImm(0)), None);
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "assertion failed")]
     fn test_imm_shift_asr_33_panics() {
         let ctx = Context::create();
         shift_test_case(&ctx, 0xf0f0, Some(ArmShift::AsrImm(33)), None);
@@ -574,9 +574,9 @@ mod tests {
     fn test_imm_shift_lsr() {
         let ctx = Context::create();
         let cases = vec![
-            ((0xf0f000e7, 1), 0x78780073),
-            ((0xf0f00000, 31), 0x00000001),
-            ((0xf0f00000, 32), 0),
+            ((0xf0f0_00e7, 1), 0x7878_0073),
+            ((0xf0f0_0000, 31), 0x0000_0001),
+            ((0xf0f0_0000, 32), 0),
         ];
         for ((r0, sh), expected) in cases {
             assert_eq!(
@@ -587,14 +587,14 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "assertion failed")]
     fn test_imm_shift_lsr_0_panics() {
         let ctx = Context::create();
         shift_test_case(&ctx, 0xf0f0, Some(ArmShift::LsrImm(0)), None);
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "assertion failed")]
     fn test_imm_shift_lsr_33_panics() {
         let ctx = Context::create();
         shift_test_case(&ctx, 0xf0f0, Some(ArmShift::LsrImm(33)), None);
@@ -604,10 +604,10 @@ mod tests {
     fn test_imm_shift_lsl() {
         let ctx = Context::create();
         let cases = vec![
-            ((0xf0f000e7, 0), 0xf0f000e7),
-            ((0xf0f000e7, 1), 0xe1e001ce),
-            ((0xf0f00001, 31), 0x80000000),
-            ((0xf0f00000, 31), 0),
+            ((0xf0f0_00e7, 0), 0xf0f_000e7),
+            ((0xf0f0_00e7, 1), 0xe1e0_01ce),
+            ((0xf0f0_0001, 31), 0x8000_0000),
+            ((0xf0f0_0000, 31), 0),
         ];
         for ((r0, sh), expected) in cases {
             assert_eq!(
@@ -618,7 +618,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "assertion failed")]
     fn test_imm_shift_lsl_32_panics() {
         let ctx = Context::create();
         shift_test_case(&ctx, 0, Some(ArmShift::LslImm(32)), None);
@@ -628,8 +628,8 @@ mod tests {
     fn test_imm_shift_ror() {
         let ctx = Context::create();
         let cases = vec![
-            ((0xf0f000e7, 1), 0xf8780073),
-            ((0xf0f000e7, 31), 0xe1e001cf),
+            ((0xf0f0_00e7, 1), 0xf878_0073),
+            ((0xf0f0_00e7, 31), 0xe1e0_01cf),
         ];
         for ((r0, sh), expected) in cases {
             assert_eq!(
@@ -640,14 +640,14 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "assertion failed")]
     fn test_imm_shift_ror_0_panics() {
         let ctx = Context::create();
         shift_test_case(&ctx, 0, Some(ArmShift::RorImm(0)), None);
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "assertion failed")]
     fn test_imm_shift_ror_32_panics() {
         let ctx = Context::create();
         shift_test_case(&ctx, 0, Some(ArmShift::RorImm(32)), None);
@@ -657,20 +657,20 @@ mod tests {
     fn test_imm_shift_rrx() {
         let ctx = Context::create();
         assert_eq!(
-            shift_test_case(&ctx, 0x80b30011, Some(ArmShift::Rrx), Some(true)),
-            0xc0598008
+            shift_test_case(&ctx, 0x80b3_0011, Some(ArmShift::Rrx), Some(true)),
+            0xc059_8008
         );
         assert_eq!(
-            shift_test_case(&ctx, 0x80b30011, Some(ArmShift::Rrx), Some(true)),
-            0xc0598008
+            shift_test_case(&ctx, 0x80b3_0011, Some(ArmShift::Rrx), Some(true)),
+            0xc059_8008
         );
         assert_eq!(
-            shift_test_case(&ctx, 0x80b30011, Some(ArmShift::Rrx), Some(false)),
-            0x40598008
+            shift_test_case(&ctx, 0x80b3_0011, Some(ArmShift::Rrx), Some(false)),
+            0x4059_8008
         );
         assert_eq!(
-            shift_test_case(&ctx, 0x80b30011, Some(ArmShift::Rrx), Some(false)),
-            0x40598008
+            shift_test_case(&ctx, 0x80b3_0011, Some(ArmShift::Rrx), Some(false)),
+            0x4059_8008
         );
     }
 
@@ -714,7 +714,7 @@ mod tests {
             self.state.regs[Reg::R8] = index;
             self.state.regs[Reg::R9] = 0;
             unsafe {
-                self.f.call(&mut self.state);
+                self.f.call(&raw mut self.state);
             }
             // should never change
             assert_eq!(self.state.regs[Reg::R8], index);
@@ -769,7 +769,7 @@ mod tests {
         assert_eq!(tst.run(200, 99), (200, 101));
         assert_eq!(tst.run(200, 0), (200, 200));
         // undeflows to -1
-        assert_eq!(tst.run(200, 201), (200, 0xffffffff));
+        assert_eq!(tst.run(200, 201), (200, 0xffff_ffff));
     }
 
     #[test]
@@ -790,7 +790,7 @@ mod tests {
 
         mem_op.offset = reg_offset(false, Some(ArmShift::AsrImm(2)));
         let mut tst = AddrModeTestCase::new(&ctx, &mem_op);
-        assert_eq!(tst.run(200, 0x80000000), (200, 0xe00000c8));
+        assert_eq!(tst.run(200, 0x8000_0000), (200, 0xe000_00c8));
     }
 
     #[test]
@@ -824,13 +824,13 @@ mod tests {
         mem_op.offset = reg_offset(false, Some(ArmShift::Rrx));
         let mut tst = AddrModeTestCase::new(&ctx, &mem_op);
         tst.state.regs[Reg::CPSR] = C.0;
-        assert_eq!(tst.run(200, 0xf), (0x800000cf, 0x800000cf));
+        assert_eq!(tst.run(200, 0xf), (0x8000_00cf, 0x8000_00cf));
         tst.state.regs[Reg::CPSR] = 0;
         assert_eq!(tst.run(200, 0xf), (207, 207));
 
         mem_op.offset = reg_offset(true, Some(ArmShift::LsrImm(2)));
         let mut tst = AddrModeTestCase::new(&ctx, &mem_op);
-        assert_eq!(tst.run(200, 0x324), (0xffffffff, 0xffffffff));
+        assert_eq!(tst.run(200, 0x324), (0xffff_ffff, 0xffff_ffff));
     }
 
     #[test]
@@ -864,6 +864,6 @@ mod tests {
 
         mem_op.offset = reg_offset(false, Some(ArmShift::RorImm(2)));
         let mut tst = AddrModeTestCase::new(&ctx, &mem_op);
-        assert_eq!(tst.run(0, 0x3), (0xc0000000, 0));
+        assert_eq!(tst.run(0, 0x3), (0xc000_0000, 0));
     }
 }

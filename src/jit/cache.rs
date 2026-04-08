@@ -1,9 +1,6 @@
 #![allow(dead_code)]
 
-use std::cmp::Reverse;
 use std::collections::HashMap;
-
-use anyhow::{Result, anyhow, bail};
 
 use super::CompiledFunction;
 
@@ -41,8 +38,8 @@ impl<'ctx> FunctionCache<'ctx> {
             .map(|e| e.func)
     }
 
-    pub fn get(&mut self, k: &AddrRange) -> Option<&CompiledFunction<'ctx>> {
-        if let Some(e) = self.map.get_mut(k) {
+    pub fn get(&mut self, k: AddrRange) -> Option<&CompiledFunction<'ctx>> {
+        if let Some(e) = self.map.get_mut(&k) {
             e.hits += 1;
             Some(&e.func)
         } else {
@@ -50,7 +47,7 @@ impl<'ctx> FunctionCache<'ctx> {
         }
     }
 
-    pub fn remove(&mut self, k: &AddrRange) -> Option<CompiledFunction<'ctx>> {
-        self.map.remove(k).map(|e| e.func)
+    pub fn remove(&mut self, k: AddrRange) -> Option<CompiledFunction<'ctx>> {
+        self.map.remove(&k).map(|e| e.func)
     }
 }

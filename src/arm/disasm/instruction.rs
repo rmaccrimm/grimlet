@@ -13,7 +13,7 @@ use crate::arm::state::{ArmMode, Reg};
 pub struct ArmInstruction {
     pub opcode: ArmInsn,
     pub operands: Vec<ArmOperand>,
-    pub addr: usize,
+    pub addr: u32,
     pub repr: Option<String>,
     pub cond: ArmCC,
     pub mode: ArmMode,
@@ -35,8 +35,9 @@ pub enum ArmShift {
     Rrx,
 }
 
-/// <shifter_operand> operands for data processing instructions. Parsed out ahead of time since it
+/// `shifter_operand`: operands for data processing instructions. Parsed out ahead of time since it
 /// potentially is encoded in multiple Capstone operands.
+#[derive(Clone, Copy)]
 pub enum ShifterOperand {
     Reg { reg: Reg, shift: Option<ArmShift> },
 
@@ -45,16 +46,16 @@ pub enum ShifterOperand {
     Imm { imm: i32, rotate: Option<i32> },
 }
 
-/// <addressing_mode> operand for single Load/Store instructions. Parsed out ahead of time since it
+/// `addressing_mode`: operand for single Load/Store instructions. Parsed out ahead of time since it
 /// potentially is encoded in multiple Capstone operands.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MemOperand {
     pub base: Reg,
     pub offset: MemOffset,
     pub writeback: Option<WritebackMode>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MemOffset {
     Reg {
         index: Reg,
@@ -64,7 +65,7 @@ pub enum MemOffset {
     Imm(i32),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WritebackMode {
     PostIndex,
     PreIndex,
@@ -96,9 +97,9 @@ impl ArmInstruction {
             ArmMode::ARM => {
                 u32::from_le_bytes(insn.bytes().try_into().expect("failed to parse bytes"))
             }
-            ArmMode::THUMB => {
-                u16::from_le_bytes(insn.bytes().try_into().expect("failed to parse bytes")) as u32
-            }
+            ArmMode::THUMB => u32::from(u16::from_le_bytes(
+                insn.bytes().try_into().expect("failed to parse bytes"),
+            )),
         };
 
         Self {
@@ -111,7 +112,7 @@ impl ArmInstruction {
                     _ => panic!("not an ARM operand"),
                 })
                 .collect(),
-            addr: insn.address() as usize,
+            addr: u32::try_from(insn.address()).expect("address too large"),
             repr: Some(insn.to_string()),
             cond,
             mode,
@@ -125,12 +126,12 @@ impl ArmInstruction {
         if let ArmOperandType::Reg(reg_id) = self
             .operands
             .get(ind)
-            .unwrap_or_else(|| panic!("\"{}\" missing operand {}", self, ind))
+            .unwrap_or_else(|| panic!("\"{self}\" missing operand {ind}"))
             .op_type
         {
             Reg::from(reg_id)
         } else {
-            panic!("\"{}\" operand {} is not a register", self, ind);
+            panic!("\"{self}\" operand {ind} is not a register");
         }
     }
 
@@ -138,12 +139,12 @@ impl ArmInstruction {
         if let ArmOperandType::Imm(i) = self
             .operands
             .get(ind)
-            .unwrap_or_else(|| panic!("\"{}\" missing operand {}", self, ind))
+            .unwrap_or_else(|| panic!("\"{self}\" missing operand {ind}"))
             .op_type
         {
             i
         } else {
-            panic!("\"{}\" operand {} is not an immediate value", self, ind);
+            panic!("\"{self}\" operand {ind} is not an immediate value");
         }
     }
 
@@ -151,64 +152,58 @@ impl ArmInstruction {
         let mut op_iter = self.operands.iter().skip(index);
         let mem_op = op_iter
             .next()
-            .unwrap_or_else(|| panic!("\"{}\" missing mem operand", self));
+            .unwrap_or_else(|| panic!("\"{self}\" missing mem operand"));
         let post_index_op = op_iter.next();
 
-        let inner_mem_op = if let ArmOperandType::Mem(mem) = mem_op.op_type {
-            mem
-        } else {
-            bail!("operand is not a memory address: {:?}", mem_op);
+        let ArmOperandType::Mem(inner_mem_op) = mem_op.op_type else {
+            bail!("operand is not a memory address: {mem_op:?}");
         };
 
         let base = Reg::from(inner_mem_op.base());
 
-        match post_index_op {
-            Some(post_op) => {
-                debug_assert_eq!(inner_mem_op.index().0, 0);
+        if let Some(post_op) = post_index_op {
+            debug_assert_eq!(inner_mem_op.index().0, 0);
+            debug_assert_eq!(inner_mem_op.disp(), 0);
+
+            let wb_mode = Some(WritebackMode::PostIndex);
+            let offset = match post_op.op_type {
+                ArmOperandType::Reg(reg_id) => MemOffset::Reg {
+                    index: Reg::from(reg_id),
+                    shift: ArmShift::try_from(post_op.shift).ok(),
+                    subtract: post_op.subtracted,
+                },
+                ArmOperandType::Imm(i) => {
+                    debug_assert!(!(i < 0 && post_op.subtracted));
+                    let imm = if post_op.subtracted { -i } else { i };
+                    MemOffset::Imm(imm)
+                }
+                _ => bail!("unexpected post-index op_type: {:?}", post_op.op_type),
+            };
+            Ok(MemOperand {
+                base,
+                offset,
+                writeback: wb_mode,
+            })
+        } else {
+            let writeback = self.writeback.then_some(WritebackMode::PreIndex);
+            let index = inner_mem_op.index();
+            let disp = inner_mem_op.disp();
+
+            let offset = if index.0 == 0 {
+                MemOffset::Imm(disp)
+            } else {
                 debug_assert_eq!(inner_mem_op.disp(), 0);
-
-                let wb_mode = Some(WritebackMode::PostIndex);
-                let offset = match post_op.op_type {
-                    ArmOperandType::Reg(reg_id) => MemOffset::Reg {
-                        index: Reg::from(reg_id),
-                        shift: ArmShift::try_from(post_op.shift).ok(),
-                        subtract: post_op.subtracted,
-                    },
-                    ArmOperandType::Imm(i) => {
-                        debug_assert!(!(i < 0 && post_op.subtracted));
-                        let imm = if post_op.subtracted { -i } else { i };
-                        MemOffset::Imm(imm)
-                    }
-                    _ => bail!("unexpected post-index op_type: {:?}", post_op.op_type),
-                };
-                Ok(MemOperand {
-                    base,
-                    offset,
-                    writeback: wb_mode,
-                })
-            }
-            None => {
-                let writeback = self.writeback.then_some(WritebackMode::PreIndex);
-                let index = inner_mem_op.index();
-                let disp = inner_mem_op.disp();
-
-                let offset = match index.0 {
-                    0 => MemOffset::Imm(disp),
-                    _ => {
-                        debug_assert_eq!(inner_mem_op.disp(), 0);
-                        MemOffset::Reg {
-                            index: Reg::from(index),
-                            shift: ArmShift::try_from(mem_op.shift).ok(),
-                            subtract: mem_op.subtracted,
-                        }
-                    }
-                };
-                Ok(MemOperand {
-                    base,
-                    offset,
-                    writeback,
-                })
-            }
+                MemOffset::Reg {
+                    index: Reg::from(index),
+                    shift: ArmShift::try_from(mem_op.shift).ok(),
+                    subtract: mem_op.subtracted,
+                }
+            };
+            Ok(MemOperand {
+                base,
+                offset,
+                writeback,
+            })
         }
     }
 
@@ -266,15 +261,15 @@ impl ArmInstruction {
             // Pulled from capstone.rs, not clear how you're really meant to use these
             Ok(match reg_id.0 {
                 // spsr_flg / spsr_f -> ARM_SYSREG_SPSR_F
-                8 => ProgramStatusReg(Reg::SPSR, 0xf0000000),
+                8 => ProgramStatusReg(Reg::SPSR, 0xf000_0000),
                 // cpsr / cpsr_fc / spsr / spsr_fc -> ? are these supposed to be the same?
-                9 => ProgramStatusReg(Reg::SPSR, 0xf00000ff),
+                9 => ProgramStatusReg(Reg::SPSR, 0xf000_00ff),
                 // cpsr_flg / aspr_nzcvq -> ARM_SYSREG_APSR_NZCVQ
-                258 => ProgramStatusReg(Reg::CPSR, 0xf0000ff),
-                _ => bail!("unknown sysreg id: {:?}", op),
+                258 => ProgramStatusReg(Reg::CPSR, 0x0f00_00ff),
+                _ => bail!("unknown sysreg id: {op:?}"),
             })
         } else {
-            bail!("operand is not a sysreg: {:?}", op);
+            bail!("operand is not a sysreg: {op:?}");
         }
     }
 }
@@ -284,7 +279,7 @@ impl Default for ArmInstruction {
         Self {
             opcode: ArmInsn::ARM_INS_NOP,
             cond: ArmCC::ARM_CC_AL,
-            operands: Default::default(),
+            operands: Vec::new(),
             addr: Default::default(),
             repr: None,
             mode: ArmMode::ARM,
@@ -298,7 +293,7 @@ impl Default for ArmInstruction {
 impl Display for ArmInstruction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.repr {
-            Some(s) => write!(f, "{}", s),
+            Some(s) => write!(f, "{s}"),
             None => write!(f, "missing repr"),
         }
     }
@@ -316,12 +311,11 @@ impl TryFrom<CsArmShift> for ArmShift {
             CsArmShift::Lsl(imm) => ArmShift::LslImm(imm),
             CsArmShift::Lsr(imm) => ArmShift::LsrImm(imm),
             CsArmShift::Ror(imm) => ArmShift::RorImm(imm),
-            CsArmShift::Rrx(_) => ArmShift::Rrx,
             CsArmShift::AsrReg(reg_id) => ArmShift::AsrReg(Reg::from(reg_id)),
             CsArmShift::LslReg(reg_id) => ArmShift::LslReg(Reg::from(reg_id)),
             CsArmShift::LsrReg(reg_id) => ArmShift::LsrReg(Reg::from(reg_id)),
             CsArmShift::RorReg(reg_id) => ArmShift::RorReg(Reg::from(reg_id)),
-            CsArmShift::RrxReg(_) => ArmShift::Rrx,
+            CsArmShift::Rrx(_) | CsArmShift::RrxReg(_) => ArmShift::Rrx,
         };
         Ok(shift)
     }
@@ -339,37 +333,49 @@ mod tests {
     }
 
     #[test]
-    fn test_get_mem_op() {
+    fn test_get_mem_op_1() {
         // str r9, [r0]
         assert_eq!(
-            get_mem_op_from_assembled(0xe5809000),
+            get_mem_op_from_assembled(0xe580_9000),
             MemOperand {
                 base: Reg::R0,
                 offset: MemOffset::Imm(0),
                 writeback: None
             }
         );
+    }
+
+    #[test]
+    fn test_get_mem_op_2() {
         // strlt r0, [r1, #12]
         assert_eq!(
-            get_mem_op_from_assembled(0xb581000c),
+            get_mem_op_from_assembled(0xb581_000c),
             MemOperand {
                 base: Reg::R1,
                 offset: MemOffset::Imm(12),
                 writeback: None
             }
         );
+    }
+
+    #[test]
+    fn test_get_mem_op_3() {
         // ldrne r1, [r1, #-12]
         assert_eq!(
-            get_mem_op_from_assembled(0x1511100c),
+            get_mem_op_from_assembled(0x1511_100c),
             MemOperand {
                 base: Reg::R1,
                 offset: MemOffset::Imm(-12),
                 writeback: None
             }
         );
+    }
+
+    #[test]
+    fn test_get_mem_op_4() {
         // ldr r2, [pc, r0]
         assert_eq!(
-            get_mem_op_from_assembled(0xe79f2000),
+            get_mem_op_from_assembled(0xe79f_2000),
             MemOperand {
                 base: Reg::PC,
                 offset: MemOffset::Reg {
@@ -380,9 +386,13 @@ mod tests {
                 writeback: None
             }
         );
+    }
+
+    #[test]
+    fn test_get_mem_op_5() {
         // ldrne r1, [sp, -r14]
         assert_eq!(
-            get_mem_op_from_assembled(0x171d100e),
+            get_mem_op_from_assembled(0x171d_100e),
             MemOperand {
                 base: Reg::SP,
                 offset: MemOffset::Reg {
@@ -393,9 +403,13 @@ mod tests {
                 writeback: None
             }
         );
+    }
+
+    #[test]
+    fn test_get_mem_op_6() {
         // ldr r1, [sp, -r14, asr #1]
         assert_eq!(
-            get_mem_op_from_assembled(0xe71d10ce),
+            get_mem_op_from_assembled(0xe71d_10ce),
             MemOperand {
                 base: Reg::SP,
                 offset: MemOffset::Reg {
@@ -406,9 +420,13 @@ mod tests {
                 writeback: None
             }
         );
+    }
+
+    #[test]
+    fn test_get_mem_op_7() {
         // ldr r2, [r13, r14, lsr #3]
         assert_eq!(
-            get_mem_op_from_assembled(0xe79d21ae),
+            get_mem_op_from_assembled(0xe79d_21ae),
             MemOperand {
                 base: Reg::SP,
                 offset: MemOffset::Reg {
@@ -419,27 +437,39 @@ mod tests {
                 writeback: None
             }
         );
+    }
+
+    #[test]
+    fn test_get_mem_op_8() {
         // str r10, [ip, #0]!
         assert_eq!(
-            get_mem_op_from_assembled(0xe5aca000),
+            get_mem_op_from_assembled(0xe5ac_a000),
             MemOperand {
                 base: Reg::R12,
                 offset: MemOffset::Imm(0),
                 writeback: Some(WritebackMode::PreIndex)
             }
         );
+    }
+
+    #[test]
+    fn test_get_mem_op_9() {
         // strge r5, [pc, #-12]!
         assert_eq!(
-            get_mem_op_from_assembled(0xa52f500c),
+            get_mem_op_from_assembled(0xa52f_500c),
             MemOperand {
                 base: Reg::PC,
                 offset: MemOffset::Imm(-12),
                 writeback: Some(WritebackMode::PreIndex)
             }
         );
+    }
+
+    #[test]
+    fn test_get_mem_op_10() {
         // ldr r8, [r9, r10]!
         assert_eq!(
-            get_mem_op_from_assembled(0xe7b9800a),
+            get_mem_op_from_assembled(0xe7b9_800a),
             MemOperand {
                 base: Reg::R9,
                 offset: MemOffset::Reg {
@@ -450,9 +480,13 @@ mod tests {
                 writeback: Some(WritebackMode::PreIndex)
             }
         );
+    }
+
+    #[test]
+    fn test_get_mem_op_11() {
         // ldr r0, [r1, r2, lsl #31]!
         assert_eq!(
-            get_mem_op_from_assembled(0xe7b10f82),
+            get_mem_op_from_assembled(0xe7b1_0f82),
             MemOperand {
                 base: Reg::R1,
                 offset: MemOffset::Reg {
@@ -463,9 +497,13 @@ mod tests {
                 writeback: Some(WritebackMode::PreIndex)
             }
         );
+    }
+
+    #[test]
+    fn test_get_mem_op_12() {
         // ldr r7, [r0], -r0
         assert_eq!(
-            get_mem_op_from_assembled(0xe6107000),
+            get_mem_op_from_assembled(0xe610_7000),
             MemOperand {
                 base: Reg::R0,
                 offset: MemOffset::Reg {
@@ -476,9 +514,13 @@ mod tests {
                 writeback: Some(WritebackMode::PostIndex)
             }
         );
+    }
+
+    #[test]
+    fn test_get_mem_op_13() {
         // ldreq lr, [sp], pc
         assert_eq!(
-            get_mem_op_from_assembled(0x69de00f),
+            get_mem_op_from_assembled(0x069d_e00f),
             MemOperand {
                 base: Reg::SP,
                 offset: MemOffset::Reg {
@@ -489,27 +531,39 @@ mod tests {
                 writeback: Some(WritebackMode::PostIndex)
             }
         );
+    }
+
+    #[test]
+    fn test_get_mem_op_14() {
         // ldreq r3, [r0], #4095
         assert_eq!(
-            get_mem_op_from_assembled(0x4903fff),
+            get_mem_op_from_assembled(0x0490_3fff),
             MemOperand {
                 base: Reg::R0,
                 offset: MemOffset::Imm(4095),
                 writeback: Some(WritebackMode::PostIndex)
             }
         );
+    }
+
+    #[test]
+    fn test_get_mem_op_15() {
         // strne r2, [r7], #-290
         assert_eq!(
-            get_mem_op_from_assembled(0x14072122),
+            get_mem_op_from_assembled(0x1407_2122),
             MemOperand {
                 base: Reg::R7,
                 offset: MemOffset::Imm(-290),
                 writeback: Some(WritebackMode::PostIndex),
             }
         );
+    }
+
+    #[test]
+    fn test_get_mem_op_16() {
         // ldr pc, [pc], pc, ror #20
         assert_eq!(
-            get_mem_op_from_assembled(0xe69ffa6f),
+            get_mem_op_from_assembled(0xe69f_fa6f),
             MemOperand {
                 base: Reg::PC,
                 offset: MemOffset::Reg {
@@ -520,9 +574,13 @@ mod tests {
                 writeback: Some(WritebackMode::PostIndex)
             }
         );
+    }
+
+    #[test]
+    fn test_get_mem_op_17() {
         // ldr r0, [r1], -r2, rrx
         assert_eq!(
-            get_mem_op_from_assembled(0xe6110062),
+            get_mem_op_from_assembled(0xe611_0062),
             MemOperand {
                 base: Reg::R1,
                 offset: MemOffset::Reg {

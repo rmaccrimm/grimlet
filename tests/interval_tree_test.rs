@@ -49,10 +49,9 @@ fn time_bulk_inserts_delete() -> Result<()> {
     for op in ops {
         match op {
             Op::Insert(s, e) => t.insert((s, e)),
-            Op::Delete(s, e) => match t.remove((s, e)) {
-                Ok(()) => (),
-                Err(e) => println!("{}", e),
-            },
+            Op::Delete(s, e) => {
+                t.remove((s, e));
+            }
         }
     }
     let elapsed = now.elapsed();

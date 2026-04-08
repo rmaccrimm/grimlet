@@ -23,8 +23,8 @@ pub struct MemoryManager {
 
 // TODO - will add these as needed
 pub enum IoReg {
-    DISPCNT = 0x4000000,
-    DISPSTAT = 0x4000004,
+    DISPCNT = 0x0400_0000,
+    DISPSTAT = 0x0400_0004,
 }
 
 #[repr(C)]
@@ -41,10 +41,11 @@ pub struct WriteVal {
     pub wait_states: u32,
 }
 
-pub trait MemReadable =
-    AsPrimitive<u32> + for<'a> FromBytes<Bytes: TryFrom<&'a [u8], Error = TryFromSliceError>>;
+pub trait MemReadable = AsPrimitive<u32>
+    + for<'a> FromBytes<Bytes: TryFrom<&'a [u8], Error = TryFromSliceError>>
+    + Copy;
 
-pub trait MemWriteable = ToBytes<Bytes: IntoIterator<Item = u8>>;
+pub trait MemWriteable = ToBytes<Bytes: IntoIterator<Item = u8>> + Copy;
 
 impl MemRegion {
     fn new(size: usize, wait_states: u32) -> Self {
@@ -57,16 +58,18 @@ impl MemRegion {
 
 impl MemoryManager {
     pub fn iter_word(&self, start_addr: u32) -> Result<Chunks<'_, u8>> {
-        if !start_addr.is_multiple_of(4) {
-            panic!("Mis-alligned word address: {:x}", start_addr);
-        }
+        assert!(
+            start_addr.is_multiple_of(4),
+            "Mis-alligned word address: {start_addr:x}"
+        );
         Ok(self.mem_map_lookup(start_addr)?.0.chunks(4))
     }
 
     pub fn iter_halfword(&self, start_addr: u32) -> Result<Chunks<'_, u8>> {
-        if !start_addr.is_multiple_of(2) {
-            panic!("Mis-alligned halfword address: {:x}", start_addr);
-        }
+        assert!(
+            start_addr.is_multiple_of(2),
+            "Mis-alligned halfword address: {start_addr:x}"
+        );
         Ok(self.mem_map_lookup(start_addr)?.0.chunks(2))
     }
 
@@ -109,36 +112,36 @@ impl MemoryManager {
 
     // TODO - should these be public?
     pub fn mem_map_lookup(&self, addr: u32) -> Result<(&[u8], u32)> {
-        let base = addr & 0x0f000000;
+        let base = addr & 0x0f00_0000;
         let index = (addr - base) as usize;
         let region = match base {
-            0x00000000 => &self.bios,
-            0x02000000 => &self.external_wram,
-            0x03000000 => &self.internal_wram,
-            0x04000000 => &self.io_registers,
-            0x05000000 => &self.palette_ram,
-            0x06000000 => &self.vram,
-            0x07000000 => &self.obj_attrs,
-            0x08000000 => &self.cartridge_rom,
-            _ => bail!("unused area of memory (addr: {:#08x})", addr),
+            0x0000_0000 => &self.bios,
+            0x0200_0000 => &self.external_wram,
+            0x0300_0000 => &self.internal_wram,
+            0x0400_0000 => &self.io_registers,
+            0x0500_0000 => &self.palette_ram,
+            0x0600_0000 => &self.vram,
+            0x0700_0000 => &self.obj_attrs,
+            0x0800_0000 => &self.cartridge_rom,
+            _ => bail!("unused area of memory (addr: {addr:#08x})"),
         };
         Ok((&region.data[index..], region.wait_states))
     }
 
     // Would be nice if these could be combined somehow
     pub fn mem_map_lookup_mut(&mut self, addr: u32) -> Result<(&mut [u8], u32)> {
-        let base = addr & 0x0f000000;
+        let base = addr & 0x0f00_0000;
         let index = (addr - base) as usize;
         let region = match base {
-            0x00000000 => &mut self.bios,
-            0x02000000 => &mut self.external_wram,
-            0x03000000 => &mut self.internal_wram,
-            0x04000000 => &mut self.io_registers,
-            0x05000000 => &mut self.palette_ram,
-            0x06000000 => &mut self.vram,
-            0x07000000 => &mut self.obj_attrs,
-            0x08000000 => &mut self.cartridge_rom,
-            _ => bail!("unused area of memory (addr: {:#08x})", addr),
+            0x0000_0000 => &mut self.bios,
+            0x0200_0000 => &mut self.external_wram,
+            0x0300_0000 => &mut self.internal_wram,
+            0x0400_0000 => &mut self.io_registers,
+            0x0500_0000 => &mut self.palette_ram,
+            0x0600_0000 => &mut self.vram,
+            0x0700_0000 => &mut self.obj_attrs,
+            0x0800_0000 => &mut self.cartridge_rom,
+            _ => bail!("unused area of memory (addr: {addr:#08x})"),
         };
         Ok((&mut region.data[index..], region.wait_states))
     }
@@ -185,24 +188,24 @@ mod tests {
 
     read_tests! {
         vec![0x34, 0xff, 0xbe, 0x70, 0xf1],
-        test_read_unsigned_0: u8, (0, 0x00000034),
-        test_read_unsigned_1: u8, (1, 0x000000ff),
-        test_read_unsigned_2: u8, (2, 0x000000be),
-        test_read_unsigned_3: u16, (0, 0x0000ff34),
-        test_read_unsigned_4: u16, (1, 0x0000beff),
-        test_read_unsigned_5: u16, (2, 0x000070be),
-        test_read_unsigned_6: u32, (0, 0x70beff34),
-        test_read_unsigned_7: u32, (1, 0xf170beff),
+        test_read_unsigned_0: u8, (0, 0x0000_0034),
+        test_read_unsigned_1: u8, (1, 0x0000_00ff),
+        test_read_unsigned_2: u8, (2, 0x0000_00be),
+        test_read_unsigned_3: u16, (0, 0x0000_ff34),
+        test_read_unsigned_4: u16, (1, 0x0000_beff),
+        test_read_unsigned_5: u16, (2, 0x0000_70be),
+        test_read_unsigned_6: u32, (0, 0x70be_ff34),
+        test_read_unsigned_7: u32, (1, 0xf170_beff),
     }
 
     read_tests! {
         vec![0x84, 0xff, 0x3e, 0x70, 0x80],
-        test_read_signed_0: i8, (0, 0xffffff84),
-        test_read_signed_1: i8, (2, 0x0000003e),
-        test_read_signed_2: i16, (0, 0xffffff84),
-        test_read_signed_3: i16, (1, 0x00003eff),
-        test_read_signed_4: i32, (0, 0x703eff84),
-        test_read_signed_5: i32, (1, 0x80703eff),
+        test_read_signed_0: i8, (0, 0xffff_ff84),
+        test_read_signed_1: i8, (2, 0x0000_003e),
+        test_read_signed_2: i16, (0, 0xfff_fff84),
+        test_read_signed_3: i16, (1, 0x0000_3eff),
+        test_read_signed_4: i32, (0, 0x703e_ff84),
+        test_read_signed_5: i32, (1, 0x8070_3eff),
     }
 
     #[test]
@@ -224,7 +227,7 @@ mod tests {
             bios: MemRegion::new(4, 0),
             ..Default::default()
         };
-        mem.write(0, 0x12345678u32);
+        mem.write(0, 0x1234_5678);
         assert_eq!(mem.bios.data, vec![0x78, 0x56, 0x34, 0x12]);
         mem.write(0, 0u8);
         assert_eq!(mem.bios.data, vec![0x00, 0x56, 0x34, 0x12]);

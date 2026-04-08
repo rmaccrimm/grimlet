@@ -11,7 +11,7 @@ use crate::arm::state::memory::MemoryManager;
 #[repr(C)]
 pub struct ArmState {
     pub current_mode: ArmMode,
-    pub regs: [u32; NUM_REGS],
+    pub regs: [u32; NUM_REGS as usize],
     pub cycle_count: u32,
     pub mem: MemoryManager,
 }
@@ -44,9 +44,9 @@ pub enum Reg {
     SPSR = 17,
 }
 
-pub const NUM_REGS: usize = 18;
+pub const NUM_REGS: u32 = 18;
 
-pub const REG_ITEMS: [Reg; NUM_REGS] = [
+pub const REG_ITEMS: [Reg; NUM_REGS as usize] = [
     Reg::R0,
     Reg::R1,
     Reg::R2,
@@ -69,7 +69,7 @@ pub const REG_ITEMS: [Reg; NUM_REGS] = [
 
 impl Default for ArmState {
     fn default() -> Self {
-        let mut regs = [0; NUM_REGS];
+        let mut regs = [0; NUM_REGS as usize];
         regs[Reg::PC] = 8; // 2 instructions ahead
         Self {
             current_mode: ArmMode::ARM,
@@ -81,9 +81,7 @@ impl Default for ArmState {
 }
 
 impl ArmState {
-    pub fn curr_instr_addr(&self) -> usize {
-        (self.regs[Reg::PC] - self.current_mode.pc_byte_offset()) as usize
-    }
+    pub fn curr_instr_addr(&self) -> u32 { self.regs[Reg::PC] - self.current_mode.pc_byte_offset() }
 
     pub fn jump_to(&mut self, addr: u32, mode: i8) {
         let new_mode = ArmMode::from(mode);
@@ -97,7 +95,7 @@ impl ArmState {
 impl Display for ArmState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for r in REG_ITEMS {
-            let rs = format!("{}", r);
+            let rs = format!("{r}");
             let padding: String = vec![" "; 5 - rs.len()].concat();
             writeln!(f, "{}:{}0x{:08x}", rs, padding, self.regs[r])?;
         }
@@ -106,14 +104,14 @@ impl Display for ArmState {
 }
 
 impl ArmMode {
-    pub fn instr_size(&self) -> usize {
+    pub fn instr_size(&self) -> u32 {
         match self {
             ArmMode::ARM => 4,
             ArmMode::THUMB => 2,
         }
     }
 
-    pub fn pc_byte_offset(&self) -> u32 { 2 * self.instr_size() as u32 }
+    pub fn pc_byte_offset(&self) -> u32 { 2 * self.instr_size() }
 }
 
 // Need ability to pass mode as an i8 when calling from LLVM code
@@ -122,7 +120,7 @@ impl From<i8> for ArmMode {
         match value {
             0 => Self::ARM,
             1 => Self::THUMB,
-            _ => panic!("invalid value for ArmMode: {}", value),
+            _ => panic!("invalid value for ArmMode: {value}"),
         }
     }
 }
@@ -142,7 +140,7 @@ impl Display for ArmMode {
 
 impl From<capstone::RegId> for Reg {
     fn from(value: capstone::RegId) -> Self {
-        match value.0 as u32 {
+        match u32::from(value.0) {
             ArmReg::ARM_REG_R0 => Reg::R0,
             ArmReg::ARM_REG_R1 => Reg::R1,
             ArmReg::ARM_REG_R2 => Reg::R2,
@@ -206,5 +204,5 @@ impl Display for Reg {
 }
 
 impl fmt::Debug for Reg {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "{}", self) }
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "{self}") }
 }

@@ -1,8 +1,8 @@
+use std::cmp::Ordering;
 use std::collections::VecDeque;
 use std::fmt::Display;
 use std::ops::{Add, AddAssign};
 
-use anyhow::{Result, bail};
 use num::integer::{Average, Integer};
 use slab::Slab;
 
@@ -13,7 +13,7 @@ pub trait IntervalItem = Integer + Average + Copy + Display;
 // cached function blocks covering a given address. Implemented as an AVL tree.
 #[derive(Clone, Debug)]
 pub struct IntervalTree<T: IntervalItem> {
-    pub root: Option<usize>,
+    root: Option<usize>,
     nodes: Slab<Node<T>>,
     empty_queue: VecDeque<usize>,
 }
@@ -45,6 +45,10 @@ enum BF {
 }
 
 impl<T: IntervalItem> IntervalTree<T> {
+    pub fn len(&self) -> usize { self.nodes.len() }
+
+    pub fn is_empty(&self) -> bool { self.nodes.is_empty() }
+
     /// Insert a new interval. Has no effect if tree already contains the interval.
     pub fn insert(&mut self, ival: (T, T)) {
         let mut cur = self.root;
@@ -73,7 +77,7 @@ impl<T: IntervalItem> IntervalTree<T> {
         match par {
             Some((p, dir)) => self.set_child(Some((p, dir)), Some(k)),
             None => self.root = Some(k),
-        };
+        }
         let Some(a) = anc else { return };
 
         let mut n = k;
@@ -100,17 +104,21 @@ impl<T: IntervalItem> IntervalTree<T> {
         while let Some(n) = curr {
             let node = &self.nodes[n];
 
-            if q == node.center {
-                results.extend_from_slice(&node.sorted_by_first);
-                return results;
-            } else if q < node.center {
-                let i = node.sorted_by_first.partition_point(|&r| r.0 <= q);
-                results.extend_from_slice(&node.sorted_by_first[0..i]);
-                curr = node.left;
-            } else {
-                let i = node.sorted_by_last.partition_point(|&r| r.1 >= q);
-                results.extend_from_slice(&node.sorted_by_last[0..i]);
-                curr = node.right;
+            match q.cmp(&node.center) {
+                Ordering::Equal => {
+                    results.extend_from_slice(&node.sorted_by_first);
+                    return results;
+                }
+                Ordering::Less => {
+                    let i = node.sorted_by_first.partition_point(|&r| r.0 <= q);
+                    results.extend_from_slice(&node.sorted_by_first[0..i]);
+                    curr = node.left;
+                }
+                Ordering::Greater => {
+                    let i = node.sorted_by_last.partition_point(|&r| r.1 >= q);
+                    results.extend_from_slice(&node.sorted_by_last[0..i]);
+                    curr = node.right;
+                }
             }
         }
         results
@@ -123,20 +131,24 @@ impl<T: IntervalItem> IntervalTree<T> {
         while let Some(n) = cur {
             let node = &self.nodes[n];
 
-            if q == node.center {
-                return Some(node.sorted_by_first[0]);
-            } else if q < node.center {
-                let ival = node.sorted_by_first[0];
-                if ival.0 <= q {
-                    return Some(ival);
+            match q.cmp(&node.center) {
+                Ordering::Equal => {
+                    return Some(node.sorted_by_first[0]);
                 }
-                cur = node.left;
-            } else {
-                let ival = node.sorted_by_last[0];
-                if ival.1 >= q {
-                    return Some(ival);
+                Ordering::Less => {
+                    let ival = node.sorted_by_first[0];
+                    if ival.0 <= q {
+                        return Some(ival);
+                    }
+                    cur = node.left;
                 }
-                cur = node.right;
+                Ordering::Greater => {
+                    let ival = node.sorted_by_last[0];
+                    if ival.1 >= q {
+                        return Some(ival);
+                    }
+                    cur = node.right;
+                }
             }
         }
         None
@@ -154,10 +166,7 @@ impl<T: IntervalItem> IntervalTree<T> {
             };
             cur = self.nodes[n].child(dir);
         }
-        let rm = match cur {
-            None => return false,
-            Some(n) => n,
-        };
+        let Some(rm) = cur else { return false };
         if !self.nodes[rm].remove(ival) {
             return true;
         }
@@ -223,11 +232,9 @@ impl<T: IntervalItem> IntervalTree<T> {
                         match self.nodes[cur].right {
                             Some(r) => cur = r,
                             None => break cur,
-                        };
+                        }
                     };
-                    if self.nodes[pred].right.is_some() {
-                        panic!("invalid predecessor");
-                    }
+                    debug_assert!(self.nodes[pred].right.is_none(), "invalid predecessor");
                     let pred_parent = self.get_parent(pred);
                     self.set_child(pred_parent, self.nodes[pred].left);
                     self.set_child(Some((pred, Direction::Left)), removed.left);
@@ -298,7 +305,7 @@ impl<T: IntervalItem> IntervalTree<T> {
                         self.nodes[b].balance = BF::Balanced;
                         self.nodes[a].balance = BF::Balanced;
                     }
-                    _ => panic!("invalid balance"),
+                    BF::Unbalanced(_) => panic!("invalid balance"),
                 }
                 self.nodes[c].balance = BF::Balanced;
                 (c, true)
@@ -343,13 +350,11 @@ impl<T: IntervalItem> IntervalTree<T> {
             Some((p, Direction::Left)) => self.nodes[p].left = child,
             Some((p, Direction::Right)) => self.nodes[p].right = child,
             None => self.root = child,
-        };
+        }
     }
 
     fn rotate(&mut self, d: Direction, p: usize, c: usize) {
-        if self.nodes[p].child(d.flip()) != Some(c) {
-            panic!("invalid rotation")
-        }
+        debug_assert!(self.nodes[p].child(d.flip()) == Some(c), "invalid rotation");
         let c_child = self.nodes[c].child(d);
         self.set_child(Some((p, d.flip())), c_child);
         self.set_child(Some((c, d)), Some(p));
@@ -364,7 +369,7 @@ impl<T: IntervalItem> IntervalTree<T> {
         for ival in self.nodes[c].sorted_by_first.clone() {
             if ival.0 <= center && ival.1 >= center {
                 self.nodes[c].remove(ival);
-                self.nodes[p].add(ival)
+                self.nodes[p].add(ival);
             }
         }
         if self.nodes[c].sorted_by_first.is_empty() {
@@ -380,49 +385,40 @@ impl<T: IntervalItem> IntervalTree<T> {
 
     fn verify_recursive(&self, n: usize, left: Option<T>, right: Option<T>) -> i32 {
         let node = &self.nodes[n];
-        if let BF::Unbalanced(_) = node.balance {
-            panic!("node {} is not balanced", n);
-        }
+        assert!(
+            !matches!(node.balance, BF::Unbalanced(_)),
+            "node {n} is not balanced",
+        );
         if let Some(limit) = left {
-            for ival in node.sorted_by_first.iter() {
+            for ival in &node.sorted_by_first {
                 assert!(
                     ival.0 > limit,
                     "node {}: {} not greater than left limit {} ",
                     n,
                     ival.0,
                     limit
-                )
+                );
             }
         }
         if let Some(limit) = right {
-            for ival in node.sorted_by_first.iter() {
+            for ival in &node.sorted_by_first {
                 assert!(
                     ival.1 < limit,
                     "node {}: {} not greater than right limit {} ",
                     n,
                     ival.1,
                     limit
-                )
+                );
             }
         }
         let height_l = if let Some(l) = node.left {
-            assert_eq!(
-                self.nodes[l].parent,
-                Some(n),
-                "node {}: incorrect parent",
-                l
-            );
+            assert_eq!(self.nodes[l].parent, Some(n), "node {l}: incorrect parent");
             self.verify_recursive(l, left, Some(node.center))
         } else {
             0
         };
         let height_r = if let Some(r) = node.right {
-            assert_eq!(
-                self.nodes[r].parent,
-                Some(n),
-                "node {}: incorrect parent",
-                r
-            );
+            assert_eq!(self.nodes[r].parent, Some(n), "node {r}: incorrect parent");
             self.verify_recursive(r, Some(node.center), right)
         } else {
             0
@@ -430,8 +426,7 @@ impl<T: IntervalItem> IntervalTree<T> {
         assert_eq!(
             BF::try_from((height_l, height_r)).unwrap(),
             node.balance,
-            "node {}: incorrect balance",
-            n
+            "node {n}: incorrect balance"
         );
 
         std::cmp::max(height_l, height_r) + 1
@@ -457,16 +452,16 @@ impl<T: IntervalItem> Display for IntervalTree<T> {
                 return Ok(());
             }
             Some(n) => q.push_back(n),
-        };
+        }
         while let Some(n) = q.pop_front() {
             let node = &self.nodes[n];
-            writeln!(f, "{}(\"{}\")", n, node)?;
+            writeln!(f, "{n}(\"{node}\")")?;
             if let Some(l) = node.left {
-                writeln!(f, "{}-->{}", n, l)?;
+                writeln!(f, "{n}-->{l}")?;
                 q.push_back(l);
             }
             if let Some(r) = node.right {
-                writeln!(f, "{}-->{}", n, r)?;
+                writeln!(f, "{n}-->{r}")?;
                 q.push_back(r);
             }
         }
@@ -537,7 +532,7 @@ impl<T: Average + Copy + PartialEq + Display> Display for Node<T> {
         write!(f, "{}\\n", self.center)?;
         let ival = self.sorted_by_first[0];
         write!(f, "[{}, {}]", ival.0, ival.1)?;
-        for ival in self.sorted_by_first[1..].iter() {
+        for ival in &self.sorted_by_first[1..] {
             write!(f, ", [{}, {}]", ival.0, ival.1)?;
         }
         write!(f, "\\n{}", self.balance)?;
@@ -580,10 +575,10 @@ impl Add<Direction> for BF {
                 }
             }
             (BF::Unbalanced(d1), d2) => {
-                if d1 != d2 {
-                    BF::Heavy(d1)
+                if d1 == d2 {
+                    panic!("balance out of bounds");
                 } else {
-                    panic!("balance out of bounds")
+                    BF::Heavy(d1)
                 }
             }
         }
@@ -621,7 +616,7 @@ mod tests {
         r: Option<usize>,
     ) {
         let Node { left, right, .. } = t.nodes[i];
-        assert_eq!((left, right), (l, r), "node {}", i);
+        assert_eq!((left, right), (l, r), "node {i}");
     }
 
     #[test]
@@ -810,7 +805,7 @@ mod tests {
         for i in [4, 1, 9, 0, 3, 7, 10, 2, 5, 8, 11, 6] {
             t.insert((i, i));
         }
-        println!("{}", t);
+        println!("{t}");
         assert_eq!(t.root, Some(0));
         t.verify();
 

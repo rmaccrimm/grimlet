@@ -12,7 +12,7 @@ use crate::jit::{FunctionBuilder, FunctionCache};
 pub mod video;
 
 // Just 2^24 / 60 rounded down
-const CYCLES_PER_FRAME: u32 = 279620;
+const CYCLES_PER_FRAME: u32 = 279_620;
 
 /// Currently only signals a change from ARM to THUMB and vice-versa, but I'm thinking this will
 /// be useful in handling things like memory mapped IO
@@ -73,35 +73,34 @@ impl<'a> Emulator<'a> {
             }
 
             let instr_addr = self.state.curr_instr_addr();
-            let func = match self.func_cache.get(&instr_addr) {
-                Some(func) => func,
-                None => {
-                    let code_block = self
-                        .disasm
-                        .next_code_block(&self.state.mem, instr_addr)
-                        .expect("disassembly failed");
-                    match print {
-                        Some(DebugOutput::Assembly) => println!("{}", code_block),
-                        Some(DebugOutput::Struct) => println!("{:#?}", code_block),
-                        None => (),
+            let func = if let Some(func) = self.func_cache.get(&instr_addr) {
+                func
+            } else {
+                let code_block = self
+                    .disasm
+                    .next_code_block(&self.state.mem, instr_addr)
+                    .expect("disassembly failed");
+                match print {
+                    Some(DebugOutput::Assembly) => println!("{code_block}"),
+                    Some(DebugOutput::Struct) => println!("{code_block:#?}"),
+                    None => (),
+                }
+                let builder = FunctionBuilder::new(self.ctx, instr_addr)
+                    .expect("failed to initialize function")
+                    .build_body(&code_block)
+                    .expect("failed to build function");
+                match builder.compile() {
+                    Ok(compiled) => {
+                        self.func_cache.insert(instr_addr, compiled);
+                        self.func_cache.get(&instr_addr).unwrap()
                     }
-                    let builder = FunctionBuilder::new(self.ctx, instr_addr)
-                        .expect("failed to initialize function")
-                        .build_body(code_block)
-                        .expect("failed to build function");
-                    match builder.compile() {
-                        Ok(compiled) => {
-                            self.func_cache.insert(instr_addr, compiled);
-                            self.func_cache.get(&instr_addr).unwrap()
-                        }
-                        Err(e) => {
-                            panic!("{}", e);
-                        }
+                    Err(e) => {
+                        panic!("{}", e);
                     }
                 }
             };
             unsafe {
-                func.call(&mut self.state);
+                func.call(&raw mut self.state);
             }
             if self.state.cycle_count >= CYCLES_PER_FRAME {
                 self.state.cycle_count %= CYCLES_PER_FRAME;
@@ -132,15 +131,15 @@ mod tests {
     impl VecDisassembler {
         pub fn new(mut program: Vec<ArmInstruction>) -> Self {
             for (i, p) in program.iter_mut().enumerate() {
-                p.addr = 4 * i;
+                p.addr = 4 * u32::try_from(i).expect("index too large");
             }
             VecDisassembler { program }
         }
     }
 
     impl Disasm for VecDisassembler {
-        fn next_code_block(&self, _mem: &MemoryManager, addr: usize) -> Result<CodeBlock> {
-            let ind = addr / 4;
+        fn next_code_block(&self, _mem: &MemoryManager, addr: u32) -> Result<CodeBlock> {
+            let ind = addr as usize / 4;
             Ok(CodeBlock::from_instructions(
                 self.program[ind..].iter().cloned(),
                 addr,
@@ -176,7 +175,9 @@ mod tests {
             _ => panic!("unhandled reg"),
         };
         ArmOperand {
-            op_type: ArmOperandType::Reg(RegId(reg_id as u16)),
+            op_type: ArmOperandType::Reg(RegId(
+                u16::try_from(reg_id).expect("invalid u16 for reg_id"),
+            )),
             ..Default::default()
         }
     }
@@ -313,9 +314,9 @@ mod tests {
         // negative result (unsigned underflow)
         assert_eq!(test_case(0), 0b1000); // nzcv
         // negative result (no underflow)
-        assert_eq!(test_case(-1i32 as u32), 0b1010); // nzcv
+        assert_eq!(test_case((-1i32).cast_unsigned()), 0b1010); // nzcv
         // signed underflow only (positive result)
-        assert_eq!(test_case(i32::MIN as u32), 0b0011); // nzcv
+        assert_eq!(test_case(i32::MIN.cast_unsigned()), 0b0011); // nzcv
     }
 
     macro_rules! stmdb_tests {

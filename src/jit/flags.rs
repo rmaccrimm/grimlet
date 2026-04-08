@@ -20,7 +20,7 @@ pub(super) const C: Flag = Flag(1 << 29, "c");
 pub(super) const Z: Flag = Flag(1 << 30, "z");
 pub(super) const N: Flag = Flag(1 << 31, "n");
 
-impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
+impl<'a> FunctionBuilder<'_, 'a> {
     pub(super) fn eval_cond(&self, cond: ArmCC) -> Result<IntValue<'a>> {
         let bd = &self.builder;
         let cond = match cond {
@@ -51,16 +51,16 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                 bd.build_int_compare(IntPredicate::NE, self.get_flag(N)?, self.get_flag(V)?, "lt")?,
                 "le",
             )?,
-            _ => bail!("invalid cond"),
+            ArmCC::ARM_CC_INVALID => bail!("invalid cond"),
         };
         Ok(cond)
     }
 
-    /// Returns i1 IntValue
+    /// Returns i1 `IntValue`
     pub(super) fn get_flag(&self, flag: Flag) -> Result<IntValue<'a>> {
         let masked = self.builder.build_and(
             self.reg_map.get(Reg::CPSR),
-            self.i32_t.const_int(flag.0 as u64, false),
+            self.i32_t.const_int(u64::from(flag.0), false),
             "flag",
         )?;
         Ok(self.builder.build_int_compare(
@@ -71,7 +71,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         )?)
     }
 
-    /// Returns i1 IntValue
+    /// Returns i1 `IntValue`
     pub(super) fn get_neg_flag(&self, flag: Flag) -> Result<IntValue<'a>> {
         let f = self.get_flag(flag)?;
         let nf = self.builder.build_not(f, &format!("not_{}", flag.1))?;
@@ -88,7 +88,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let bd = &self.builder;
         let f = bd.build_int_cast_sign_flag(cond, self.i32_t, false, "f")?;
         let nf = bd.build_int_neg(f, "neg_f")?;
-        let m = self.i32_t.const_int(flag.0 as u64, false);
+        let m = self.i32_t.const_int(u64::from(flag.0), false);
         let lhs = bd.build_xor(nf, initial, "and_lhs")?;
         let and = bd.build_and(lhs, m, "and")?;
         let out = bd.build_xor(initial, and, &format!("set_{}", flag.1))?;
@@ -96,7 +96,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 
     /// Return a copy of the current CPSR register with flags updated. Each flags value is
-    /// expected to be an i1 (i.e. bool_t) IntValue.
+    /// expected to be an i1 (i.e. `bool_t`) `IntValue`.
     pub(super) fn set_flags(
         &self,
         n: Option<IntValue<'a>>,
@@ -136,10 +136,10 @@ mod tests {
     fn test_set_flags() -> Result<()> {
         let mut state = ArmState::default();
         for i in 0..8 {
-            state.regs[i] = i as u32;
+            state.regs[i] = u32::try_from(i).unwrap();
         }
         for i in [2, 3, 6, 7] {
-            state.regs[i] |= 0xff000000;
+            state.regs[i] |= 0xff00_0000;
         }
 
         let context = Context::create();

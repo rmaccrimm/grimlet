@@ -12,7 +12,7 @@ struct ObjShape {
 
 enum ColorMode {}
 
-impl<'a> Sprite<'a> {
+impl Sprite<'_> {
     fn y(&self) -> u8 { todo!() }
 
     fn rotate_scale(&self) -> bool { todo!() }

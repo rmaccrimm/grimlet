@@ -11,13 +11,14 @@ use crate::arm::state::Reg;
 pub struct CodeBlock {
     pub instrs: Vec<ArmInstruction>,
     pub regs_accessed: HashSet<Reg>,
-    pub start_addr: usize,
+    pub start_addr: u32,
+    // TODO pub end_block: u32,
 }
 
 impl CodeBlock {
     pub fn from_instructions(
         instr_iter: impl Iterator<Item = ArmInstruction>,
-        start_addr: usize,
+        start_addr: u32,
     ) -> Self {
         let mut instrs = Vec::new();
         let mut regs_accessed = HashSet::new();
@@ -28,7 +29,7 @@ impl CodeBlock {
         for instr in instr_iter {
             instrs.push(instr);
             let instr = instrs.last().unwrap();
-            for a in instr.operands.iter() {
+            for a in &instr.operands {
                 match a.op_type {
                     ArmOperandType::Reg(reg_id) => {
                         regs_accessed.insert(Reg::from(reg_id));
@@ -62,8 +63,8 @@ impl CodeBlock {
         }
         CodeBlock {
             instrs,
-            start_addr,
             regs_accessed,
+            start_addr,
         }
     }
 }
@@ -71,10 +72,10 @@ impl CodeBlock {
 impl Display for CodeBlock {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "---------------")?;
-        for instr in self.instrs.iter() {
+        for instr in &self.instrs {
             match instr.repr {
-                Some(_) => writeln!(f, "{}", instr)?,
-                None => writeln!(f, "{:?}", instr)?,
+                Some(_) => writeln!(f, "{instr}")?,
+                None => writeln!(f, "{instr:?}")?,
             }
         }
         writeln!(f, "regs accessed: {:?}", self.regs_accessed)?;

@@ -11,16 +11,16 @@ pub(super) struct BranchAction<'a> {
     pub(super) change_mode: Option<IntValue<'a>>,
 }
 
-impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
-    pub(super) fn arm_b(&mut self, instr: ArmInstruction) {
+impl<'a> FunctionBuilder<'_, 'a> {
+    pub(super) fn arm_b(&mut self, instr: &ArmInstruction) {
         exec_instr!(self, exec_branch_conditional, instr, Self::b);
     }
 
-    pub(super) fn arm_bl(&mut self, instr: ArmInstruction) {
+    pub(super) fn arm_bl(&mut self, instr: &ArmInstruction) {
         exec_instr!(self, exec_branch_conditional, instr, Self::bl);
     }
 
-    pub(super) fn arm_bx(&mut self, instr: ArmInstruction) {
+    pub(super) fn arm_bx(&mut self, instr: &ArmInstruction) {
         exec_instr!(self, exec_branch_conditional, instr, Self::bx);
     }
 
@@ -93,6 +93,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         Ok(())
     }
 
+    #[allow(clippy::unnecessary_wraps)]
     fn b(&self, instr: &ArmInstruction) -> Result<BranchAction<'a>> {
         Ok(BranchAction {
             target: imm!(self, instr.get_imm_op(0)),
@@ -101,6 +102,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         })
     }
 
+    #[allow(clippy::unnecessary_wraps)]
     fn bl(&self, instr: &ArmInstruction) -> Result<BranchAction<'a>> {
         Ok(BranchAction {
             target: imm!(self, instr.get_imm_op(0)),

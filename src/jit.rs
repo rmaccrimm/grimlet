@@ -1,3 +1,5 @@
+#![allow(clippy::cast_sign_loss, clippy::cast_lossless)]
+
 macro_rules! imm {
     ($self:ident, $i:expr) => {
         $self.i32_t.const_int($i as u64, false)
@@ -102,7 +104,7 @@ macro_rules! unimpl_instr {
 // CPU cycles it took to execute
 pub type CompiledFunction<'a> = JitFunction<'a, unsafe extern "C" fn(*mut ArmState) -> u32>;
 
-pub type FunctionCache<'ctx> = HashMap<usize, CompiledFunction<'ctx>>;
+pub type FunctionCache<'ctx> = HashMap<u32, CompiledFunction<'ctx>>;
 
 /// Builder for creating & compiling LLVM functions
 pub struct FunctionBuilder<'ctx, 'a>
@@ -155,7 +157,7 @@ type InstrResult<'a> = Result<InstrEffect<'a>>;
 struct RegUpdate<'a>(Reg, IntValue<'a>);
 
 impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
-    pub fn new(ctx: &'ctx Context, addr: usize) -> Result<Self> {
+    pub fn new(ctx: &'ctx Context, addr: u32) -> Result<Self> {
         let bd = ctx.create_builder();
         let name = func_name(addr);
         let module = ctx.create_module(&name);
@@ -174,9 +176,9 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         // layout of ArmState.
         let arm_state_t = ctx.struct_type(
             &[
-                i8_t.into(),                              // mode
-                i32_t.array_type(NUM_REGS as u32).into(), // regs
-                i32_t.into(),                             // cycle_count
+                i8_t.into(),                       // mode
+                i32_t.array_type(NUM_REGS).into(), // regs
+                i32_t.into(),                      // cycle_count
                 // This is obviously not the actual type of mem, but all we need is the address,
                 // not the size, which is easy to get with an index, as long as we keep it at
                 // the end of the struct
@@ -192,7 +194,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         bd.position_at_end(basic_block);
         blocks.insert(addr, basic_block);
 
-        let arm_state_ptr = get_ptr_param(&func, 0)?;
+        let arm_state_ptr = get_ptr_param(func, 0)?;
         let cycle_count_ptr = unsafe {
             bd.build_gep(
                 arm_state_t,
@@ -242,10 +244,10 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         })
     }
 
-    pub fn build_body(mut self, code_block: CodeBlock) -> Result<Self> {
+    pub fn build_body(mut self, code_block: &CodeBlock) -> Result<Self> {
         self.load_initial_reg_values(&code_block.regs_accessed)
             .expect("initial register load failed");
-        for instr in code_block.instrs {
+        for instr in &code_block.instrs {
             self.build(instr);
         }
         Ok(self)
@@ -273,9 +275,9 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
     fn load_initial_reg_values(&mut self, regs_read: &HashSet<Reg>) -> Result<()> {
         let bd = &self.builder;
-        for &r in regs_read.iter() {
+        for &r in regs_read {
             let i = r as usize;
-            let name = format!("r{}_elem_ptr", i);
+            let name = format!("r{i}_elem_ptr");
             let gep_inds = [
                 self.i32_t.const_zero(),
                 self.i32_t.const_int(1, false),
@@ -283,7 +285,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             ];
             let ptr =
                 unsafe { bd.build_gep(self.arm_state_t, self.arm_state_ptr, &gep_inds, &name)? };
-            let name = format!("r{}", i);
+            let name = format!("r{i}");
             let v = bd.build_load(self.i32_t, ptr, &name)?.into_int_value();
             self.reg_map.init(r, v, ptr);
         }
@@ -313,13 +315,13 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         Ok(func_ptr)
     }
 
-    /// When exiting the JIT'd code, write out the latest values in reg_map to the guest state. Note
+    /// When exiting the JIT'd code, write out the latest values in `reg_map` to the guest state. Note
     /// that in some cases (e.g. branch and link) we may want to save something other than
-    /// self.reg_map, which is why it's passed as a parameter here (TBD if this is the case for
+    /// `self.reg_map`, which is why it's passed as a parameter here (TBD if this is the case for
     /// cycles)
     fn write_state_out(&self, reg_map: &RegMap) -> Result<()> {
         let bd = &self.builder;
-        let items: Vec<RegMapItem> = reg_map.items.iter().flatten().cloned().collect();
+        let items: Vec<RegMapItem> = reg_map.items.iter().flatten().copied().collect();
         for r in items {
             if !r.dirty {
                 continue;
@@ -408,7 +410,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         Ok(())
     }
 
-    pub fn build(&mut self, instr: ArmInstruction) {
+    pub fn build(&mut self, instr: &ArmInstruction) {
         match instr.opcode {
             ArmInsn::ARM_INS_ADC => self.arm_adc(instr),
             ArmInsn::ARM_INS_ADD => self.arm_add(instr),
@@ -468,8 +470,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     }
 }
 
-fn get_ptr_param<'a>(func: &FunctionValue<'a>, i: usize) -> Result<PointerValue<'a>> {
-    func.get_nth_param(i as u32)
+fn get_ptr_param(func: FunctionValue<'_>, i: u32) -> Result<PointerValue<'_>> {
+    func.get_nth_param(i)
         .ok_or(anyhow!(
             "{} signature has no parameter {}",
             func.get_name().to_str().unwrap(),
@@ -480,12 +482,12 @@ fn get_ptr_param<'a>(func: &FunctionValue<'a>, i: usize) -> Result<PointerValue<
 
 fn get_intrinsic<'a>(name: &str, module: &Module<'a>) -> Result<FunctionValue<'a>> {
     Intrinsic::find(name)
-        .ok_or(anyhow!("could not find intrinsic '{}'", name))?
+        .ok_or(anyhow!("could not find intrinsic '{name}'"))?
         .get_declaration(module, &[module.get_context().i32_type().into()])
-        .ok_or(anyhow!("failed to insert declaration for '{}'", name))
+        .ok_or(anyhow!("failed to insert declaration for '{name}'"))
 }
 
-fn func_name(addr: usize) -> String { format!("fn_{:#010x}", addr) }
+fn func_name(addr: u32) -> String { format!("fn_{addr:#010x}") }
 
 #[cfg(test)]
 mod tests {
@@ -508,7 +510,7 @@ mod tests {
         // pc <- r15 + r9
         let mut state = ArmState::default();
         for i in 0..NUM_REGS {
-            state.regs[i] = (i * i) as u32;
+            state.regs[i as usize] = i * i;
         }
 
         let context = Context::create();
@@ -561,7 +563,7 @@ mod tests {
         //   f1()
         let mut state = ArmState::default();
         for i in 0..NUM_REGS {
-            state.regs[i] = (i * i) as u32;
+            state.regs[i as usize] = i * i;
         }
 
         let context = Context::create();
@@ -639,7 +641,7 @@ mod tests {
 
         println!("{:?}", state.regs);
         unsafe {
-            cache.get(&1).unwrap().call(&mut state);
+            cache.get(&1).unwrap().call(&raw mut state);
         }
         println!("{:?}", state.regs);
 
@@ -667,7 +669,7 @@ mod tests {
             .build_call(
                 f.sadd_with_overflow,
                 &[
-                    f.i32_t.const_int(0x7fffffff_u64, false).into(),
+                    f.i32_t.const_int(0x7fff_ffff_u64, false).into(),
                     f.i32_t.const_int(0xff, false).into(),
                 ],
                 "res",
@@ -695,7 +697,7 @@ mod tests {
         compile_and_run!(f, state);
 
         println!("{:?}", state.regs);
-        assert_eq!(state.regs[0], 0x800000fe);
+        assert_eq!(state.regs[0], 0x8000_00fe);
         assert_eq!(state.regs[1], 1);
     }
 }

@@ -10,10 +10,10 @@ use crate::arm::disasm::instruction::ArmInstruction;
 use crate::arm::state::ArmMode;
 use crate::arm::state::memory::MemoryManager;
 
-/// Trait for CodeBlock producers. Mainly exists so tests can provide instructions without needing
+/// Trait for `CodeBlock` producers. Mainly exists so tests can provide instructions without needing
 /// an actual binary.
 pub trait Disasm {
-    fn next_code_block(&self, mem: &MemoryManager, addr: usize) -> Result<CodeBlock>;
+    fn next_code_block(&self, mem: &MemoryManager, addr: u32) -> Result<CodeBlock>;
 
     fn set_mode(&mut self, mode: ArmMode);
 
@@ -27,10 +27,10 @@ pub struct Disassembler {
 }
 
 impl Disassembler {
-    pub fn disasm_single(&self, chunk: &[u8], addr: usize) -> ArmInstruction {
+    pub fn disasm_single(&self, chunk: &[u8], addr: u32) -> ArmInstruction {
         let instructions = self
             .cs
-            .disasm_count(chunk, addr as u64, 1)
+            .disasm_count(chunk, u64::from(addr), 1)
             .expect("Capstone disassembly failed");
 
         let i = instructions
@@ -42,14 +42,14 @@ impl Disassembler {
 }
 
 impl Disasm for Disassembler {
-    fn next_code_block(&self, mem: &MemoryManager, start_addr: usize) -> Result<CodeBlock> {
+    fn next_code_block(&self, mem: &MemoryManager, start_addr: u32) -> Result<CodeBlock> {
         // TODO what's the appropriate type for addresses?
         let mem_iter = match self.current_mode {
-            ArmMode::ARM => mem.iter_word(start_addr as u32),
-            ArmMode::THUMB => mem.iter_halfword(start_addr as u32),
+            ArmMode::ARM => mem.iter_word(start_addr),
+            ArmMode::THUMB => mem.iter_halfword(start_addr),
         }?;
         let instr_iter = mem_iter.enumerate().map(move |(i, ch)| {
-            let addr = start_addr + self.current_mode.instr_size() * i;
+            let addr = start_addr + self.current_mode.instr_size() * u32::try_from(i).unwrap();
             self.disasm_single(ch, addr)
         });
         Ok(CodeBlock::from_instructions(instr_iter, start_addr))
