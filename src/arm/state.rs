@@ -18,9 +18,11 @@ pub struct ArmState {
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ArmMode {
-    ARM,
-    THUMB,
+    ARM = 0,
+    THUMB = 1,
 }
+
+
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Reg {
