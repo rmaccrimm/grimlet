@@ -14,7 +14,7 @@ fn main() -> anyhow::Result<()> {
         t.insert((i, i));
     }
     for &i in n.iter() {
-        t.remove((i, i))?;
+        t.remove((i, i));
     }
     println!("{}", t);
     Ok(())

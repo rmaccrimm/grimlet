@@ -57,5 +57,6 @@ fn time_bulk_inserts_delete() -> Result<()> {
     let elapsed = now.elapsed();
     println!("Completed in {:.2?}", elapsed);
     t.verify();
+    println!("{} nodes in tree", t.len());
     Ok(())
 }
