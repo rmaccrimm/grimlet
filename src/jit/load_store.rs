@@ -168,17 +168,23 @@ impl<'a> FunctionBuilder<'_, 'a> {
             .as_basic_value_enum()
             .into_int_value();
         let wait_states = bd
-            .build_extract_value(result, 1, "rval")?
+            .build_extract_value(result, 1, "wait")?
             .as_basic_value_enum()
             .into_int_value();
 
         Ok((read_val, wait_states))
     }
 
-    fn call_mem_write<T>(&self, addr: IntValue<'a>, value: IntValue<'a>) -> Result<IntValue<'a>>
+    /// Returns `WriteVal` as tuple, i.e. (`should_exit`, `wait_states`)
+    fn call_mem_write<T>(
+        &self,
+        addr: IntValue<'a>,
+        value: IntValue<'a>,
+    ) -> Result<(IntValue<'a>, IntValue<'a>)>
     where
         T: MemWriteable,
     {
+        let bd = &self.builder;
         let write_fn_t = self
             .ctx
             .struct_type(&[self.i8_t.into(), self.i32_t.into()], false)
@@ -190,7 +196,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
             MemoryManager::write as fn(&mut MemoryManager, u32, T) -> WriteVal as usize,
         )?;
 
-        let wait_states = call_indirect!(
+        let result = call_indirect!(
             self.builder,
             write_fn_t,
             write_fn_ptr,
@@ -201,8 +207,18 @@ impl<'a> FunctionBuilder<'_, 'a> {
         .try_as_basic_value()
         .left()
         .ok_or_else(|| anyhow!("failed to get write return val"))?
-        .into_int_value();
-        Ok(wait_states)
+        .into_struct_value();
+
+        let should_exit = bd
+            .build_extract_value(result, 0, "exit")?
+            .as_basic_value_enum()
+            .into_int_value();
+        let wait_states = bd
+            .build_extract_value(result, 1, "wait")?
+            .as_basic_value_enum()
+            .into_int_value();
+
+        Ok((should_exit, wait_states))
     }
 
     fn ldr<T>(&self, instr: &ArmInstruction) -> InstrResult<'a>
@@ -322,7 +338,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
         let rd = instr.get_reg_op(0);
         let rd_val = self.reg_map.get(rd);
         let addr_mode: AddrMode = self.addressing_mode(&instr.get_mem_op(1)?)?;
-        let cycles = self.call_mem_write::<T>(addr_mode.addr, rd_val)?;
+        let (_, cycles) = self.call_mem_write::<T>(addr_mode.addr, rd_val)?;
 
         let mut updates = vec![];
         if let Some(wb) = addr_mode.writeback {
@@ -342,7 +358,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
         let mut cycles = imm!(self, 0);
         for &reg in &reg_list {
             let value = self.reg_map.get(reg);
-            let write_cycles = self.call_mem_write::<u32>(addr, value)?;
+            let (_, write_cycles) = self.call_mem_write::<u32>(addr, value)?;
             cycles = bd.build_int_add(cycles, write_cycles, "cycles")?;
             addr = bd.build_int_add(addr, imm!(self, 4), "addr")?;
         }
@@ -364,7 +380,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
         for &reg in &reg_list {
             addr = bd.build_int_add(addr, imm!(self, 4), "ib")?;
             let value = self.reg_map.get(reg);
-            let write_cycles = self.call_mem_write::<u32>(addr, value)?;
+            let (_, write_cycles) = self.call_mem_write::<u32>(addr, value)?;
             cycles = bd.build_int_add(cycles, write_cycles, "cycles")?;
         }
         if instr.writeback {
@@ -385,7 +401,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
         let mut cycles = imm!(self, 0);
         for &reg in &reg_list {
             let value = self.reg_map.get(reg);
-            let write_cycles = self.call_mem_write::<u32>(addr, value)?;
+            let (_, write_cycles) = self.call_mem_write::<u32>(addr, value)?;
             cycles = bd.build_int_add(cycles, write_cycles, "cycles")?;
             addr = bd.build_int_add(addr, imm!(self, 4), "da")?;
         }
@@ -409,7 +425,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
         let mut cycles = imm!(self, 0);
         for &reg in &reg_list {
             let value = self.reg_map.get(reg);
-            let write_cycles = self.call_mem_write::<u32>(addr, value)?;
+            let (_, write_cycles) = self.call_mem_write::<u32>(addr, value)?;
             cycles = bd.build_int_add(cycles, write_cycles, "cycles")?;
             addr = bd.build_int_add(addr, imm!(self, 4), "da")?;
         }
@@ -433,7 +449,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
         let mut cycles = imm!(self, 0);
         for &reg in &reg_list {
             let value = self.reg_map.get(reg);
-            let write_cycles = self.call_mem_write::<u32>(addr, value)?;
+            let (_, write_cycles) = self.call_mem_write::<u32>(addr, value)?;
             cycles = bd.build_int_add(cycles, write_cycles, "cycles")?;
             addr = bd.build_int_add(addr, imm!(self, 4), "da")?;
         }
@@ -488,7 +504,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
 
         // TODO unaligned rotation (does this happen for ldr/str already?)
         let (load_val, read_cycles) = self.call_mem_read::<T>(addr)?;
-        let write_cycles = self.call_mem_write::<T>(addr, rm_val)?;
+        let (_, write_cycles) = self.call_mem_write::<T>(addr, rm_val)?;
 
         let updates = vec![RegUpdate(rd, load_val)];
         Ok(InstrEffect {
