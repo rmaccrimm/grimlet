@@ -29,15 +29,15 @@ fn time_bulk_inserts_delete() -> Result<()> {
             .expect("no start field")
             .parse()
             .expect("parsing start failed");
-        // let end: i32 = sp
-        //     .next()
-        //     .expect("no end field")
-        //     .parse()
-        //     .expect("parsing end failed");
+        let end: i32 = sp
+            .next()
+            .expect("no end field")
+            .parse()
+            .expect("parsing end failed");
         if op == "i" {
-            ops.push(Op::Insert(start, start));
+            ops.push(Op::Insert(start, end));
         } else {
-            ops.push(Op::Delete(start, start));
+            ops.push(Op::Delete(start, end));
         }
     }
 

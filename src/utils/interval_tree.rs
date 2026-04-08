@@ -901,4 +901,40 @@ mod tests {
     fn print_size_of_node() {
         println!("{}", size_of::<Node<i32>>());
     }
+
+    #[test]
+    fn test_rotation_resulting_in_delete() {
+        let mut t = IntervalTree::default();
+        t.insert((-100, 100)); // <- should get absorbed into 1 once we delete
+        t.insert((10, 20));
+        t.insert((30, 40));
+        assert_eq!(t.nodes.len(), 2);
+        assert_eq!(t.root, Some(1));
+        t.verify(1, None, None);
+    }
+
+    #[test]
+    fn test_cascading_deletes() {
+        let mut t = IntervalTree::default();
+        t.insert((601, 799)); // 7
+        t.insert((-99, 699)); // 3, 300 - 1000, 300 + 1000
+        t.insert((1001, 1199)); // 11
+        t.insert((1, 199)); // 1
+        t.insert((301, 699)); // 5
+        t.insert((801, 999)); // 9
+        t.insert((1201, 1399)); // 13
+        t.insert((0, 0)); // 0
+        t.insert((101, 299)); // 2
+        t.insert((301, 499)); // 4, 
+        t.insert((501, 699)); // 6
+        t.insert((701, 899)); // 8
+        t.insert((901, 1099)); // 10
+        t.insert((1101, 1299)); // 12 
+        t.insert((1301, 1499)); // 14
+        println!("{}", t);
+        t.remove((601, 799)).unwrap();
+        println!("{}", t);
+        assert_eq!(t.root, Some(10));
+        t.verify(10, None, None);
+    }
 }
