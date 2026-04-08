@@ -6,18 +6,20 @@ use anyhow::{Result, bail};
 use num::integer::{Average, Integer};
 use slab::Slab;
 
-pub trait IntervalT = Integer + Average + Copy + Display;
+// Any integer type
+pub trait IntervalItem = Integer + Average + Copy + Display;
 
-// Some premature optimization, just for fun. Used to lookup all cached function blocks covering a
-// given address.
+// Some premature optimization, just for fun. A self-balancing interval tree used to lookup all
+// cached function blocks covering a given address. Implemented as an AVL tree.
 #[derive(Clone, Debug)]
-pub struct IntervalTree<T: IntervalT> {
+pub struct IntervalTree<T: IntervalItem> {
     pub root: Option<usize>,
     nodes: Slab<Node<T>>,
+    empty_queue: VecDeque<usize>,
 }
 
 #[derive(Clone, Default, PartialEq, Eq, Debug)]
-pub struct Node<T: IntervalT> {
+struct Node<T: IntervalItem> {
     center: T,
     sorted_by_first: Vec<(T, T)>,
     sorted_by_last: Vec<(T, T)>,
@@ -28,21 +30,21 @@ pub struct Node<T: IntervalT> {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
-pub enum Direction {
+enum Direction {
     Left = 0,
     Right = 1,
 }
 
 // Balance factor
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
-pub enum BF {
+enum BF {
     #[default]
     Balanced,
     Heavy(Direction),
     Unbalanced(Direction),
 }
 
-impl<T: IntervalT> IntervalTree<T> {
+impl<T: IntervalItem> IntervalTree<T> {
     /// Insert a new interval. Has no effect if tree already contains the interval.
     pub fn insert(&mut self, ival: (T, T)) {
         let mut cur = self.root;
@@ -83,6 +85,11 @@ impl<T: IntervalT> IntervalTree<T> {
             n = p;
         }
         self.rebalance(a);
+        while let Some(n) = self.empty_queue.pop_front() {
+            if self.nodes.contains(n) {
+                self.delete_node(n);
+            }
+        }
     }
 
     /// Return all intervals containing b
@@ -128,6 +135,16 @@ impl<T: IntervalT> IntervalTree<T> {
         if !self.nodes[rm].remove(ival) {
             return Ok(());
         }
+        self.delete_node(rm);
+        while let Some(n) = self.empty_queue.pop_front() {
+            if self.nodes.contains(n) {
+                self.delete_node(n);
+            }
+        }
+        Ok(())
+    }
+
+    fn delete_node(&mut self, rm: usize) {
         let rm_parent = self.get_parent(rm);
         let removed = self.nodes.remove(rm);
         // Stores the point from which we need to do re-balancing, continuing up towards the root
@@ -145,10 +162,15 @@ impl<T: IntervalT> IntervalTree<T> {
                     self.nodes[l].balance = removed.balance;
                     Some((l, Direction::Left))
                 } else {
-                    // Reserve the spot that will be filled by predecessor on search path.
-                    let pred = self.subtree_max(l);
+                    let mut cur = l;
+                    let pred = loop {
+                        match self.nodes[cur].right {
+                            Some(r) => cur = r,
+                            None => break cur,
+                        };
+                    };
                     if self.nodes[pred].right.is_some() {
-                        bail!("invalid predecessor");
+                        panic!("invalid predecessor");
                     }
                     let pred_parent = self.get_parent(pred);
                     self.set_child(pred_parent, self.nodes[pred].left);
@@ -156,6 +178,12 @@ impl<T: IntervalT> IntervalTree<T> {
                     self.set_child(Some((pred, Direction::Right)), removed.right);
                     self.nodes[pred].balance = removed.balance;
                     self.set_child(rm_parent, Some(pred));
+
+                    let mut cur = pred_parent.unwrap().0;
+                    while cur != pred {
+                        self.take_overlapping(pred, cur);
+                        cur = self.nodes[cur].parent.unwrap();
+                    }
                     pred_parent
                 }
             }
@@ -179,7 +207,6 @@ impl<T: IntervalT> IntervalTree<T> {
                 }
             }
         }
-        Ok(())
     }
 
     // a: root of the sub-tree which needs to be re-balanced
@@ -273,17 +300,19 @@ impl<T: IntervalT> IntervalTree<T> {
         if self.root == Some(p) {
             self.root = Some(c);
         }
+        self.take_overlapping(c, p);
     }
 
-    fn subtree_max(&self, sub_root: usize) -> usize {
-        let mut cur = sub_root;
-        loop {
-            match self.nodes[cur].right {
-                Some(r) => {
-                    cur = r;
-                }
-                None => return cur,
+    fn take_overlapping(&mut self, p: usize, c: usize) {
+        let center = self.nodes[p].center;
+        for ival in self.nodes[c].sorted_by_first.clone() {
+            if ival.0 <= center && ival.1 >= center {
+                self.nodes[c].remove(ival);
+                self.nodes[p].add(ival)
             }
+        }
+        if self.nodes[c].sorted_by_first.is_empty() {
+            self.empty_queue.push_back(c);
         }
     }
 
@@ -347,16 +376,17 @@ impl<T: IntervalT> IntervalTree<T> {
     }
 }
 
-impl<T: Average + Copy + PartialEq + Display> Default for IntervalTree<T> {
+impl<T: IntervalItem> Default for IntervalTree<T> {
     fn default() -> Self {
         Self {
             root: None,
             nodes: Slab::new(),
+            empty_queue: VecDeque::new(),
         }
     }
 }
 
-impl<T: Average + Copy + PartialEq + Display> Display for IntervalTree<T> {
+impl<T: IntervalItem> Display for IntervalTree<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "flowchart TD")?;
         let mut q = VecDeque::new();
@@ -382,7 +412,7 @@ impl<T: Average + Copy + PartialEq + Display> Display for IntervalTree<T> {
     }
 }
 
-impl<T: IntervalT> Node<T> {
+impl<T: IntervalItem> Node<T> {
     fn new(ival: (T, T)) -> Self {
         Self {
             center: ival.0.average_floor(&ival.1),
@@ -748,6 +778,7 @@ mod tests {
         let t = IntervalTree {
             root: Some(0),
             nodes,
+            empty_queue: VecDeque::new(),
         };
         t.verify(0, None, None);
     }
@@ -795,6 +826,7 @@ mod tests {
         let t = IntervalTree {
             root: Some(0),
             nodes,
+            empty_queue: VecDeque::new(),
         };
         t.verify(0, None, None);
     }
@@ -860,6 +892,7 @@ mod tests {
         let t = IntervalTree {
             root: Some(2),
             nodes,
+            empty_queue: VecDeque::new(),
         };
         t.verify(2, None, None);
     }
