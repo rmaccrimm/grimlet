@@ -931,10 +931,15 @@ mod tests {
         t.insert((901, 1099)); // 10
         t.insert((1101, 1299)); // 12 
         t.insert((1301, 1499)); // 14
-        println!("{}", t);
+
+        // When 7 is deleted, 6 gets promoted to the root and absorbs 3 & 5
         t.remove((601, 799)).unwrap();
-        println!("{}", t);
         assert_eq!(t.root, Some(10));
+        assert_eq!(t.nodes.len(), 12);
+        assert_eq!(
+            t.nodes[t.root.unwrap()].sorted_by_first,
+            vec![(-99, 699), (301, 699), (501, 699)]
+        );
         t.verify(10, None, None);
     }
 }
