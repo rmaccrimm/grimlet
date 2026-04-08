@@ -92,23 +92,23 @@ impl<T: IntervalItem> IntervalTree<T> {
         }
     }
 
-    /// Return all intervals containing b
-    pub fn search(&self, b: T) -> Vec<(T, T)> {
+    /// Return all intervals containing query point q.
+    pub fn get_all(&self, q: T) -> Vec<(T, T)> {
         let mut curr = self.root;
         let mut results = vec![];
 
         while let Some(n) = curr {
             let node = &self.nodes[n];
 
-            if b == node.center {
+            if q == node.center {
                 results.extend_from_slice(&node.sorted_by_first);
                 return results;
-            } else if b < node.center {
-                let i = node.sorted_by_first.partition_point(|&r| r.0 <= b);
+            } else if q < node.center {
+                let i = node.sorted_by_first.partition_point(|&r| r.0 <= q);
                 results.extend_from_slice(&node.sorted_by_first[0..i]);
                 curr = node.left;
             } else {
-                let i = node.sorted_by_last.partition_point(|&r| r.1 >= b);
+                let i = node.sorted_by_last.partition_point(|&r| r.1 >= q);
                 results.extend_from_slice(&node.sorted_by_last[0..i]);
                 curr = node.right;
             }
@@ -116,7 +116,33 @@ impl<T: IntervalItem> IntervalTree<T> {
         results
     }
 
-    pub fn remove(&mut self, ival: (T, T)) -> Result<()> {
+    /// Return first results found containing query point q.
+    pub fn get_first(&self, q: T) -> Option<(T, T)> {
+        let mut cur = self.root;
+
+        while let Some(n) = cur {
+            let node = &self.nodes[n];
+
+            if q == node.center {
+                return Some(node.sorted_by_first[0]);
+            } else if q < node.center {
+                let ival = node.sorted_by_first[0];
+                if ival.0 <= q {
+                    return Some(ival);
+                }
+                cur = node.left;
+            } else {
+                let ival = node.sorted_by_last[0];
+                if ival.1 >= q {
+                    return Some(ival);
+                }
+                cur = node.right;
+            }
+        }
+        None
+    }
+
+    pub fn remove(&mut self, ival: (T, T)) -> bool {
         let mut cur = self.root;
         while let Some(n) = cur {
             let dir = if ival.1 < self.nodes[n].center {
@@ -129,11 +155,11 @@ impl<T: IntervalItem> IntervalTree<T> {
             cur = self.nodes[n].child(dir);
         }
         let rm = match cur {
-            None => bail!("interval not found"),
+            None => return false,
             Some(n) => n,
         };
         if !self.nodes[rm].remove(ival) {
-            return Ok(());
+            return true;
         }
         self.delete_node(rm);
         while let Some(n) = self.empty_queue.pop_front() {
@@ -141,7 +167,37 @@ impl<T: IntervalItem> IntervalTree<T> {
                 self.delete_node(n);
             }
         }
-        Ok(())
+        true
+    }
+
+    /// Remove all entries containing query point q. Has no effect if no matches are found.
+    pub fn remove_all(&mut self, q: T) {
+        let mut cur = self.root;
+        while let Some(n) = cur {
+            let center = self.nodes[n].center;
+            cur = match q.cmp(&center) {
+                std::cmp::Ordering::Less => {
+                    self.nodes[n].remove_start_leq(q);
+                    self.nodes[n].left
+                }
+                std::cmp::Ordering::Equal => {
+                    self.empty_queue.push_back(n);
+                    break;
+                }
+                std::cmp::Ordering::Greater => {
+                    self.nodes[n].remove_end_geq(q);
+                    self.nodes[n].right
+                }
+            };
+            if self.nodes[n].is_empty() {
+                self.empty_queue.push_back(n);
+            }
+        }
+        while let Some(n) = self.empty_queue.pop_front() {
+            if self.nodes.contains(n) {
+                self.delete_node(n);
+            }
+        }
     }
 
     fn delete_node(&mut self, rm: usize) {
@@ -446,6 +502,28 @@ impl<T: IntervalItem> Node<T> {
         self.sorted_by_first.is_empty()
     }
 
+    fn remove_start_leq(&mut self, q: T) {
+        let i = self.sorted_by_first.partition_point(|&r| r.0 <= q);
+        if i == 0 {
+            return;
+        }
+        self.sorted_by_first = Vec::from(&self.sorted_by_first[i..]);
+        self.sorted_by_last = self.sorted_by_first.clone();
+        self.sorted_by_last.sort_by_key(|i| std::cmp::Reverse(i.1));
+    }
+
+    fn remove_end_geq(&mut self, q: T) {
+        let i = self.sorted_by_last.partition_point(|&r| r.1 >= q);
+        if i == 0 {
+            return;
+        }
+        self.sorted_by_last = Vec::from(&self.sorted_by_last[i..]);
+        self.sorted_by_first = self.sorted_by_last.clone();
+        self.sorted_by_first.sort_by_key(|i| i.0);
+    }
+
+    fn is_empty(&mut self) -> bool { self.sorted_by_first.is_empty() }
+
     fn child(&self, d: Direction) -> Option<usize> {
         match d {
             Direction::Left => self.left,
@@ -612,7 +690,7 @@ mod tests {
         assert_eq!(t.root, Some(0));
         t.verify();
 
-        assert_eq!(t.search(8), vec![(-20, 20), (5, 15), (1, 9)]);
+        assert_eq!(t.get_all(8), vec![(-20, 20), (5, 15), (1, 9)]);
     }
 
     #[test]
@@ -621,19 +699,19 @@ mod tests {
         for i in 0..15 {
             t.insert((i, i));
         }
-        t.remove((0, 0)).unwrap();
+        t.remove((0, 0));
         assert_eq!(t.root, Some(7));
         t.verify();
         check_links(&t, 1, None, Some(2));
 
-        t.remove((6, 6)).unwrap();
+        t.remove((6, 6));
         assert_eq!(t.root, Some(7));
         t.verify();
         check_links(&t, 5, Some(4), None);
 
         let mut t = IntervalTree::default();
         t.insert((10, 10));
-        t.remove((10, 10)).unwrap();
+        t.remove((10, 10));
         assert_eq!(t.root, None);
         assert_eq!(t.nodes.len(), 0);
     }
@@ -643,7 +721,7 @@ mod tests {
         let mut t = IntervalTree::default();
         t.insert((0, 0));
         t.insert((1, 1));
-        t.remove((0, 0)).unwrap();
+        t.remove((0, 0));
         assert!(!t.nodes.contains(0));
         assert_eq!(t.root, Some(1));
         t.verify();
@@ -653,8 +731,8 @@ mod tests {
         for i in 0..15 {
             t.insert((i, i));
         }
-        t.remove((8, 8)).unwrap();
-        t.remove((9, 9)).unwrap();
+        t.remove((8, 8));
+        t.remove((9, 9));
         assert!(!t.nodes.contains(8));
         assert!(!t.nodes.contains(9));
         assert_eq!(t.root, Some(7));
@@ -669,7 +747,7 @@ mod tests {
         for i in 0..3 {
             t.insert((i, i));
         }
-        t.remove((1, 1)).unwrap();
+        t.remove((1, 1));
         assert!(!t.nodes.contains(1));
         assert_eq!(t.root, Some(0));
         t.verify();
@@ -680,8 +758,8 @@ mod tests {
         for i in 0..15 {
             t.insert((i, i));
         }
-        t.remove((10, 10)).unwrap();
-        t.remove((11, 11)).unwrap();
+        t.remove((10, 10));
+        t.remove((11, 11));
         assert_eq!(t.root, Some(7));
         t.verify();
         assert!(!t.nodes.contains(10));
@@ -697,7 +775,7 @@ mod tests {
         for i in [0, 1, 2, 3, 4, 5, 6] {
             t.insert((i, i));
         }
-        t.remove((3, 3)).unwrap();
+        t.remove((3, 3));
         assert!(!t.nodes.contains(3));
         assert_eq!(t.root, Some(2));
         t.verify();
@@ -708,7 +786,7 @@ mod tests {
         for i in 0..15 {
             t.insert((i, i));
         }
-        t.remove((11, 11)).unwrap();
+        t.remove((11, 11));
         assert_eq!(t.root, Some(7));
         t.verify();
         assert!(!t.nodes.contains(11));
@@ -736,7 +814,7 @@ mod tests {
         assert_eq!(t.root, Some(0));
         t.verify();
 
-        t.remove((0, 0)).unwrap();
+        t.remove((0, 0));
         assert_eq!(t.root, Some(5));
         t.verify();
     }
@@ -939,7 +1017,7 @@ mod tests {
         t.insert((1301, 1499)); // 14
 
         // When 7 is deleted, 6 gets promoted to the root and absorbs 3 & 5
-        t.remove((601, 799)).unwrap();
+        t.remove((601, 799));
         assert_eq!(t.root, Some(10));
         assert_eq!(t.nodes.len(), 12);
         assert_eq!(
