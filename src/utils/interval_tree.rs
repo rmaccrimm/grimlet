@@ -316,7 +316,13 @@ impl<T: IntervalItem> IntervalTree<T> {
         }
     }
 
-    pub fn verify(&self, n: usize, left: Option<T>, right: Option<T>) -> i32 {
+    pub fn verify(&self) {
+        if let Some(r) = self.root {
+            self.verify_recursive(r, None, None);
+        }
+    }
+
+    fn verify_recursive(&self, n: usize, left: Option<T>, right: Option<T>) -> i32 {
         let node = &self.nodes[n];
         if let BF::Unbalanced(_) = node.balance {
             panic!("node {} is not balanced", n);
@@ -350,7 +356,7 @@ impl<T: IntervalItem> IntervalTree<T> {
                 "node {}: incorrect parent",
                 l
             );
-            self.verify(l, left, Some(node.center))
+            self.verify_recursive(l, left, Some(node.center))
         } else {
             0
         };
@@ -361,7 +367,7 @@ impl<T: IntervalItem> IntervalTree<T> {
                 "node {}: incorrect parent",
                 r
             );
-            self.verify(r, Some(node.center), right)
+            self.verify_recursive(r, Some(node.center), right)
         } else {
             0
         };
@@ -547,7 +553,7 @@ mod tests {
             t.insert((i, i));
         }
         assert_eq!(t.root, Some(3));
-        t.verify(3, None, None);
+        t.verify();
 
         check_links(&t, 0, None, None);
         check_links(&t, 1, Some(0), Some(2));
@@ -565,7 +571,7 @@ mod tests {
             t.insert((i, i));
         }
         assert_eq!(t.root, Some(3));
-        t.verify(3, None, None);
+        t.verify();
 
         check_links(&t, 0, None, None);
         check_links(&t, 1, Some(2), Some(0));
@@ -584,7 +590,7 @@ mod tests {
             t.insert((i, i));
         }
         assert_eq!(t.root, Some(0));
-        t.verify(0, None, None);
+        t.verify();
 
         check_links(&t, 0, Some(4), Some(2)); // 2
         check_links(&t, 1, Some(6), None); // 6
@@ -604,7 +610,7 @@ mod tests {
         t.insert((1, 9));
 
         assert_eq!(t.root, Some(0));
-        t.verify(0, None, None);
+        t.verify();
 
         assert_eq!(t.search(8), vec![(-20, 20), (5, 15), (1, 9)]);
     }
@@ -617,12 +623,12 @@ mod tests {
         }
         t.remove((0, 0)).unwrap();
         assert_eq!(t.root, Some(7));
-        t.verify(7, None, None);
+        t.verify();
         check_links(&t, 1, None, Some(2));
 
         t.remove((6, 6)).unwrap();
         assert_eq!(t.root, Some(7));
-        t.verify(7, None, None);
+        t.verify();
         check_links(&t, 5, Some(4), None);
 
         let mut t = IntervalTree::default();
@@ -640,7 +646,7 @@ mod tests {
         t.remove((0, 0)).unwrap();
         assert!(!t.nodes.contains(0));
         assert_eq!(t.root, Some(1));
-        t.verify(1, None, None);
+        t.verify();
         check_links(&t, 1, None, None);
 
         let mut t = IntervalTree::default();
@@ -652,7 +658,7 @@ mod tests {
         assert!(!t.nodes.contains(8));
         assert!(!t.nodes.contains(9));
         assert_eq!(t.root, Some(7));
-        t.verify(7, None, None);
+        t.verify();
         check_links(&t, 11, Some(10), Some(13));
         check_links(&t, 10, None, None);
     }
@@ -666,7 +672,7 @@ mod tests {
         t.remove((1, 1)).unwrap();
         assert!(!t.nodes.contains(1));
         assert_eq!(t.root, Some(0));
-        t.verify(0, None, None);
+        t.verify();
         check_links(&t, 0, None, Some(2));
         check_links(&t, 2, None, None);
 
@@ -677,7 +683,7 @@ mod tests {
         t.remove((10, 10)).unwrap();
         t.remove((11, 11)).unwrap();
         assert_eq!(t.root, Some(7));
-        t.verify(7, None, None);
+        t.verify();
         assert!(!t.nodes.contains(10));
         assert!(!t.nodes.contains(11));
         check_links(&t, 7, Some(3), Some(9));
@@ -694,7 +700,7 @@ mod tests {
         t.remove((3, 3)).unwrap();
         assert!(!t.nodes.contains(3));
         assert_eq!(t.root, Some(2));
-        t.verify(2, None, None);
+        t.verify();
         check_links(&t, 1, Some(0), None);
         check_links(&t, 2, Some(1), Some(5));
 
@@ -704,7 +710,7 @@ mod tests {
         }
         t.remove((11, 11)).unwrap();
         assert_eq!(t.root, Some(7));
-        t.verify(7, None, None);
+        t.verify();
         assert!(!t.nodes.contains(11));
         check_links(&t, 7, Some(3), Some(10));
         check_links(&t, 9, Some(8), None);
@@ -728,11 +734,11 @@ mod tests {
         }
         println!("{}", t);
         assert_eq!(t.root, Some(0));
-        t.verify(0, None, None);
+        t.verify();
 
         t.remove((0, 0)).unwrap();
         assert_eq!(t.root, Some(5));
-        t.verify(7, None, None);
+        t.verify();
     }
 
     #[test]
@@ -780,7 +786,7 @@ mod tests {
             nodes,
             empty_queue: VecDeque::new(),
         };
-        t.verify(0, None, None);
+        t.verify();
     }
 
     #[test]
@@ -826,9 +832,9 @@ mod tests {
         let t = IntervalTree {
             root: Some(0),
             nodes,
-            empty_queue: VecDeque::new(),
+            ..Default::default()
         };
-        t.verify(0, None, None);
+        t.verify();
     }
 
     #[test]
@@ -892,9 +898,9 @@ mod tests {
         let t = IntervalTree {
             root: Some(2),
             nodes,
-            empty_queue: VecDeque::new(),
+            ..Default::default()
         };
-        t.verify(2, None, None);
+        t.verify();
     }
 
     #[test]
@@ -910,7 +916,7 @@ mod tests {
         t.insert((30, 40));
         assert_eq!(t.nodes.len(), 2);
         assert_eq!(t.root, Some(1));
-        t.verify(1, None, None);
+        t.verify();
     }
 
     #[test]
@@ -940,6 +946,6 @@ mod tests {
             t.nodes[t.root.unwrap()].sorted_by_first,
             vec![(-99, 699), (301, 699), (501, 699)]
         );
-        t.verify(10, None, None);
+        t.verify();
     }
 }
