@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -20,7 +18,6 @@ pub struct FunctionCache<'ctx> {
 
 struct CacheEntry<'ctx> {
     func: CompiledFunction<'ctx>,
-    end: u32,
     hits: u32,
 }
 
@@ -34,14 +31,7 @@ impl<'ctx> FunctionCache<'ctx> {
     }
 
     pub fn insert(&mut self, start: u32, end: u32, v: CompiledFunction<'ctx>) {
-        let res = self.map.insert(
-            start,
-            CacheEntry {
-                func: v,
-                hits: 0,
-                end,
-            },
-        );
+        let res = self.map.insert(start, CacheEntry { func: v, hits: 0 });
         debug_assert!(res.is_none());
         self.interval_tree.borrow_mut().insert((start, end));
     }
