@@ -65,6 +65,7 @@ pub mod cache;
 mod flags;
 mod load_store;
 mod reg_map;
+mod shift;
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
