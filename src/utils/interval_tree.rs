@@ -89,11 +89,7 @@ impl<T: IntervalItem> IntervalTree<T> {
             n = p;
         }
         self.rebalance(a);
-        while let Some(n) = self.empty_queue.pop_front() {
-            if self.nodes.contains(n) {
-                self.delete_node(n);
-            }
-        }
+        self.cleanup();
     }
 
     /// Return all intervals containing query point q.
@@ -171,16 +167,12 @@ impl<T: IntervalItem> IntervalTree<T> {
             return true;
         }
         self.delete_node(rm);
-        while let Some(n) = self.empty_queue.pop_front() {
-            if self.nodes.contains(n) {
-                self.delete_node(n);
-            }
-        }
+        self.cleanup();
         true
     }
 
     /// Remove all entries containing query point q. Has no effect if no matches are found.
-    pub fn remove_all(&mut self, q: T) {
+    pub fn remove_all(&mut self, q: T) -> Vec<(T, T)> {
         let mut cur = self.root;
         while let Some(n) = cur {
             let center = self.nodes[n].center;
@@ -202,6 +194,11 @@ impl<T: IntervalItem> IntervalTree<T> {
                 self.empty_queue.push_back(n);
             }
         }
+        self.cleanup();
+        vec![]
+    }
+
+    fn cleanup(&mut self) {
         while let Some(n) = self.empty_queue.pop_front() {
             if self.nodes.contains(n) {
                 self.delete_node(n);

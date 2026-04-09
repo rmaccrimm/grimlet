@@ -22,8 +22,6 @@ pub enum ArmMode {
     THUMB = 1,
 }
 
-
-
 #[derive(Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Reg {
     R0 = 0,
@@ -83,6 +81,12 @@ impl Default for ArmState {
 }
 
 impl ArmState {
+    pub fn new(mem: MemoryManager) -> Self {
+        Self {
+            mem,
+            ..Self::default()
+        }
+    }
     pub fn curr_instr_addr(&self) -> u32 { self.regs[Reg::PC] - self.current_mode.pc_byte_offset() }
 
     pub fn jump_to(&mut self, addr: u32, mode: i8) {

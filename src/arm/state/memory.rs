@@ -1,5 +1,8 @@
 use std::array::TryFromSliceError;
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::slice::Chunks;
+use std::sync::mpsc::Sender;
 
 use anyhow::{Result, bail};
 use num::traits::{AsPrimitive, FromBytes, ToBytes};
@@ -21,6 +24,10 @@ pub struct MemoryManager {
     vram: MemRegion,
     obj_attrs: MemRegion,
     cartridge_rom: MemRegion,
+    // Both of these are optional to make testing more straightforward, may rework this later.
+    // Shared with `FunctionCache`
+    interval_tree: Option<Rc<RefCell<IntervalTree<u32>>>>,
+    tx: Option<Sender<u32>>,
 }
 
 // TODO - will add these as needed
@@ -59,6 +66,14 @@ impl MemRegion {
 }
 
 impl MemoryManager {
+    pub fn new(interval_tree: Rc<RefCell<IntervalTree<u32>>>, tx: Sender<u32>) -> Self {
+        Self {
+            interval_tree: Some(interval_tree),
+            tx: Some(tx),
+            ..Self::default()
+        }
+    }
+
     pub fn iter_word(&self, start_addr: u32) -> Result<Chunks<'_, u8>> {
         assert!(
             start_addr.is_multiple_of(4),
@@ -105,6 +120,17 @@ impl MemoryManager {
         for byte in value.to_le_bytes() {
             let mem_val = mem_iter.next().expect("reached end of bytes while writing");
             *mem_val = byte;
+        }
+        // Perform cache invalidation - removes any nodes in the interval tree that contain the
+        // written address and sends a message to FunctionCache to do the same (we cannot do this
+        // immediately as the currently executing function may be invalidated).
+        if let Some(t) = &self.interval_tree {
+            let removed = t.borrow_mut().remove_all(addr);
+            if let Some(tx) = &self.tx {
+                for r in removed {
+                    tx.send(r.0).expect("cache <-> memory channel was closed");
+                }
+            }
         }
         WriteVal {
             should_exit: false,
@@ -165,6 +191,8 @@ impl Default for MemoryManager {
             obj_attrs: MemRegion::new(1 << 10, 0),
             // TODO -  wait states configurable? Possibly seperate struct, maybe a Readable trait?
             cartridge_rom: MemRegion::new(32 << 20, 0),
+            interval_tree: None,
+            tx: None,
         }
     }
 }

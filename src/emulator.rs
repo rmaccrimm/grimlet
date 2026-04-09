@@ -1,5 +1,8 @@
+use std::cell::RefCell;
 use std::fs::{self, File};
 use std::io::{BufReader, Read};
+use std::rc::Rc;
+use std::sync::mpsc;
 
 use anyhow::{Result, bail};
 use clap::ValueEnum;
@@ -7,8 +10,10 @@ use inkwell::context::Context;
 
 use crate::arm::disasm::Disasm;
 use crate::arm::state::ArmState;
+use crate::arm::state::memory::MemoryManager;
 use crate::jit::FunctionBuilder;
 use crate::jit::cache::FunctionCache;
+use crate::utils::interval_tree::IntervalTree;
 
 pub mod video;
 
@@ -43,11 +48,15 @@ impl<'a> Emulator<'a> {
         llvm_ctx: &'a Context,
         print: Option<DebugOutput>,
     ) -> Self {
+        let (tx, rx) = mpsc::channel();
+        let ival_tree = Rc::new(RefCell::new(IntervalTree::default()));
+        let mem = MemoryManager::new(ival_tree.clone(), tx);
+
         Self {
             ctx: llvm_ctx,
-            state: ArmState::default(),
+            state: ArmState::new(mem),
             disasm: Box::new(disasm),
-            func_cache: FunctionCache::default(),
+            func_cache: FunctionCache::new(ival_tree, rx),
             print,
         }
     }

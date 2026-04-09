@@ -62,8 +62,8 @@ impl CodeBlock {
             }
         }
         // Shouldn't ever end up with zero length, but who knows.
-        debug_assert!(instrs.len() > 0);
-        let end_addr = instrs.last().map(|i| i.addr).unwrap_or(start_addr);
+        debug_assert!(!instrs.is_empty());
+        let end_addr = instrs.last().map_or(start_addr, |i| i.addr);
         CodeBlock {
             instrs,
             regs_accessed,
