@@ -4,6 +4,8 @@ use std::slice::Chunks;
 use anyhow::{Result, bail};
 use num::traits::{AsPrimitive, FromBytes, ToBytes};
 
+use crate::utils::interval_tree::IntervalTree;
+
 #[derive(Clone, Debug)]
 struct MemRegion {
     wait_states: u32,

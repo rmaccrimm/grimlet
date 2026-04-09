@@ -22,11 +22,11 @@ macro_rules! assembly_test {
             let path = format!("tests/programs/{}.gba", stringify!($name));
             let disasm = Disassembler::default();
             let ctx = Context::create();
-            let mut emulator = Emulator::new(disasm, &ctx);
+            let mut emulator = Emulator::new(disasm, &ctx, Some(DebugOutput::Assembly));
             emulator.load_rom(path, CART_START_ADDR).unwrap();
             let exit = |st: &ArmState| -> bool { st.regs[Reg::R11] == EXIT_VAL };
             emulator.state.jump_to(CART_START_ADDR, ArmMode::ARM as i8);
-            emulator.run(exit, Some(DebugOutput::Assembly));
+            emulator.run(exit);
             println!("{:08x?}", emulator.state.regs);
 
             let num_asserts = emulator.state.regs[Reg::R8];

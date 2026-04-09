@@ -7,7 +7,8 @@ use inkwell::context::Context;
 
 use crate::arm::disasm::Disasm;
 use crate::arm::state::ArmState;
-use crate::jit::{FunctionBuilder, FunctionCache};
+use crate::jit::FunctionBuilder;
+use crate::jit::cache::FunctionCache;
 
 pub mod video;
 
@@ -26,6 +27,7 @@ pub struct Emulator<'a> {
     ctx: &'a Context,
     disasm: Box<dyn Disasm>,
     func_cache: FunctionCache<'a>,
+    print: Option<DebugOutput>,
 }
 
 /// Print codeblocks before running
@@ -36,12 +38,17 @@ pub enum DebugOutput {
 }
 
 impl<'a> Emulator<'a> {
-    pub fn new(disasm: impl Disasm + 'static, llvm_ctx: &'a Context) -> Self {
+    pub fn new(
+        disasm: impl Disasm + 'static,
+        llvm_ctx: &'a Context,
+        print: Option<DebugOutput>,
+    ) -> Self {
         Self {
             ctx: llvm_ctx,
             state: ArmState::default(),
             disasm: Box::new(disasm),
-            func_cache: FunctionCache::new(),
+            func_cache: FunctionCache::default(),
+            print,
         }
     }
 
@@ -59,13 +66,12 @@ impl<'a> Emulator<'a> {
         Ok(())
     }
 
-    pub fn run<F>(&mut self, exit_condition: F, print: Option<DebugOutput>)
+    pub fn run<F>(&mut self, exit_condition: F)
     where
         F: Fn(&ArmState) -> bool,
     {
         loop {
             if exit_condition(&self.state) {
-                // compiler.dump().unwrap();
                 break;
             }
             if self.disasm.get_mode() != self.state.current_mode {
@@ -73,31 +79,11 @@ impl<'a> Emulator<'a> {
             }
 
             let instr_addr = self.state.curr_instr_addr();
-            let func = if let Some(func) = self.func_cache.get(&instr_addr) {
+            let func = if let Some(func) = self.func_cache.get(instr_addr) {
                 func
             } else {
-                let code_block = self
-                    .disasm
-                    .next_code_block(&self.state.mem, instr_addr)
-                    .expect("disassembly failed");
-                match print {
-                    Some(DebugOutput::Assembly) => println!("{code_block}"),
-                    Some(DebugOutput::Struct) => println!("{code_block:#?}"),
-                    None => (),
-                }
-                let builder = FunctionBuilder::new(self.ctx, instr_addr)
-                    .expect("failed to initialize function")
-                    .build_body(&code_block)
-                    .expect("failed to build function");
-                match builder.compile() {
-                    Ok(compiled) => {
-                        self.func_cache.insert(instr_addr, compiled);
-                        self.func_cache.get(&instr_addr).unwrap()
-                    }
-                    Err(e) => {
-                        panic!("{}", e);
-                    }
-                }
+                self.compile_new_func(instr_addr);
+                self.func_cache.get(instr_addr).unwrap()
             };
             unsafe {
                 func.call(&raw mut self.state);
@@ -107,8 +93,33 @@ impl<'a> Emulator<'a> {
                 // Render frame here
                 break;
             }
-            if print.is_some() {
+            if self.print.is_some() {
                 println!("{}", self.state);
+            }
+        }
+    }
+
+    fn compile_new_func(&mut self, addr: u32) {
+        let code_block = self
+            .disasm
+            .next_code_block(&self.state.mem, addr)
+            .expect("disassembly failed");
+        match self.print {
+            Some(DebugOutput::Assembly) => println!("{code_block}"),
+            Some(DebugOutput::Struct) => println!("{code_block:#?}"),
+            None => (),
+        }
+        let builder = FunctionBuilder::new(self.ctx, addr)
+            .expect("failed to initialize function")
+            .build_body(&code_block)
+            .expect("failed to build function");
+        match builder.compile() {
+            Ok(compiled) => {
+                self.func_cache
+                    .insert(code_block.start_addr, code_block.end_addr, compiled);
+            }
+            Err(e) => {
+                panic!("{}", e);
             }
         }
     }
@@ -208,16 +219,13 @@ mod tests {
         ]);
 
         let ctx = Context::create();
-        let mut emulator = Emulator::new(disasm, &ctx);
+        let mut emulator = Emulator::new(disasm, &ctx, Some(DebugOutput::Assembly));
         // Appears in R0 if MOV was successful
         let confirm_val = u32::MAX;
         emulator.state.regs[Reg::R1] = confirm_val;
         // Prev instruction on initialization is just a NOP, so it won't override these flags
         emulator.state.regs[Reg::CPSR as usize] = flags << 28;
-        emulator.run(
-            |st: &ArmState| -> bool { st.curr_instr_addr() == 100 },
-            None,
-        );
+        emulator.run(|st: &ArmState| -> bool { st.curr_instr_addr() == 100 });
 
         // True if it ran, false if skipped
         emulator.state.regs[Reg::R0] == confirm_val
@@ -294,7 +302,7 @@ mod tests {
         ]);
 
         let ctx = Context::create();
-        let mut em = Emulator::new(disasm, &ctx);
+        let mut em = Emulator::new(disasm, &ctx, Some(DebugOutput::Assembly));
 
         let exit = |st: &ArmState| -> bool { st.curr_instr_addr() == 100 };
         let r0 = Reg::R0;
@@ -304,7 +312,7 @@ mod tests {
             em.state.jump_to(0, ArmMode::ARM as i8);
             em.state.regs[r0] = n;
             em.state.regs[cpsr] = 0;
-            em.run(exit, Some(DebugOutput::Assembly));
+            em.run(exit);
             em.state.regs[cpsr] >> 28
         };
         // Positive result
@@ -342,10 +350,10 @@ mod tests {
 
                 let disasm = VecDisassembler::new(instrs);
                 let ctx = Context::create();
-                let mut emulator = Emulator::new(disasm, &ctx);
+                let mut emulator = Emulator::new(disasm, &ctx, Some(DebugOutput::Assembly));
 
                 let exit = |st: &ArmState| -> bool { st.curr_instr_addr() == 100 };
-                emulator.run(exit, Some(DebugOutput::Assembly));
+                emulator.run(exit);
 
                 assert_eq!(emulator.state.regs[Reg::SP], expected_sp);
                 let expected = [1, 2, 3, 5, 7, 11, 13, 17];

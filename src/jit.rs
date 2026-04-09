@@ -61,7 +61,7 @@ macro_rules! exec_instr {
 
 mod alu;
 mod branch;
-mod cache;
+pub mod cache;
 mod flags;
 mod load_store;
 mod reg_map;
@@ -103,8 +103,6 @@ macro_rules! unimpl_instr {
 // JIT'd funxtions take a pointer to the guest machine state and return the number of (emulated)
 // CPU cycles it took to execute
 pub type CompiledFunction<'a> = JitFunction<'a, unsafe extern "C" fn(*mut ArmState) -> u32>;
-
-pub type FunctionCache<'ctx> = HashMap<u32, CompiledFunction<'ctx>>;
 
 /// Builder for creating & compiling LLVM functions
 pub struct FunctionBuilder<'ctx, 'a>

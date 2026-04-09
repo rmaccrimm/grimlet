@@ -12,7 +12,7 @@ pub struct CodeBlock {
     pub instrs: Vec<ArmInstruction>,
     pub regs_accessed: HashSet<Reg>,
     pub start_addr: u32,
-    // TODO pub end_block: u32,
+    pub end_addr: u32,
 }
 
 impl CodeBlock {
@@ -61,10 +61,14 @@ impl CodeBlock {
                 break;
             }
         }
+        // Shouldn't ever end up with zero length, but who knows.
+        debug_assert!(instrs.len() > 0);
+        let end_addr = instrs.last().map(|i| i.addr).unwrap_or(start_addr);
         CodeBlock {
             instrs,
             regs_accessed,
             start_addr,
+            end_addr,
         }
     }
 }
