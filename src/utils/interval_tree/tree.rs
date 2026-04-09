@@ -1,5 +1,5 @@
-use std::cmp::Ordering;
-use std::collections::VecDeque;
+use std::cmp::{Ordering, Reverse};
+use std::collections::{HashMap, VecDeque};
 use std::fmt::Display;
 
 use slab::Slab;
@@ -167,6 +167,27 @@ impl<T: IntervalItem> IntervalTree<T> {
         }
         self.cleanup();
         vec![]
+    }
+
+    pub fn verify(&self) {
+        if let Some(r) = self.root {
+            self.verify_recursive(r, None, None);
+        }
+    }
+
+    pub fn print_stats(&self) {
+        let mut size_counts: HashMap<usize, usize> = HashMap::new();
+        for (_, node) in &self.nodes {
+            size_counts
+                .entry(node.sorted_by_first.len())
+                .and_modify(|e| *e += 1)
+                .or_insert(1);
+        }
+        let mut v = size_counts.iter().collect::<Vec<_>>();
+        v.sort_by_key(|k| Reverse(k.1));
+        for x in v {
+            println!("{x:?}");
+        }
     }
 
     fn cleanup(&mut self) {
@@ -342,12 +363,6 @@ impl<T: IntervalItem> IntervalTree<T> {
         }
         if self.nodes[c].sorted_by_first.is_empty() {
             self.empty_queue.push_back(c);
-        }
-    }
-
-    pub fn verify(&self) {
-        if let Some(r) = self.root {
-            self.verify_recursive(r, None, None);
         }
     }
 

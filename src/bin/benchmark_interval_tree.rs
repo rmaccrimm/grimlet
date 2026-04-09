@@ -19,12 +19,14 @@ struct Args {
 #[derive(Debug)]
 enum Op {
     Insert(i32, i32),
-    Delete(i32, i32),
+    Delete(i32),
 }
 
 // Reference, 2026-04-08
 // Without dheap: 1mil ins -> .5mil del -> 1mil ins -> .5mil del
 // Completed in 24.20s
+// 300000 rounds of 10 ins -> 1 del all
+// Completed in 3.64s
 fn main() -> Result<()> {
     let args = Args::parse();
     let f = File::open(&args.path)?;
@@ -40,15 +42,15 @@ fn main() -> Result<()> {
             .expect("no start field")
             .parse()
             .expect("parsing start failed");
-        let end: i32 = sp
-            .next()
-            .expect("no end field")
-            .parse()
-            .expect("parsing end failed");
         if op == "i" {
+            let end: i32 = sp
+                .next()
+                .expect("no end field")
+                .parse()
+                .expect("parsing end failed");
             ops.push(Op::Insert(start, end));
         } else {
-            ops.push(Op::Delete(start, end));
+            ops.push(Op::Delete(start));
         }
     }
 
@@ -62,8 +64,8 @@ fn main() -> Result<()> {
     for op in ops {
         match op {
             Op::Insert(s, e) => t.insert((s, e)),
-            Op::Delete(s, e) => {
-                t.remove((s, e));
+            Op::Delete(s) => {
+                t.remove_all(s);
             }
         }
     }
@@ -71,5 +73,6 @@ fn main() -> Result<()> {
     println!("Completed in {:.2?}", elapsed);
     t.verify();
     println!("{} nodes in tree", t.len());
+    t.print_stats();
     Ok(())
 }
