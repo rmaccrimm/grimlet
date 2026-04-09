@@ -163,7 +163,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         // Less handles at least optimizing out `br i1 true, label %if, label %end`
         // branches that are emitted for AL cond
         let execution_engine = module
-            .create_jit_execution_engine(OptimizationLevel::Less)
+            .create_jit_execution_engine(OptimizationLevel::None)
             .expect("failed to create LLVM execution engine");
 
         let i8_t = ctx.i8_type();
@@ -254,7 +254,10 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
     pub fn compile(self) -> Result<CompiledFunction<'ctx>> {
         if self.func.verify(true) {
-            unsafe { Ok(self.execution_engine.get_function(&self.name)?) }
+            let res = unsafe { Ok(self.execution_engine.get_function(&self.name)?) };
+            self.dump_llvm()
+                .with_context(|| "Function verification failed: failed to dump LLVM code.")?;
+            res
         } else {
             self.dump_llvm()
                 .with_context(|| "Function verification failed: failed to dump LLVM code.")?;

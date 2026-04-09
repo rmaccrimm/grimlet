@@ -15,6 +15,19 @@ const EXIT_VAL: u32 = 0x6300;
 /// stack (currently at 0x4000, end of the bios region), otherwise -1. The number of assertions made
 /// is written to register r8 and an exit is signalled to the emulator by writin 25344 to r11 and
 /// jumping to a no-op.
+///
+/// To create new test program
+///     - run: `gvasm init <test-name>.gvasm`
+///     - Write code in .main section, ending with:
+///       ```
+///       .main:
+///           ...    
+///           mov r11, #0x6300
+///           b end
+///       end:
+///           b end
+///       ```
+///     - run: `gasm make <test-name>.gvasm`
 macro_rules! assembly_test {
     ($name:ident.gba) => {
         #[test]
@@ -22,9 +35,11 @@ macro_rules! assembly_test {
             let path = format!("tests/programs/{}.gba", stringify!($name));
             let disasm = Disassembler::default();
             let ctx = Context::create();
+
             let mut emulator = Emulator::new(disasm, &ctx, Some(DebugOutput::Assembly));
-            emulator.load_rom(path, CART_START_ADDR).unwrap();
             let exit = |st: &ArmState| -> bool { st.regs[Reg::R11] == EXIT_VAL };
+
+            emulator.load_rom(path, CART_START_ADDR).unwrap();
             emulator.state.jump_to(CART_START_ADDR, ArmMode::ARM as i8);
             emulator.run(exit);
             println!("{:08x?}", emulator.state.regs);

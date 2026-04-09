@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::mpsc::Receiver;
 
+use eframe::wgpu::naga::common::wgsl::address_space_str;
+
 use super::CompiledFunction;
 use crate::utils::interval_tree::IntervalTree;
 
@@ -46,7 +48,7 @@ impl<'ctx> FunctionCache<'ctx> {
     }
 
     pub fn update(&mut self) {
-        for addr in &self.rx {
+        for addr in self.rx.try_iter() {
             self.map
                 .remove(&addr)
                 .expect("No function cached for {start}");

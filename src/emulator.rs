@@ -97,6 +97,8 @@ impl<'a> Emulator<'a> {
             unsafe {
                 func.call(&raw mut self.state);
             }
+            self.func_cache.update();
+
             if self.state.cycle_count >= CYCLES_PER_FRAME {
                 self.state.cycle_count %= CYCLES_PER_FRAME;
                 // Render frame here
@@ -140,6 +142,7 @@ mod tests {
     use capstone::arch::arm::{ArmCC, ArmInsn, ArmOperand, ArmOperandType, ArmReg};
 
     use super::*;
+    use crate::arm::disasm::Disassembler;
     use crate::arm::disasm::code_block::CodeBlock;
     use crate::arm::disasm::instruction::ArmInstruction;
     use crate::arm::state::memory::MemoryManager;
@@ -210,11 +213,11 @@ mod tests {
     }
 
     macro_rules! op {
-        ($opcode:expr, $cond:expr, $($args:expr),+) => {
+        ($opcode:expr, $cond:expr, $($args:expr),*) => {
             ArmInstruction {
                 opcode: $opcode,
                 cond: $cond.unwrap_or(ArmCC::ARM_CC_AL),
-                operands: vec![$($args),+],
+                operands: vec![$($args),*],
                 ..Default::default()
             }
         };
@@ -436,5 +439,39 @@ mod tests {
             },
             0x4000 - 32,
         ),
+    }
+
+    #[rustfmt::skip]
+    #[test]
+    fn test_early_exit_and_cache_invalidation_on_write() {
+        // Using assembled program as address operands aren't easily constructed with Capstone
+        // 0:  mov r0, #1.   <- make sure we exit
+        // 4:  mov r1, #0
+        // 8:  str r1, [r1]  <- writes to address 0 (within current code block)
+        // 12: nop           <- nops inserted so that test still works if I eventually implement 
+        // 16: nop              pipeline correctly, where this instruction is fetched as str runs
+        // 20: mov r1, #24   <- should not be executed
+        // 24: b #104        <- just so we have a stopping point
+        let program = [
+            0x01, 0x00, 0xa0, 0xe3, 
+            0x00, 0x10, 0xa0, 0xe3, 
+            0x00, 0x10, 0x81, 0xe5,
+            0x00, 0x00, 0xa0, 0xe1, 
+            0x00, 0x00, 0xa0, 0xe1, 
+            0x06, 0x1f, 0xa0, 0xe3,
+            0x12, 0x00, 0x00, 0xea,
+        ];
+
+        let ctx = Context::create();
+        let disasm = Disassembler::default();
+        let mut emulator = Emulator::new(disasm, &ctx, Some(DebugOutput::Assembly));
+
+        let (mem, _) = emulator.state.mem.mem_map_lookup_mut(0).unwrap();
+        mem[..program.len()].copy_from_slice(&program);
+
+        emulator.run(|st: &ArmState| -> bool { st.regs[Reg::R0] == 1 });
+        assert!(emulator.func_cache.get(0).is_none());
+        assert_eq!(emulator.state.regs[Reg::R1], 0);
+        // TODO assert PC == 20
     }
 }
