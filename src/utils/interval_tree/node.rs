@@ -50,7 +50,7 @@ impl<T: IntervalItem> Node<T> {
         debug_assert!(ival.0 <= ival.1, "interval must be sorted ascending");
         if !self.sorted_by_first.contains(&ival) {
             self.sorted_by_first.push(ival);
-            self.sorted_by_first.sort_by_key(|i| i.0);
+            self.sorted_by_first.sort();
             self.sorted_by_last.push(ival);
             self.sorted_by_last.sort_by_key(|i| std::cmp::Reverse(i.1));
         }
@@ -82,8 +82,12 @@ impl<T: IntervalItem> Node<T> {
         let removed = Vec::from(&self.sorted_by_last[..i]);
         self.sorted_by_last = Vec::from(&self.sorted_by_last[i..]);
         self.sorted_by_first = self.sorted_by_last.clone();
-        self.sorted_by_first.sort_by_key(|i| i.0);
+        self.sorted_by_first.sort();
         removed
+    }
+
+    pub fn contains(&self, ival: (T, T)) -> bool {
+        self.sorted_by_first.binary_search(&ival).is_ok()
     }
 
     pub fn is_empty(&mut self) -> bool { self.sorted_by_first.is_empty() }
@@ -364,5 +368,18 @@ mod tests {
         assert!(node.is_empty());
         assert_eq!(node.sorted_by_first, vec![]);
         assert_eq!(node.sorted_by_last, vec![]);
+    }
+
+    #[test]
+    fn test_contains() {
+        let mut node = Node::new((0, 10));
+        let ivals = vec![(8, 15), (9, 11), (9, 10), (9, 14), (-1, 5), (-22, 33)];
+        for &ival in &ivals {
+            node.add(ival);
+        }
+        println!("{:?}", node.sorted_by_first);
+        for &ival in &ivals {
+            assert!(node.contains(ival), "{ival:?} not found");
+        }
     }
 }

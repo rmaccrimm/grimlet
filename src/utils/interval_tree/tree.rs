@@ -91,34 +91,19 @@ impl<T: IntervalItem> IntervalTree<T> {
         results
     }
 
-    /// Return first results found containing query point q.
-    pub fn get_first(&self, q: T) -> Option<(T, T)> {
+    pub fn contains(&self, ival: (T, T)) -> bool {
         let mut cur = self.root;
-
         while let Some(n) = cur {
-            let node = &self.nodes[n];
-
-            match q.cmp(&node.center) {
-                Ordering::Equal => {
-                    return Some(node.sorted_by_first[0]);
-                }
-                Ordering::Less => {
-                    let ival = node.sorted_by_first[0];
-                    if ival.0 <= q {
-                        return Some(ival);
-                    }
-                    cur = node.left;
-                }
-                Ordering::Greater => {
-                    let ival = node.sorted_by_last[0];
-                    if ival.1 >= q {
-                        return Some(ival);
-                    }
-                    cur = node.right;
-                }
-            }
+            let dir = if ival.1 < self.nodes[n].center {
+                Direction::Left
+            } else if ival.0 > self.nodes[n].center {
+                Direction::Right
+            } else {
+                return self.nodes[n].contains(ival);
+            };
+            cur = self.nodes[n].child(dir);
         }
-        None
+        false
     }
 
     pub fn remove(&mut self, ival: (T, T)) -> bool {
@@ -134,7 +119,9 @@ impl<T: IntervalItem> IntervalTree<T> {
             cur = self.nodes[n].child(dir);
         }
         let Some(rm) = cur else { return false };
-        if !self.nodes[rm].remove(ival) {
+
+        self.nodes[rm].remove(ival);
+        if !self.nodes[rm].is_empty() {
             return true;
         }
         self.delete_node(rm);
@@ -145,11 +132,13 @@ impl<T: IntervalItem> IntervalTree<T> {
     /// Remove all entries containing query point q. Has no effect if no matches are found.
     pub fn remove_all(&mut self, q: T) -> Vec<(T, T)> {
         let mut cur = self.root;
+        let mut results = vec![];
+
         while let Some(n) = cur {
             let center = self.nodes[n].center;
             cur = match q.cmp(&center) {
                 std::cmp::Ordering::Less => {
-                    self.nodes[n].remove_start_leq(q);
+                    results.extend_from_slice(&self.nodes[n].remove_start_leq(q));
                     self.nodes[n].left
                 }
                 std::cmp::Ordering::Equal => {
@@ -157,7 +146,7 @@ impl<T: IntervalItem> IntervalTree<T> {
                     break;
                 }
                 std::cmp::Ordering::Greater => {
-                    self.nodes[n].remove_end_geq(q);
+                    results.extend_from_slice(&self.nodes[n].remove_end_geq(q));
                     self.nodes[n].right
                 }
             };
@@ -166,7 +155,7 @@ impl<T: IntervalItem> IntervalTree<T> {
             }
         }
         self.cleanup();
-        vec![]
+        results
     }
 
     pub fn verify(&self) {
@@ -868,4 +857,43 @@ mod tests {
         );
         t.verify();
     }
+
+    // lots of overlapping intervals, but all unique start points
+    fn build_overlapping_tree() -> IntervalTree<i32> {
+        let mut t = IntervalTree::default();
+        t.insert((-200, 200));
+        t.insert((50, 60));
+        t.insert((56, 110));
+        t.insert((51, 150));
+        t.insert((25, 50));
+        t.insert((-210, -190));
+        t.insert((-1, 140));
+        t.insert((20, 30));
+        t.insert((-75, -50));
+        t.insert((60, 70));
+        t.insert((1, 10));
+        t
+    }
+
+    macro_rules! remove_all_tests {
+        ($($name:ident: $q:expr, $expected:expr, $expected_len:expr,)*) => {
+            $(
+                #[test]
+                fn $name() {
+                    let mut t = build_overlapping_tree();
+                    let removed = t.remove_all($q);
+                    println!("{t}");
+                    assert_eq!(removed, $expected, "removed elements");
+                    assert_eq!(t.len(), $expected_len, "tree len");
+                    for r in removed {
+                        assert!(!t.contains(r), "{r:?}: still in tree");
+                    }
+                }
+            )*
+        };
+    }
+
+    remove_all_tests!(
+        test_remove_all_1: 0, vec![(-200, 200), (-1, 140)], 7,
+    );
 }
