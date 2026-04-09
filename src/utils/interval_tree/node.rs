@@ -381,5 +381,13 @@ mod tests {
         for &ival in &ivals {
             assert!(node.contains(ival), "{ival:?} not found");
         }
+        assert!(!node.contains((0, 0)));
+        assert!(!node.contains((7, 15)));
+
+        let mut node = Node::new((1, 1));
+        assert!(node.contains((1, 1)));
+        assert!(!node.contains((1, 2)));
+        node.remove((1, 1));
+        assert!(!node.contains((1, 1)));
     }
 }
