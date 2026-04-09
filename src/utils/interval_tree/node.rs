@@ -62,24 +62,28 @@ impl<T: IntervalItem> Node<T> {
         self.sorted_by_last.retain(|i| *i != ival);
     }
 
-    pub fn remove_start_leq(&mut self, q: T) {
+    pub fn remove_start_leq(&mut self, q: T) -> Vec<(T, T)> {
         let i = self.sorted_by_first.partition_point(|&r| r.0 <= q);
         if i == 0 {
-            return;
+            return vec![];
         }
+        let removed = Vec::from(&self.sorted_by_first[..i]);
         self.sorted_by_first = Vec::from(&self.sorted_by_first[i..]);
         self.sorted_by_last = self.sorted_by_first.clone();
         self.sorted_by_last.sort_by_key(|i| std::cmp::Reverse(i.1));
+        removed
     }
 
-    pub fn remove_end_geq(&mut self, q: T) {
+    pub fn remove_end_geq(&mut self, q: T) -> Vec<(T, T)> {
         let i = self.sorted_by_last.partition_point(|&r| r.1 >= q);
         if i == 0 {
-            return;
+            return vec![];
         }
+        let removed = Vec::from(&self.sorted_by_last[..i]);
         self.sorted_by_last = Vec::from(&self.sorted_by_last[i..]);
         self.sorted_by_first = self.sorted_by_last.clone();
         self.sorted_by_first.sort_by_key(|i| i.0);
+        removed
     }
 
     pub fn is_empty(&mut self) -> bool { self.sorted_by_first.is_empty() }
@@ -292,7 +296,8 @@ mod tests {
         node.add((50, 60));
         node.add((35, 40));
         node.add((36, 70));
-        node.remove_start_leq(35);
+        let removed = node.remove_start_leq(35);
+        assert_eq!(removed, vec![(10, 20), (20, 100), (30, 40), (35, 40)]);
         assert_eq!(node.sorted_by_first, vec![(36, 70), (50, 60)]);
         assert_eq!(node.sorted_by_last, vec![(36, 70), (50, 60)]);
     }
@@ -302,7 +307,8 @@ mod tests {
         let mut node = Node::new((10, 20));
         node.add((30, 40));
         node.add((50, 60));
-        node.remove_start_leq(0);
+        let removed = node.remove_start_leq(0);
+        assert_eq!(removed, vec![]);
         assert_eq!(node.sorted_by_first, vec![(10, 20), (30, 40), (50, 60)]);
     }
 
@@ -311,7 +317,8 @@ mod tests {
         let mut node = Node::new((10, 20));
         node.add((30, 40));
         node.add((100, 100));
-        node.remove_start_leq(100);
+        let removed = node.remove_start_leq(100);
+        assert_eq!(removed, vec![(10, 20), (30, 40), (100, 100)]);
         assert!(node.is_empty());
         assert_eq!(node.sorted_by_first, vec![]);
         assert_eq!(node.sorted_by_last, vec![]);
@@ -325,7 +332,8 @@ mod tests {
         node.add((50, 60));
         node.add((35, 69));
         node.add((36, 70));
-        node.remove_end_geq(70);
+        let removed = node.remove_end_geq(70);
+        assert_eq!(removed, vec![(20, 100), (36, 70)]);
         assert_eq!(
             node.sorted_by_first,
             vec![(10, 20), (30, 40), (35, 69), (50, 60)]
@@ -341,7 +349,8 @@ mod tests {
         let mut node = Node::new((10, 20));
         node.add((30, 40));
         node.add((50, 60));
-        node.remove_end_geq(61);
+        let removed = node.remove_end_geq(61);
+        assert_eq!(removed, vec![]);
         assert_eq!(node.sorted_by_first, vec![(10, 20), (30, 40), (50, 60)]);
     }
 
@@ -350,7 +359,8 @@ mod tests {
         let mut node = Node::new((10, 20));
         node.add((30, 40));
         node.add((100, 100));
-        node.remove_end_geq(0);
+        let removed = node.remove_end_geq(0);
+        assert_eq!(removed, vec![(100, 100), (30, 40), (10, 20)]);
         assert!(node.is_empty());
         assert_eq!(node.sorted_by_first, vec![]);
         assert_eq!(node.sorted_by_last, vec![]);
