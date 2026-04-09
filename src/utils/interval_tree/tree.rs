@@ -142,6 +142,7 @@ impl<T: IntervalItem> IntervalTree<T> {
                     self.nodes[n].left
                 }
                 std::cmp::Ordering::Equal => {
+                    results.extend(&self.nodes[n].sorted_by_first);
                     self.empty_queue.push_back(n);
                     break;
                 }
@@ -876,18 +877,22 @@ mod tests {
     }
 
     macro_rules! remove_all_tests {
-        ($($name:ident: $q:expr, $expected:expr, $expected_len:expr,)*) => {
+        ($($name:ident: $q:expr, $expected:expr, $size:expr,)*) => {
             $(
                 #[test]
                 fn $name() {
                     let mut t = build_overlapping_tree();
-                    let removed = t.remove_all($q);
+                    let mut removed = t.remove_all($q);
                     println!("{t}");
-                    assert_eq!(removed, $expected, "removed elements");
-                    assert_eq!(t.len(), $expected_len, "tree len");
+                    removed.sort();
+                    let mut expected = $expected;
+                    expected.sort();
+                    assert_eq!(removed, expected, "removed elements");
+                    assert_eq!(t.len(), $size, "tree len");
                     for r in removed {
                         assert!(!t.contains(r), "{r:?}: still in tree");
                     }
+                    t.verify();
                 }
             )*
         };
@@ -895,5 +900,33 @@ mod tests {
 
     remove_all_tests!(
         test_remove_all_1: 0, vec![(-200, 200), (-1, 140)], 7,
+        test_remove_all_2:
+            60, vec![(-200, 200), (-1, 140), (50, 60), (51, 150), (56, 110), (60, 70)], 4,
+        test_remove_all_3: 5, vec![(-200, 200), (-1, 140), (1, 10)], 6,
+        test_remove_all_4: -201, vec![(-210, -190)], 6,
+        test_remove_all_none: -211, vec![], 7,
     );
+
+    #[test]
+    fn test_contains() {
+        let t = build_overlapping_tree();
+
+        assert!(t.contains((-200, 200)));
+        assert!(t.contains((50, 60)));
+        assert!(t.contains((56, 110)));
+        assert!(t.contains((51, 150)));
+        assert!(t.contains((25, 50)));
+        assert!(t.contains((-210, -190)));
+        assert!(t.contains((-1, 140)));
+        assert!(t.contains((20, 30)));
+        assert!(t.contains((-75, -50)));
+        assert!(t.contains((60, 70)));
+        assert!(t.contains((1, 10)));
+
+        assert!(!t.contains((-200, 201)));
+        assert!(!t.contains((55, 60)));
+        assert!(!t.contains((56, 109)));
+        assert!(!t.contains((50, 50)));
+        assert!(!t.contains((0, 20)));
+    }
 }

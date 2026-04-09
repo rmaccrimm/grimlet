@@ -104,9 +104,9 @@ impl<T: Average + Copy + PartialEq + Display> Display for Node<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}\\n", self.center)?;
         let ival = self.sorted_by_first[0];
-        write!(f, "[{}, {}]", ival.0, ival.1)?;
+        write!(f, "({}, {})", ival.0, ival.1)?;
         for ival in &self.sorted_by_first[1..] {
-            write!(f, ", [{}, {}]", ival.0, ival.1)?;
+            write!(f, ", ({}, {})", ival.0, ival.1)?;
         }
         write!(f, "\\n{}", self.balance)?;
         Ok(())
