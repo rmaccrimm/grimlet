@@ -92,6 +92,7 @@ impl<T: IntervalItem> IntervalTree<T> {
     }
 
     pub fn contains(&self, ival: (T, T)) -> bool {
+        debug_assert!(ival.0 <= ival.1, "interval must be sorted ascending");
         let mut cur = self.root;
         while let Some(n) = cur {
             let dir = if ival.1 < self.nodes[n].center {
@@ -107,6 +108,7 @@ impl<T: IntervalItem> IntervalTree<T> {
     }
 
     pub fn remove(&mut self, ival: (T, T)) -> bool {
+        debug_assert!(ival.0 <= ival.1, "interval must be sorted ascending");
         let mut cur = self.root;
         while let Some(n) = cur {
             let dir = if ival.1 < self.nodes[n].center {
