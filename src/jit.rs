@@ -67,7 +67,7 @@ mod load_store;
 mod reg_map;
 mod shift;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 
 use anyhow::{Context as _, Result, anyhow};
@@ -142,12 +142,24 @@ where
     uadd_with_overflow: FunctionValue<'a>,
     usub_with_overflow: FunctionValue<'a>,
     fshr: FunctionValue<'a>,
+
+    exit_queue: VecDeque<ExitCountdown<'a>>,
+}
+
+/// Used to simulate instruction pipeline pre-fetch behaviour. When an instruction signals that we
+/// may need to exit the currently running function via the `exit` field on `InstrEffect`, we don't
+/// check the condition right away but instead wait 2 more instruction as in a real machine these
+/// will have been pre-fetched/decoded.
+#[derive(Copy, Clone)]
+struct ExitCountdown<'a> {
+    counter: u8,
+    condition_var: IntValue<'a>,
 }
 
 struct InstrEffect<'a> {
     updates: Vec<RegUpdate<'a>>,
     cycles: IntValue<'a>,
-    exit: bool,
+    exit: Option<IntValue<'a>>,
 }
 
 type InstrResult<'a> = Result<InstrEffect<'a>>;
@@ -164,7 +176,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         // Less handles at least optimizing out `br i1 true, label %if, label %end`
         // branches that are emitted for AL cond
         let execution_engine = module
-            .create_jit_execution_engine(OptimizationLevel::None)
+            .create_jit_execution_engine(OptimizationLevel::Less)
             .expect("failed to create LLVM execution engine");
 
         let i8_t = ctx.i8_type();
@@ -241,6 +253,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             uadd_with_overflow,
             usub_with_overflow,
             fshr,
+            exit_queue: VecDeque::new(),
         })
     }
 
@@ -248,17 +261,28 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         self.load_initial_reg_values(&code_block.regs_accessed)
             .expect("initial register load failed");
         for instr in &code_block.instrs {
+            if let Some(ex) = self.exit_queue.front()
+                && ex.counter == 0
+            {
+                self.build_conditional_return(ex.condition_var)?;
+                self.exit_queue.pop_front();
+            }
+            for ex in &mut self.exit_queue {
+                ex.counter -= 1;
+            }
             self.build(instr);
         }
         Ok(self)
     }
 
-    pub fn compile(self) -> Result<CompiledFunction<'ctx>> {
+    pub fn compile(self, always_dump: bool) -> Result<CompiledFunction<'ctx>> {
         if self.func.verify(true) {
-            let res = unsafe { Ok(self.execution_engine.get_function(&self.name)?) };
-            self.dump_llvm()
-                .with_context(|| "Function verification failed: failed to dump LLVM code.")?;
-            res
+            let result = unsafe { Ok(self.execution_engine.get_function(&self.name)?) };
+            if always_dump {
+                self.dump_llvm()
+                    .with_context(|| "Function verification failed: failed to dump LLVM code.")?;
+            }
+            result
         } else {
             self.dump_llvm()
                 .with_context(|| "Function verification failed: failed to dump LLVM code.")?;
@@ -361,9 +385,13 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         // If cond is met, run inner and get set of updates to perform
         self.builder.position_at_end(if_block);
+
         let InstrEffect {
-            updates, cycles, ..
+            updates,
+            cycles,
+            exit,
         } = inner(self, instr)?;
+
         let exec_cycles = self
             .builder
             .build_int_add(self.cycles, cycles, "exec_cyc")?;
@@ -410,7 +438,40 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         ]);
         self.cycles = cycle_phi.as_basic_value().into_int_value();
 
+        // Pre-fetch behaviour handling. See docs on `ExitCountdown`
+        if let Some(condition_var) = exit {
+            // Exit var must be defined even if we skipped executing the instructxion
+            let exit_phi = bd.build_phi(self.i8_t, "exit_phi")?;
+            exit_phi.add_incoming(&[
+                (&imm8!(self, 0), self.current_block),
+                (&condition_var, if_block),
+            ]);
+
+            self.exit_queue.push_back(ExitCountdown {
+                counter: 2,
+                condition_var: exit_phi.as_basic_value().into_int_value(),
+            });
+        }
         self.increment_pc(instr.mode);
+        self.current_block = end_block;
+        Ok(())
+    }
+
+    pub fn build_conditional_return(&mut self, must_exit: IntValue<'a>) -> Result<()> {
+        let bd = &self.builder;
+        let if_block = self.ctx.append_basic_block(self.func, "if");
+        let end_block = self.ctx.append_basic_block(self.func, "end");
+
+        let cond =
+            bd.build_int_compare(inkwell::IntPredicate::NE, must_exit, imm8!(self, 0), "exit")?;
+        self.builder
+            .build_conditional_branch(cond, if_block, end_block)?;
+
+        self.builder.position_at_end(if_block);
+        self.write_state_out(&self.reg_map)?;
+        bd.build_return(None)?;
+
+        self.builder.position_at_end(end_block);
         self.current_block = end_block;
         Ok(())
     }
@@ -480,7 +541,15 @@ impl<'a> InstrEffect<'a> {
         InstrEffect {
             updates,
             cycles,
-            exit: false,
+            exit: None,
+        }
+    }
+
+    fn with_exit(updates: Vec<RegUpdate<'a>>, cycles: IntValue<'a>, exit: IntValue<'a>) -> Self {
+        InstrEffect {
+            updates,
+            cycles,
+            exit: Some(exit),
         }
     }
 }
@@ -514,7 +583,7 @@ mod tests {
     macro_rules! compile_and_run {
         ($func:ident, $state:ident) => {
             unsafe {
-                $func.compile().unwrap().call(&mut $state);
+                $func.compile(false).unwrap().call(&mut $state);
             }
         };
     }
@@ -620,7 +689,7 @@ mod tests {
             .unwrap();
         call.set_tail_call(true);
         f1.builder.build_return(None).unwrap();
-        let compiled1 = f1.compile().unwrap();
+        let compiled1 = f1.compile(false).unwrap();
         cache.insert(0, compiled1);
 
         let mut f2 = FunctionBuilder::new(&context, 1).unwrap();
@@ -651,7 +720,7 @@ mod tests {
             .unwrap();
         call.set_tail_call(true);
         f2.builder.build_return(None).unwrap();
-        let compiled2 = f2.compile().unwrap();
+        let compiled2 = f2.compile(false).unwrap();
         cache.insert(1, compiled2);
 
         println!("{:?}", state.regs);
