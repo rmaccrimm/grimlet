@@ -1,7 +1,7 @@
 use grimlet::arm::disasm::Disassembler;
 use grimlet::arm::state::memory::ReadVal;
 use grimlet::arm::state::{ArmMode, ArmState, Reg};
-use grimlet::emulator::{DebugOutput, Emulator};
+use grimlet::emulator::Emulator;
 use inkwell::context::Context;
 
 /// Labels produced by gvasm assume it's loaded into cartridge ROM
@@ -36,7 +36,7 @@ macro_rules! assembly_test {
             let disasm = Disassembler::default();
             let ctx = Context::create();
 
-            let mut emulator = Emulator::new(disasm, &ctx, Some(DebugOutput::Assembly));
+            let mut emulator = Emulator::new(disasm, &ctx);
             let exit = |st: &ArmState| -> bool { st.regs[Reg::R11] == EXIT_VAL };
 
             emulator.load_rom(path, CART_START_ADDR).unwrap();

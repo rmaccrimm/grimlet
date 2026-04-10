@@ -275,22 +275,15 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         Ok(self)
     }
 
-    pub fn compile(self, always_dump: bool) -> Result<CompiledFunction<'ctx>> {
+    pub fn compile(&self) -> Result<CompiledFunction<'ctx>> {
         if self.func.verify(true) {
-            let result = unsafe { Ok(self.execution_engine.get_function(&self.name)?) };
-            if always_dump {
-                self.dump_llvm()
-                    .with_context(|| "Function verification failed: failed to dump LLVM code.")?;
-            }
-            result
+            unsafe { Ok(self.execution_engine.get_function(&self.name)?) }
         } else {
-            self.dump_llvm()
-                .with_context(|| "Function verification failed: failed to dump LLVM code.")?;
             Err(anyhow!("Function verification failed"))
         }
     }
 
-    fn dump_llvm(&self) -> Result<()> {
+    pub fn dump_llvm(&self) -> Result<()> {
         if !fs::exists("llvm")? {
             fs::create_dir("llvm")?;
         }
@@ -583,7 +576,7 @@ mod tests {
     macro_rules! compile_and_run {
         ($func:ident, $state:ident) => {
             unsafe {
-                $func.compile(false).unwrap().call(&mut $state);
+                $func.compile().unwrap().call(&mut $state);
             }
         };
     }
@@ -689,7 +682,7 @@ mod tests {
             .unwrap();
         call.set_tail_call(true);
         f1.builder.build_return(None).unwrap();
-        let compiled1 = f1.compile(false).unwrap();
+        let compiled1 = f1.compile().unwrap();
         cache.insert(0, compiled1);
 
         let mut f2 = FunctionBuilder::new(&context, 1).unwrap();
@@ -720,7 +713,7 @@ mod tests {
             .unwrap();
         call.set_tail_call(true);
         f2.builder.build_return(None).unwrap();
-        let compiled2 = f2.compile(false).unwrap();
+        let compiled2 = f2.compile().unwrap();
         cache.insert(1, compiled2);
 
         println!("{:?}", state.regs);

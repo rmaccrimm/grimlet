@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::env;
 use std::fs::{self, File};
 use std::io::{BufReader, Read};
 use std::rc::Rc;
@@ -32,32 +33,43 @@ pub struct Emulator<'a> {
     ctx: &'a Context,
     disasm: Box<dyn Disasm>,
     func_cache: FunctionCache<'a>,
-    print: Option<DebugOutput>,
+    config: Config,
+}
+
+#[derive(Debug, Default)]
+struct Config {
+    debug_output: Option<DebugOutput>,
+    dump_llvm: Option<DumpLLVM>,
+    print_state: bool,
 }
 
 /// Print codeblocks before running
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
-pub enum DebugOutput {
+enum DebugOutput {
     Assembly,
     Struct,
 }
 
+#[derive(Copy, Clone, PartialEq, Eq, ValueEnum, Debug)]
+enum DumpLLVM {
+    OnFail,
+    BeforeCompilation,
+    AfterCompilation,
+}
+
 impl<'a> Emulator<'a> {
-    pub fn new(
-        disasm: impl Disasm + 'static,
-        llvm_ctx: &'a Context,
-        print: Option<DebugOutput>,
-    ) -> Self {
+    pub fn new(disasm: impl Disasm + 'static, llvm_ctx: &'a Context) -> Self {
         let (tx, rx) = mpsc::channel();
         let ival_tree = Rc::new(RefCell::new(IntervalTree::default()));
         let mem = MemoryManager::new(ival_tree.clone(), tx);
+        let config = Config::load_from_env();
 
         Self {
             ctx: llvm_ctx,
             state: ArmState::new(mem),
             disasm: Box::new(disasm),
             func_cache: FunctionCache::new(ival_tree, rx),
-            print,
+            config,
         }
     }
 
@@ -104,7 +116,7 @@ impl<'a> Emulator<'a> {
                 // Render frame here
                 break;
             }
-            if self.print.is_some() {
+            if self.config.print_state {
                 println!("{}", self.state);
             }
         }
@@ -115,7 +127,8 @@ impl<'a> Emulator<'a> {
             .disasm
             .next_code_block(&self.state.mem, addr)
             .expect("disassembly failed");
-        match self.print {
+
+        match self.config.debug_output {
             Some(DebugOutput::Assembly) => println!("{code_block}"),
             Some(DebugOutput::Struct) => println!("{code_block:#?}"),
             None => (),
@@ -124,14 +137,40 @@ impl<'a> Emulator<'a> {
             .expect("failed to initialize function")
             .build_body(&code_block)
             .expect("failed to build function");
+
+        if matches!(self.config.dump_llvm, Some(DumpLLVM::BeforeCompilation)) {
+            builder.dump_llvm().expect("failed to dump LLVM code");
+        }
         match builder.compile() {
             Ok(compiled) => {
                 self.func_cache
                     .insert(code_block.start_addr, code_block.end_addr, compiled);
+                if matches!(self.config.dump_llvm, Some(DumpLLVM::AfterCompilation)) {
+                    builder.dump_llvm().expect("failed to dump LLVM code");
+                }
             }
             Err(e) => {
+                if self.config.dump_llvm.is_some() {
+                    builder.dump_llvm().expect("failed to dump LLVM code");
+                }
                 panic!("{}", e);
             }
+        }
+    }
+}
+
+impl Config {
+    fn load_from_env() -> Self {
+        Self {
+            debug_output: env::var("DEBUG_OUTPUT")
+                .ok()
+                .and_then(|s| DebugOutput::from_str(&s, true).ok()),
+            dump_llvm: env::var("DUMP_LLVM")
+                .ok()
+                .and_then(|s| DumpLLVM::from_str(&s, true).ok()),
+            print_state: env::var("PRINT_STATE")
+                .ok()
+                .is_some_and(|s| s.to_lowercase() == "true"),
         }
     }
 }
@@ -231,7 +270,7 @@ mod tests {
         ]);
 
         let ctx = Context::create();
-        let mut emulator = Emulator::new(disasm, &ctx, Some(DebugOutput::Assembly));
+        let mut emulator = Emulator::new(disasm, &ctx);
         // Appears in R0 if MOV was successful
         let confirm_val = u32::MAX;
         emulator.state.regs[Reg::R1] = confirm_val;
@@ -314,7 +353,7 @@ mod tests {
         ]);
 
         let ctx = Context::create();
-        let mut em = Emulator::new(disasm, &ctx, Some(DebugOutput::Assembly));
+        let mut em = Emulator::new(disasm, &ctx);
 
         let exit = |st: &ArmState| -> bool { st.curr_instr_addr() == 100 };
         let r0 = Reg::R0;
@@ -362,7 +401,7 @@ mod tests {
 
                 let disasm = VecDisassembler::new(instrs);
                 let ctx = Context::create();
-                let mut emulator = Emulator::new(disasm, &ctx, Some(DebugOutput::Assembly));
+                let mut emulator = Emulator::new(disasm, &ctx);
 
                 let exit = |st: &ArmState| -> bool { st.curr_instr_addr() == 100 };
                 emulator.run(exit);
@@ -464,7 +503,7 @@ mod tests {
 
         let ctx = Context::create();
         let disasm = Disassembler::default();
-        let mut emulator = Emulator::new(disasm, &ctx, Some(DebugOutput::Assembly));
+        let mut emulator = Emulator::new(disasm, &ctx);
 
         let (mem, _) = emulator.state.mem.mem_map_lookup_mut(0).unwrap();
         mem[..program.len()].copy_from_slice(&program);

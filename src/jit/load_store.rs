@@ -338,13 +338,13 @@ impl<'a> FunctionBuilder<'_, 'a> {
         let rd = instr.get_reg_op(0);
         let rd_val = self.reg_map.get(rd);
         let addr_mode: AddrMode = self.addressing_mode(&instr.get_mem_op(1)?)?;
-        let (_, cycles) = self.call_mem_write::<T>(addr_mode.addr, rd_val)?;
+        let (exit, cycles) = self.call_mem_write::<T>(addr_mode.addr, rd_val)?;
 
         let mut updates = vec![];
         if let Some(wb) = addr_mode.writeback {
             updates.push(wb);
         }
-        Ok(InstrEffect::new(updates, cycles))
+        Ok(InstrEffect::with_exit(updates, cycles, exit))
     }
 
     fn stmia(&self, instr: &ArmInstruction) -> InstrResult<'a> {
