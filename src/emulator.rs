@@ -128,6 +128,10 @@ impl<'a> Emulator<'a> {
             .next_code_block(&self.state.mem, addr)
             .expect("disassembly failed");
 
+        // Hacky quick fix. There's got to be a cleaner approach for this kind of shared state.
+        // Will address later.
+        self.state.mem.current_addr_range = (code_block.start_addr, code_block.end_addr);
+
         match self.config.debug_output {
             Some(DebugOutput::Assembly) => println!("{code_block}"),
             Some(DebugOutput::Struct) => println!("{code_block:#?}"),

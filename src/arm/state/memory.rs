@@ -16,6 +16,7 @@ struct MemRegion {
 }
 
 pub struct MemoryManager {
+    pub current_addr_range: (u32, u32),
     bios: MemRegion,
     external_wram: MemRegion,
     internal_wram: MemRegion,
@@ -121,6 +122,7 @@ impl MemoryManager {
             let mem_val = mem_iter.next().expect("reached end of bytes while writing");
             *mem_val = byte;
         }
+        let mut should_exit = false;
         // Perform cache invalidation - removes any nodes in the interval tree that contain the
         // written address and sends a message to FunctionCache to do the same (we cannot do this
         // immediately as the currently executing function may be invalidated).
@@ -128,12 +130,15 @@ impl MemoryManager {
             let removed = t.borrow_mut().remove_all(addr);
             if let Some(tx) = &self.tx {
                 for r in removed {
+                    if r == self.current_addr_range {
+                        should_exit = true;
+                    }
                     tx.send(r.0).expect("cache <-> memory channel was closed");
                 }
             }
         }
         WriteVal {
-            should_exit: false,
+            should_exit,
             wait_states,
         }
     }
@@ -191,6 +196,7 @@ impl Default for MemoryManager {
             obj_attrs: MemRegion::new(1 << 10, 0),
             // TODO -  wait states configurable? Possibly seperate struct, maybe a Readable trait?
             cartridge_rom: MemRegion::new(32 << 20, 0),
+            current_addr_range: (0, 0),
             interval_tree: None,
             tx: None,
         }

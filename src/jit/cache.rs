@@ -3,8 +3,6 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::mpsc::Receiver;
 
-use eframe::wgpu::naga::common::wgsl::address_space_str;
-
 use super::CompiledFunction;
 use crate::utils::interval_tree::IntervalTree;
 

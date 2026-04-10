@@ -70,7 +70,7 @@ mod shift;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 
-use anyhow::{Context as _, Result, anyhow};
+use anyhow::{Result, anyhow};
 use capstone::arch::arm::ArmInsn;
 use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
@@ -432,6 +432,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         self.cycles = cycle_phi.as_basic_value().into_int_value();
 
         // Pre-fetch behaviour handling. See docs on `ExitCountdown`
+        // TODO - emitting a branch for every single write seems less than ideal but it really
+        // depends on how frequent str's are.
         if let Some(condition_var) = exit {
             // Exit var must be defined even if we skipped executing the instructxion
             let exit_phi = bd.build_phi(self.i8_t, "exit_phi")?;
