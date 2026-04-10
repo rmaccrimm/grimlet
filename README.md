@@ -1,13 +1,17 @@
 # Grimlet (working title)
 
-My second attempt at a GBA emulator using just-in-time recompilation. This time, built on LLVM.
+This is an early work-in-progress GBA emulator utilizing LLVM for just-in-time recompilation. Currently it is only targeting ARM-based Macs.
 
 Named after this guy ↴
 
 ![185](https://github.com/user-attachments/assets/4a335bae-0c3b-4cf4-99af-378e03818895)
 
 
-### Debugging Environment Variables
+### Status
+- CPU emulation is mostly complete. All instructions have been implemented though timing is very inaccurate and many have not been fully tested. Can run small ARM programs such as those in tests/programs.
+
+
+### Environment Variable Reference
 
 | Variable          | Description                                | Possible Values                                             |
 |-------------------|--------------------------------------------|-------------------------------------------------------------|
