@@ -21,28 +21,6 @@ pub mod video;
 // Just 2^24 / 60 rounded down
 const CYCLES_PER_FRAME: u32 = 279_620;
 
-/// Currently only signals a change from ARM to THUMB and vice-versa, but I'm thinking this will
-/// be useful in handling things like memory mapped IO
-pub enum SystemMessage {
-    PauseEmulation,
-    ResumeEmulation,
-}
-
-pub struct Emulator<'a> {
-    pub state: ArmState,
-    ctx: &'a Context,
-    disasm: Box<dyn Disasm>,
-    func_cache: FunctionCache<'a>,
-    config: Config,
-}
-
-#[derive(Debug, Default)]
-struct Config {
-    debug_output: Option<DebugOutput>,
-    dump_llvm: Option<DumpLLVM>,
-    print_state: bool,
-}
-
 /// Print codeblocks before running
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
 enum DebugOutput {
@@ -55,6 +33,37 @@ enum DumpLLVM {
     OnFail,
     BeforeCompilation,
     AfterCompilation,
+}
+
+#[derive(Debug, Default)]
+struct Config {
+    debug_output: Option<DebugOutput>,
+    dump_llvm: Option<DumpLLVM>,
+    print_state: bool,
+}
+
+impl Config {
+    fn load_from_env() -> Self {
+        Self {
+            debug_output: env::var("DEBUG_OUTPUT")
+                .ok()
+                .and_then(|s| DebugOutput::from_str(&s, true).ok()),
+            dump_llvm: env::var("DUMP_LLVM")
+                .ok()
+                .and_then(|s| DumpLLVM::from_str(&s, true).ok()),
+            print_state: env::var("PRINT_STATE")
+                .ok()
+                .is_some_and(|s| s.to_lowercase() == "true"),
+        }
+    }
+}
+
+pub struct Emulator<'a> {
+    pub state: ArmState,
+    ctx: &'a Context,
+    disasm: Box<dyn Disasm>,
+    func_cache: FunctionCache<'a>,
+    config: Config,
 }
 
 impl<'a> Emulator<'a> {
@@ -155,22 +164,6 @@ impl<'a> Emulator<'a> {
                 }
                 panic!("{}", e);
             }
-        }
-    }
-}
-
-impl Config {
-    fn load_from_env() -> Self {
-        Self {
-            debug_output: env::var("DEBUG_OUTPUT")
-                .ok()
-                .and_then(|s| DebugOutput::from_str(&s, true).ok()),
-            dump_llvm: env::var("DUMP_LLVM")
-                .ok()
-                .and_then(|s| DumpLLVM::from_str(&s, true).ok()),
-            print_state: env::var("PRINT_STATE")
-                .ok()
-                .is_some_and(|s| s.to_lowercase() == "true"),
         }
     }
 }

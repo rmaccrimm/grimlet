@@ -9,30 +9,6 @@ use num::traits::{AsPrimitive, FromBytes, ToBytes};
 
 use crate::utils::interval_tree::IntervalTree;
 
-#[derive(Clone, Debug)]
-struct MemRegion {
-    wait_states: u32,
-    data: Vec<u8>,
-}
-
-pub struct MemoryManager {
-    bios: MemRegion,
-    external_wram: MemRegion,
-    internal_wram: MemRegion,
-    io_registers: MemRegion,
-    palette_ram: MemRegion,
-    vram: MemRegion,
-    obj_attrs: MemRegion,
-    cartridge_rom: MemRegion,
-
-    current_addr_range: (u32, u32),
-
-    // Both of these are optional to make testing more straightforward, may rework this later.
-    // Shared with `FunctionCache`
-    interval_tree: Option<Rc<RefCell<IntervalTree<u32>>>>,
-    tx: Option<Sender<u32>>,
-}
-
 // TODO - will add these as needed
 pub enum IoReg {
     DISPCNT = 0x0400_0000,
@@ -53,11 +29,11 @@ pub struct WriteVal {
     pub wait_states: u32,
 }
 
-pub trait MemReadable = AsPrimitive<u32>
-    + for<'a> FromBytes<Bytes: TryFrom<&'a [u8], Error = TryFromSliceError>>
-    + Copy;
-
-pub trait MemWriteable = ToBytes<Bytes: IntoIterator<Item = u8>> + Copy;
+#[derive(Clone, Debug)]
+struct MemRegion {
+    wait_states: u32,
+    data: Vec<u8>,
+}
 
 impl MemRegion {
     fn new(size: usize, wait_states: u32) -> Self {
@@ -66,6 +42,30 @@ impl MemRegion {
             data: vec![0; size],
         }
     }
+}
+
+pub trait MemReadable = AsPrimitive<u32>
+    + for<'a> FromBytes<Bytes: TryFrom<&'a [u8], Error = TryFromSliceError>>
+    + Copy;
+
+pub trait MemWriteable = ToBytes<Bytes: IntoIterator<Item = u8>> + Copy;
+
+pub struct MemoryManager {
+    bios: MemRegion,
+    external_wram: MemRegion,
+    internal_wram: MemRegion,
+    io_registers: MemRegion,
+    palette_ram: MemRegion,
+    vram: MemRegion,
+    obj_attrs: MemRegion,
+    cartridge_rom: MemRegion,
+
+    current_addr_range: (u32, u32),
+
+    // Both of these are optional to make testing more straightforward, may rework this later.
+    // Shared with `FunctionCache`
+    interval_tree: Option<Rc<RefCell<IntervalTree<u32>>>>,
+    tx: Option<Sender<u32>>,
 }
 
 impl MemoryManager {
@@ -99,6 +99,9 @@ impl MemoryManager {
 
     /// Sign or zero-extends the result to 32 bits depending type parameter
     /// Returns both the read value and the number of wait-states
+    ///
+    /// TODO - I think we need the current PC here to correctly determine delay. Maybe that can
+    /// be done from the call site instead.
     pub fn read<T>(&self, addr: u32) -> ReadVal
     where
         T: MemReadable,

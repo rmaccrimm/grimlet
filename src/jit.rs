@@ -109,6 +109,68 @@ pub struct CompiledFunction<'a> {
     inner: JitFunction<'a, unsafe extern "C" fn(*mut ArmState)>,
 }
 
+impl CompiledFunction<'_> {
+    pub unsafe fn call(&self, state: &mut ArmState) {
+        // `MemoryManager` needs to know where the currently executing function lies in memory
+        // so we can return early in the event of self-modifying code.
+        state
+            .mem
+            .set_curr_addr_range(self.start_addr, self.end_addr);
+        unsafe {
+            self.inner.call(ptr::from_mut(state));
+        }
+    }
+}
+
+/// Used to simulate instruction pipeline pre-fetch behaviour. When an instruction signals that we
+/// may need to exit the currently running function based on the `exit` field on `InstrEffect`, we
+/// don't check the condition right away but instead wait 2 more instruction as in a real machine
+/// these will have been pre-fetched/decoded (how this affect the timing, I don't know).
+#[derive(Copy, Clone)]
+struct ExitCountdown<'a> {
+    counter: u8,
+    condition_var: IntValue<'a>,
+}
+
+impl<'a> ExitCountdown<'a> {
+    fn new(condition_var: IntValue<'a>) -> Self {
+        Self {
+            counter: 2,
+            condition_var,
+        }
+    }
+}
+
+#[derive(Copy, Clone)]
+// A register and the value to write to it
+struct RegUpdate<'a>(Reg, IntValue<'a>);
+
+struct InstrEffect<'a> {
+    updates: Vec<RegUpdate<'a>>,
+    cycles: IntValue<'a>,
+    exit: Option<IntValue<'a>>,
+}
+
+impl<'a> InstrEffect<'a> {
+    fn new(updates: Vec<RegUpdate<'a>>, cycles: IntValue<'a>) -> Self {
+        InstrEffect {
+            updates,
+            cycles,
+            exit: None,
+        }
+    }
+
+    fn with_exit(updates: Vec<RegUpdate<'a>>, cycles: IntValue<'a>, exit: IntValue<'a>) -> Self {
+        InstrEffect {
+            updates,
+            cycles,
+            exit: Some(exit),
+        }
+    }
+}
+
+type InstrResult<'a> = Result<InstrEffect<'a>>;
+
 /// Builder for creating & compiling LLVM functions
 pub struct FunctionBuilder<'ctx, 'a>
 where
@@ -152,40 +214,24 @@ where
     exit_queue: VecDeque<ExitCountdown<'a>>,
 }
 
-/// Used to simulate instruction pipeline pre-fetch behaviour. When an instruction signals that we
-/// may need to exit the currently running function via the `exit` field on `InstrEffect`, we don't
-/// check the condition right away but instead wait 2 more instruction as in a real machine these
-/// will have been pre-fetched/decoded.
-#[derive(Copy, Clone)]
-struct ExitCountdown<'a> {
-    counter: u8,
-    condition_var: IntValue<'a>,
+fn get_ptr_param(func: FunctionValue<'_>, i: u32) -> Result<PointerValue<'_>> {
+    func.get_nth_param(i)
+        .ok_or(anyhow!(
+            "{} signature has no parameter {}",
+            func.get_name().to_str().unwrap(),
+            i
+        ))
+        .map(BasicValueEnum::into_pointer_value)
 }
 
-struct InstrEffect<'a> {
-    updates: Vec<RegUpdate<'a>>,
-    cycles: IntValue<'a>,
-    exit: Option<IntValue<'a>>,
+fn get_intrinsic<'a>(name: &str, module: &Module<'a>) -> Result<FunctionValue<'a>> {
+    Intrinsic::find(name)
+        .ok_or(anyhow!("could not find intrinsic '{name}'"))?
+        .get_declaration(module, &[module.get_context().i32_type().into()])
+        .ok_or(anyhow!("failed to insert declaration for '{name}'"))
 }
 
-type InstrResult<'a> = Result<InstrEffect<'a>>;
-
-#[derive(Copy, Clone)]
-// A register and the value to write to it
-struct RegUpdate<'a>(Reg, IntValue<'a>);
-
-impl CompiledFunction<'_> {
-    pub unsafe fn call(&self, state: &mut ArmState) {
-        // `MemoryManager` needs to know where the currently executing function lies in memory
-        // so we can return early in the event of self-modifying code.
-        state
-            .mem
-            .set_curr_addr_range(self.start_addr, self.end_addr);
-        unsafe {
-            self.inner.call(ptr::from_mut(state));
-        }
-    }
-}
+fn func_name(addr: u32) -> String { format!("fn_{addr:#010x}") }
 
 impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     pub fn new(ctx: &'ctx Context, addr: u32) -> Result<Self> {
@@ -459,9 +505,9 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         ]);
         self.cycles = cycle_phi.as_basic_value().into_int_value();
 
-        // Pre-fetch behaviour handling. See docs on `ExitCountdown`
-        // TODO - emitting a branch for every single write seems less than ideal but it really
-        // depends on how frequent str's are.
+        // Pre-fetch behaviour handling. See docs on `ExitCountdown`.
+        // Emitting a branch for every single write seems less than ideal here, but it's probably
+        // small compared to the overall write call.
         if let Some(condition_var) = exit {
             // Exit var must be defined even if we skipped executing the instructxion
             let exit_phi = bd.build_phi(self.i8_t, "exit_phi")?;
@@ -469,11 +515,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                 (&imm8!(self, 0), self.current_block),
                 (&condition_var, if_block),
             ]);
-
-            self.exit_queue.push_back(ExitCountdown {
-                counter: 2,
-                condition_var: exit_phi.as_basic_value().into_int_value(),
-            });
+            let exit_var = exit_phi.as_basic_value().into_int_value();
+            self.exit_queue.push_back(ExitCountdown::new(exit_var));
         }
         self.increment_pc(instr.mode);
         self.current_block = end_block;
@@ -558,43 +601,6 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         }
     }
 }
-
-impl<'a> InstrEffect<'a> {
-    fn new(updates: Vec<RegUpdate<'a>>, cycles: IntValue<'a>) -> Self {
-        InstrEffect {
-            updates,
-            cycles,
-            exit: None,
-        }
-    }
-
-    fn with_exit(updates: Vec<RegUpdate<'a>>, cycles: IntValue<'a>, exit: IntValue<'a>) -> Self {
-        InstrEffect {
-            updates,
-            cycles,
-            exit: Some(exit),
-        }
-    }
-}
-
-fn get_ptr_param(func: FunctionValue<'_>, i: u32) -> Result<PointerValue<'_>> {
-    func.get_nth_param(i)
-        .ok_or(anyhow!(
-            "{} signature has no parameter {}",
-            func.get_name().to_str().unwrap(),
-            i
-        ))
-        .map(BasicValueEnum::into_pointer_value)
-}
-
-fn get_intrinsic<'a>(name: &str, module: &Module<'a>) -> Result<FunctionValue<'a>> {
-    Intrinsic::find(name)
-        .ok_or(anyhow!("could not find intrinsic '{name}'"))?
-        .get_declaration(module, &[module.get_context().i32_type().into()])
-        .ok_or(anyhow!("failed to insert declaration for '{name}'"))
-}
-
-fn func_name(addr: u32) -> String { format!("fn_{addr:#010x}") }
 
 #[cfg(test)]
 mod tests {
