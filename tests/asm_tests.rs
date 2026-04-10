@@ -14,10 +14,11 @@ const EXIT_VAL: u32 = 0x6300;
 /// Simple framework for test cases written in assembly. Tests run assertions which, push 1 onto the
 /// stack (currently at 0x4000, end of the bios region), otherwise -1. The number of assertions made
 /// is written to register r8 and an exit is signalled to the emulator by writin 25344 to r11 and
-/// jumping to a no-op.
+/// jumping to an infinite loop.
 ///
 /// To create new test program
-///     - run: `gvasm init <test-name>.gvasm`
+///     - `cd tests/programs`
+///     - `gvasm init <test-name>.gvasm`
 ///     - Write code in .main section, ending with:
 ///       ```
 ///       .main:
@@ -27,7 +28,7 @@ const EXIT_VAL: u32 = 0x6300;
 ///       end:
 ///           b end
 ///       ```
-///     - run: `gasm make <test-name>.gvasm`
+///     - `gvasm make <test-name>.gvasm`
 macro_rules! assembly_test {
     ($name:ident.gba) => {
         #[test]

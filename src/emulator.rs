@@ -101,13 +101,9 @@ impl<'a> Emulator<'a> {
         F: Fn(&ArmState) -> bool,
     {
         loop {
-            if exit_condition(&self.state) {
-                break;
-            }
             if self.disasm.get_mode() != self.state.current_mode {
                 self.disasm.set_mode(self.state.current_mode);
             }
-
             let instr_addr = self.state.curr_instr_addr();
             let func = if let Some(func) = self.func_cache.get(instr_addr) {
                 func
@@ -119,14 +115,16 @@ impl<'a> Emulator<'a> {
                 func.call(&mut self.state);
             }
             self.func_cache.update();
-
+            if self.config.print_state {
+                println!("{}", self.state);
+            }
             if self.state.cycle_count >= CYCLES_PER_FRAME {
                 self.state.cycle_count %= CYCLES_PER_FRAME;
                 // Render frame here
                 break;
             }
-            if self.config.print_state {
-                println!("{}", self.state);
+            if exit_condition(&self.state) {
+                break;
             }
         }
     }
@@ -475,7 +473,7 @@ mod tests {
 
     #[rustfmt::skip]
     #[test]
-    fn test_early_exit_and_cache_invalidation_on_write() {
+    fn test_early_exit_and_cache_invalidation_on_write_to_current_block() {
         // Using assembled program as address operands aren't easily constructed with Capstone
         // 0:  mov r0, #1.   <- make sure we exit
         // 4:  mov r1, #0
@@ -505,5 +503,64 @@ mod tests {
         assert!(emulator.func_cache.get(0).is_none());
         assert_eq!(emulator.state.regs[Reg::R1], 4);
         assert_eq!(emulator.state.regs[Reg::PC], 28);
+    }
+
+    #[rustfmt::skip]
+    #[test]
+    fn test_self_modifying_code_cache_invalidation() {        
+        //     main:
+        //  0:     mov r1, #1           <- r1 > 0 = exit
+        //  4:     cmp r1, #1
+        //  8:     beq func
+        // 12:     b end
+        //     func:
+        // 16:     ldr r0, =main
+        // 20:     ldr r2, =0xe3a01f06  <- writes instruction 'mov r1, #24' to 0
+        // 24:     str r2, [r0]
+        // 28:     b main
+        //     end:
+        // 32:     b end
+        // 36:     .pool
+        let program = [
+            0x01, 0x10, 0xa0, 0xe3, 
+            0x01, 0x00, 0x51, 0xe3, 
+            0x00, 0x00, 0x00, 0x0a, 
+            0x03, 0x00, 0x00, 0xea, 
+            0x02, 0x03, 0xa0, 0xe3, 
+            0x0c, 0x20, 0x9f, 0xe5, 
+            0x00, 0x20, 0x80, 0xe5, 
+            0xf7, 0xff, 0xff, 0xea, 
+            0xfe, 0xff, 0xff, 0xea, 
+            0x00, 0x00, 0x00, 0x00, 
+            0x06, 0x1f, 0xa0, 0xe3,
+        ];
+
+        let ctx = Context::create();
+        let disasm = Disassembler::default();
+        let mut emulator = Emulator::new(disasm, &ctx);
+
+        // gvasm generated assembly - needs to be loaded into cartridge mem for labels to work
+        // (Could this be a problem later? I don't know if this should actually be writeable)
+        let cart_addr = 0x0800_0000;
+        let (mem, _) = emulator.state.mem.mem_map_lookup_mut(cart_addr).unwrap();
+        mem[..program.len()].copy_from_slice(&program);
+        emulator.state.jump_to(cart_addr, ArmMode::ARM as i8);
+
+        // kept always true so we can run a block at at time
+        let exit_cond = |_: &ArmState| -> bool { true };
+
+        emulator.run(exit_cond);
+        assert!(emulator.func_cache.get(cart_addr).is_some());
+        assert_eq!(emulator.state.curr_instr_addr(), cart_addr + 16);
+
+        emulator.run(exit_cond);
+        // first block was invalidated, second was not
+        assert!(emulator.func_cache.get(cart_addr).is_none());
+        assert!(emulator.func_cache.get(cart_addr + 16).is_some());
+        assert_eq!(emulator.state.curr_instr_addr(), cart_addr);
+
+        emulator.run(exit_cond);
+        // Modified code ran
+        assert_eq!(emulator.state.regs[Reg::R1], 24);
     }
 }
