@@ -491,8 +491,8 @@ mod tests {
         // 0:  mov r0, #1.   <- make sure we exit
         // 4:  mov r1, #0
         // 8:  str r1, [r1]  <- writes to address 0 (within current code block)
-        // 12: nop           <- nops inserted so that test still works if I eventually implement 
-        // 16: nop              pipeline correctly, where this instruction is fetched as str runs
+        // 12: nop           
+        // 16: mov r1, #4    <- last instruction executed before exiting
         // 20: mov r1, #24   <- should not be executed
         // 24: b #104        <- just so we have a stopping point
         let program = [
@@ -500,7 +500,7 @@ mod tests {
             0x00, 0x10, 0xa0, 0xe3, 
             0x00, 0x10, 0x81, 0xe5,
             0x00, 0x00, 0xa0, 0xe1, 
-            0x00, 0x00, 0xa0, 0xe1, 
+            0x01, 0x1f, 0xa0, 0xe3, 
             0x06, 0x1f, 0xa0, 0xe3,
             0x12, 0x00, 0x00, 0xea,
         ];
@@ -514,7 +514,7 @@ mod tests {
 
         emulator.run(|st: &ArmState| -> bool { st.regs[Reg::R0] == 1 });
         assert!(emulator.func_cache.get(0).is_none());
-        assert_eq!(emulator.state.regs[Reg::R1], 0);
-        // TODO assert PC == 20
+        assert_eq!(emulator.state.regs[Reg::R1], 4);
+        assert_eq!(emulator.state.regs[Reg::PC], 28);
     }
 }
