@@ -157,7 +157,7 @@ impl<'a> Emulator<'a> {
                 }
             }
             Err(e) => {
-                if self.config.dump_llvm.is_some() {
+                if matches!(self.config.dump_llvm, Some(DumpLLVM::OnFail)) {
                     builder.dump_llvm().expect("failed to dump LLVM code");
                 }
                 panic!("{}", e);
