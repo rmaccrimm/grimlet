@@ -89,6 +89,8 @@ impl ArmState {
     }
     pub fn curr_instr_addr(&self) -> u32 { self.regs[Reg::PC] - self.current_mode.pc_byte_offset() }
 
+    pub fn add_cycles(&mut self, cycles: u32) { self.cycle_count += cycles; }
+
     pub fn jump_to(&mut self, addr: u32, mode: i8) {
         let new_mode = ArmMode::from(mode);
         if new_mode != self.current_mode {

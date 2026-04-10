@@ -545,7 +545,7 @@ mod tests {
             state.regs[Reg::CPSR] = if c { C.0 } else { 0 }
         }
         unsafe {
-            f.call(&raw mut state);
+            f.call(&mut state);
         }
         state.regs[Reg::R0]
     }
@@ -727,7 +727,7 @@ mod tests {
             self.state.regs[Reg::R8] = index;
             self.state.regs[Reg::R9] = 0;
             unsafe {
-                self.f.call(&raw mut self.state);
+                self.f.call(&mut self.state);
             }
             // should never change
             assert_eq!(self.state.regs[Reg::R8], index);

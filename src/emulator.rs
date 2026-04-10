@@ -107,7 +107,7 @@ impl<'a> Emulator<'a> {
                 self.func_cache.get(instr_addr).unwrap()
             };
             unsafe {
-                func.call(&raw mut self.state);
+                func.call(&mut self.state);
             }
             self.func_cache.update();
 
@@ -127,10 +127,6 @@ impl<'a> Emulator<'a> {
             .disasm
             .next_code_block(&self.state.mem, addr)
             .expect("disassembly failed");
-
-        // Hacky quick fix. There's got to be a cleaner approach for this kind of shared state.
-        // Will address later.
-        self.state.mem.current_addr_range = (code_block.start_addr, code_block.end_addr);
 
         match self.config.debug_output {
             Some(DebugOutput::Assembly) => println!("{code_block}"),

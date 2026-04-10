@@ -68,7 +68,7 @@ mod reg_map;
 mod shift;
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::fs;
+use std::{fs, ptr};
 
 use anyhow::{Result, anyhow};
 use capstone::arch::arm::ArmInsn;
@@ -101,9 +101,13 @@ macro_rules! unimpl_instr {
     };
 }
 
-// JIT'd funxtions take a pointer to the guest machine state and return the number of (emulated)
-// CPU cycles it took to execute
-pub type CompiledFunction<'a> = JitFunction<'a, unsafe extern "C" fn(*mut ArmState) -> u32>;
+/// Entrypoint into JIT-compiled code. Wraps the Inkwell JIT function and handles some other
+/// updates required before calling into it.
+pub struct CompiledFunction<'a> {
+    start_addr: u32,
+    end_addr: u32,
+    inner: JitFunction<'a, unsafe extern "C" fn(*mut ArmState)>,
+}
 
 /// Builder for creating & compiling LLVM functions
 pub struct FunctionBuilder<'ctx, 'a>
@@ -112,6 +116,8 @@ where
 {
     name: String,
     func: FunctionValue<'a>,
+    start_addr: u32,
+    end_addr: u32,
 
     // Latest value for each register
     reg_map: RegMap<'a>,
@@ -167,6 +173,19 @@ type InstrResult<'a> = Result<InstrEffect<'a>>;
 #[derive(Copy, Clone)]
 // A register and the value to write to it
 struct RegUpdate<'a>(Reg, IntValue<'a>);
+
+impl CompiledFunction<'_> {
+    pub unsafe fn call(&self, state: &mut ArmState) {
+        // `MemoryManager` needs to know where the currently executing function lies in memory
+        // so we can return early in the event of self-modifying code.
+        state
+            .mem
+            .set_curr_addr_range(self.start_addr, self.end_addr);
+        unsafe {
+            self.inner.call(ptr::from_mut(state));
+        }
+    }
+}
 
 impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     pub fn new(ctx: &'ctx Context, addr: u32) -> Result<Self> {
@@ -234,6 +253,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             ctx,
             name,
             func,
+            start_addr: addr,
+            end_addr: addr,
             reg_map: RegMap::new(),
             cycles: i32_t.const_zero(),
             arm_state_ptr,
@@ -271,13 +292,20 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                 ex.counter -= 1;
             }
             self.build(instr);
+            self.end_addr = instr.addr;
         }
         Ok(self)
     }
 
     pub fn compile(&self) -> Result<CompiledFunction<'ctx>> {
         if self.func.verify(true) {
-            unsafe { Ok(self.execution_engine.get_function(&self.name)?) }
+            unsafe {
+                Ok(CompiledFunction {
+                    start_addr: self.start_addr,
+                    end_addr: self.end_addr,
+                    inner: self.execution_engine.get_function(&self.name)?,
+                })
+            }
         } else {
             Err(anyhow!("Function verification failed"))
         }
@@ -700,7 +728,10 @@ mod tests {
                         .ptr_sized_int_type(f2.execution_engine.get_target_data(), None)
                         // Double cast since usize ensures correct pointer size but inkwell
                         // expects u64
-                        .const_int((cache.get(&0).unwrap().as_raw() as usize) as u64, false),
+                        .const_int(
+                            (cache.get(&0).unwrap().inner.as_raw() as usize) as u64,
+                            false,
+                        ),
                     f2.ptr_t,
                     "f1_ptr",
                 )
@@ -720,7 +751,7 @@ mod tests {
 
         println!("{:?}", state.regs);
         unsafe {
-            cache.get(&1).unwrap().call(&raw mut state);
+            cache.get(&1).unwrap().call(&mut state);
         }
         println!("{:?}", state.regs);
 

@@ -16,7 +16,6 @@ struct MemRegion {
 }
 
 pub struct MemoryManager {
-    pub current_addr_range: (u32, u32),
     bios: MemRegion,
     external_wram: MemRegion,
     internal_wram: MemRegion,
@@ -25,6 +24,9 @@ pub struct MemoryManager {
     vram: MemRegion,
     obj_attrs: MemRegion,
     cartridge_rom: MemRegion,
+
+    current_addr_range: (u32, u32),
+
     // Both of these are optional to make testing more straightforward, may rework this later.
     // Shared with `FunctionCache`
     interval_tree: Option<Rc<RefCell<IntervalTree<u32>>>>,
@@ -73,6 +75,10 @@ impl MemoryManager {
             tx: Some(tx),
             ..Self::default()
         }
+    }
+
+    pub fn set_curr_addr_range(&mut self, start: u32, end: u32) {
+        self.current_addr_range = (start, end);
     }
 
     pub fn iter_word(&self, start_addr: u32) -> Result<Chunks<'_, u8>> {

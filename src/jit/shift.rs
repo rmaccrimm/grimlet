@@ -404,7 +404,7 @@ mod tests {
                 self.state.regs[Reg::R1] = shift;
             }
             unsafe {
-                self.f.call(&raw mut self.state);
+                self.f.call(&mut self.state);
             }
             (
                 self.state.regs[Reg::R0],
