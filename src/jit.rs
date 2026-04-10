@@ -357,14 +357,17 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         }
     }
 
-    pub fn dump_llvm(&self) -> Result<()> {
-        if !fs::exists("llvm")? {
-            fs::create_dir("llvm")?;
-        }
-        self.module
-            .print_to_file(format!("llvm/mod_{}_{}.ll", self.name, Uuid::new_v4()))
-            .unwrap();
-        Ok(())
+    pub fn dump_llvm(&self, path: &str) {
+        || -> Result<()> {
+            if !fs::exists(path)? {
+                fs::create_dir(path)?;
+            }
+            let fname = format!("{path}/mod_{}_{}.ll", self.name, Uuid::new_v4());
+            self.module.print_to_file(fname).unwrap();
+            Ok(())
+        }()
+        .inspect_err(|e| eprintln!("failed to dump generaetd llvm: {e}"))
+        .ok();
     }
 
     fn load_initial_reg_values(&mut self, regs_read: &HashSet<Reg>) -> Result<()> {

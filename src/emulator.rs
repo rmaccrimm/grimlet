@@ -18,7 +18,7 @@ use crate::utils::interval_tree::IntervalTree;
 
 pub mod video;
 
-// Just 2^24 / 60 rounded down
+// 2^24 / 60 rounded down
 const CYCLES_PER_FRAME: u32 = 279_620;
 
 /// Print codeblocks before running
@@ -40,6 +40,7 @@ struct Config {
     debug_output: Option<DebugOutput>,
     dump_llvm: Option<DumpLLVM>,
     print_state: bool,
+    llvm_output_dir: String,
 }
 
 impl Config {
@@ -54,6 +55,7 @@ impl Config {
             print_state: env::var("PRINT_STATE")
                 .ok()
                 .is_some_and(|s| s.to_lowercase() == "true"),
+            llvm_output_dir: env::var("LLVM_OUTPUT_DIR").unwrap_or("llvm".into()),
         }
     }
 }
@@ -146,21 +148,22 @@ impl<'a> Emulator<'a> {
             .expect("failed to build function");
 
         if matches!(self.config.dump_llvm, Some(DumpLLVM::BeforeCompilation)) {
-            builder.dump_llvm().expect("failed to dump LLVM code");
+            builder.dump_llvm(&self.config.llvm_output_dir);
         }
         match builder.compile() {
             Ok(compiled) => {
                 self.func_cache
                     .insert(code_block.start_addr, code_block.end_addr, compiled);
+
                 if matches!(self.config.dump_llvm, Some(DumpLLVM::AfterCompilation)) {
-                    builder.dump_llvm().expect("failed to dump LLVM code");
+                    builder.dump_llvm(&self.config.llvm_output_dir);
                 }
             }
             Err(e) => {
                 if matches!(self.config.dump_llvm, Some(DumpLLVM::OnFail)) {
-                    builder.dump_llvm().expect("failed to dump LLVM code");
+                    builder.dump_llvm(&self.config.llvm_output_dir);
                 }
-                panic!("{}", e);
+                panic!("{e}");
             }
         }
     }

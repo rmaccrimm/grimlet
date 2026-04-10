@@ -9,8 +9,9 @@ Named after this guy ↴
 
 ### Debugging Environment Variables
 
-| Variable       | Description                               | Possible Values                                             |
-|----------------|-------------------------------------------|-------------------------------------------------------------|
-| `DEBUG_OUTPUT` | Print each disassembled block             | `assembly`<br>`struct`                                      |
-| `DUMP_LLVM`    | Dump generated LLVM IR to file            | `on-fail` <br>`before-compilation` <br> `after-compilation` |
-| `PRINT_STATE`  | Print CPU state after each block executes | `true`                                                      |
+| Variable          | Description                                | Possible Values                                             |
+|-------------------|--------------------------------------------|-------------------------------------------------------------|
+| `PRINT_STATE`     | Print CPU state after each block executes  | `true`                                                      |
+| `DEBUG_OUTPUT`    | Print each disassembled block              | `assembly`<br>`struct`                                      |
+| `DUMP_LLVM`       | Dump generated LLVM IR to file             | `on-fail` <br>`before-compilation` <br> `after-compilation` |
+| `LLVM_OUTPUT_DIR` | Where to write LLVM files (default "llvm") |                                                             |
