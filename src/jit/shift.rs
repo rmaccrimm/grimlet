@@ -83,10 +83,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
         let cpsr = self.set_flags(Some(n), Some(z), c, None)?;
 
         let updates = vec![RegUpdate(rd, sh_val), RegUpdate(Reg::CPSR, cpsr)];
-        Ok(InstrEffect {
-            updates,
-            cycles: imm!(self, 1),
-        })
+        Ok(InstrEffect::new(updates, imm!(self, 1)))
     }
 
     fn lsl_imm(

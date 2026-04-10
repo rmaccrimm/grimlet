@@ -133,10 +133,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
             let add_1 = bd.build_int_add(rn_val, shifter_op, "add_1")?;
             let add_2 = bd.build_int_add(add_1, c_in, "add_2")?;
             let updates = vec![RegUpdate(rd, add_2)];
-            return Ok(InstrEffect {
-                updates,
-                cycles: imm!(self, 1),
-            });
+            return Ok(InstrEffect::new(updates, imm!(self, 1)));
         }
 
         let sadd_res_1 =
@@ -177,10 +174,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
         let cpsr = self.set_flags(Some(n), Some(z), Some(c), Some(v))?;
 
         let updates = vec![RegUpdate(rd, s2), RegUpdate(Reg::CPSR, cpsr)];
-        Ok(InstrEffect {
-            updates,
-            cycles: imm!(self, 1),
-        })
+        Ok(InstrEffect::new(updates, imm!(self, 1)))
     }
 
     fn add(&self, instr: &ArmInstruction) -> InstrResult<'a> {
@@ -193,10 +187,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
         if !instr.updates_flags {
             let res = bd.build_int_add(rn_val, shifter_op, "add_res")?;
             let updates = vec![RegUpdate(rd, res)];
-            return Ok(InstrEffect {
-                updates,
-                cycles: imm!(self, 1),
-            });
+            return Ok(InstrEffect::new(updates, imm!(self, 1)));
         }
 
         let sadd_res =
@@ -215,10 +206,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
         let cpsr = self.set_flags(Some(n), Some(z), Some(c), Some(v))?;
 
         let updates = vec![RegUpdate(rd, res_val), RegUpdate(Reg::CPSR, cpsr)];
-        Ok(InstrEffect {
-            updates,
-            cycles: imm!(self, 1),
-        })
+        Ok(InstrEffect::new(updates, imm!(self, 1)))
     }
 
     fn and(&self, instr: &ArmInstruction) -> InstrResult<'a> {
@@ -231,20 +219,14 @@ impl<'a> FunctionBuilder<'_, 'a> {
         let res_val = bd.build_and(rn_val, shifter_op, "and")?;
         if !instr.updates_flags {
             let updates = vec![RegUpdate(rd, res_val)];
-            return Ok(InstrEffect {
-                updates,
-                cycles: imm!(self, 1),
-            });
+            return Ok(InstrEffect::new(updates, imm!(self, 1)));
         }
         let n = bd.build_int_compare(IntPredicate::SLT, res_val, imm!(self, 0), "n")?;
         let z = bd.build_int_compare(IntPredicate::EQ, res_val, imm!(self, 0), "z")?;
         let cpsr = self.set_flags(Some(n), Some(z), c_flag, None)?;
 
         let updates = vec![RegUpdate(rd, res_val), RegUpdate(Reg::CPSR, cpsr)];
-        Ok(InstrEffect {
-            updates,
-            cycles: imm!(self, 1),
-        })
+        Ok(InstrEffect::new(updates, imm!(self, 1)))
     }
 
     fn asr(&self, instr: &ArmInstruction) -> InstrResult<'a> {
@@ -263,10 +245,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
 
         if !instr.updates_flags {
             let updates = vec![RegUpdate(rd, res_val)];
-            return Ok(InstrEffect {
-                updates,
-                cycles: imm!(self, 1),
-            });
+            return Ok(InstrEffect::new(updates, imm!(self, 1)));
         }
 
         let n = bd.build_int_compare(IntPredicate::SLT, res_val, imm!(self, 0), "n")?;
@@ -274,10 +253,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
         let cpsr = self.set_flags(Some(n), Some(z), c_flag, None)?;
 
         let updates = vec![RegUpdate(rd, res_val), RegUpdate(Reg::CPSR, cpsr)];
-        Ok(InstrEffect {
-            updates,
-            cycles: imm!(self, 1),
-        })
+        Ok(InstrEffect::new(updates, imm!(self, 1)))
     }
 
     fn cmn(&self, instr: &ArmInstruction) -> InstrResult<'a> {
@@ -290,10 +266,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
         // Perform an addition but keep only the cpsr update
         let InstrEffect { updates, .. } = self.add(&instr)?;
         let updates = updates.into_iter().filter(|up| up.0 == Reg::CPSR).collect();
-        Ok(InstrEffect {
-            updates,
-            cycles: imm!(self, 1),
-        })
+        Ok(InstrEffect::new(updates, imm!(self, 1)))
     }
 
     fn cmp(&self, instr: &ArmInstruction) -> InstrResult<'a> {
@@ -306,10 +279,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
         // Perform an subtractxion but keep only the cpsr update
         let InstrEffect { updates, .. } = self.sub(&instr)?;
         let updates = updates.into_iter().filter(|up| up.0 == Reg::CPSR).collect();
-        Ok(InstrEffect {
-            updates,
-            cycles: imm!(self, 1),
-        })
+        Ok(InstrEffect::new(updates, imm!(self, 1)))
     }
 
     fn eor(&self, instr: &ArmInstruction) -> InstrResult<'a> {
@@ -323,10 +293,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
 
         if !instr.updates_flags {
             let updates = vec![RegUpdate(rd, res_val)];
-            return Ok(InstrEffect {
-                updates,
-                cycles: imm!(self, 1),
-            });
+            return Ok(InstrEffect::new(updates, imm!(self, 1)));
         }
 
         let n = bd.build_int_compare(IntPredicate::SLT, res_val, imm!(self, 0), "n")?;
@@ -334,10 +301,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
         let cpsr = self.set_flags(Some(n), Some(z), c_flag, None)?;
 
         let updates = vec![RegUpdate(rd, res_val), RegUpdate(Reg::CPSR, cpsr)];
-        Ok(InstrEffect {
-            updates,
-            cycles: imm!(self, 1),
-        })
+        Ok(InstrEffect::new(updates, imm!(self, 1)))
     }
 
     fn lsl(&self, instr: &ArmInstruction) -> InstrResult<'a> {
@@ -361,10 +325,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
         } else {
             vec![RegUpdate(rd, shifter)]
         };
-        Ok(InstrEffect {
-            updates,
-            cycles: imm!(self, 1),
-        })
+        Ok(InstrEffect::new(updates, imm!(self, 1)))
     }
 
     fn mvn(&self, instr: &ArmInstruction) -> InstrResult<'a> {
@@ -376,10 +337,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
 
         if !instr.updates_flags {
             let updates = vec![RegUpdate(rd, res_val)];
-            return Ok(InstrEffect {
-                updates,
-                cycles: imm!(self, 1),
-            });
+            return Ok(InstrEffect::new(updates, imm!(self, 1)));
         }
 
         let n = bd.build_int_compare(IntPredicate::SLT, res_val, imm!(self, 0), "n")?;
@@ -387,10 +345,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
         let cpsr = self.set_flags(Some(n), Some(z), c, None)?;
 
         let updates = vec![RegUpdate(rd, res_val), RegUpdate(Reg::CPSR, cpsr)];
-        Ok(InstrEffect {
-            updates,
-            cycles: imm!(self, 1),
-        })
+        Ok(InstrEffect::new(updates, imm!(self, 1)))
     }
 
     fn orr(&self, instr: &ArmInstruction) -> InstrResult<'a> {
@@ -404,10 +359,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
 
         if !instr.updates_flags {
             let updates = vec![RegUpdate(rd, res_val)];
-            return Ok(InstrEffect {
-                updates,
-                cycles: imm!(self, 1),
-            });
+            return Ok(InstrEffect::new(updates, imm!(self, 1)));
         }
 
         let n = bd.build_int_compare(IntPredicate::SLT, res_val, imm!(self, 0), "n")?;
@@ -415,10 +367,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
         let cpsr = self.set_flags(Some(n), Some(z), c, None)?;
 
         let updates = vec![RegUpdate(rd, res_val), RegUpdate(Reg::CPSR, cpsr)];
-        Ok(InstrEffect {
-            updates,
-            cycles: imm!(self, 1),
-        })
+        Ok(InstrEffect::new(updates, imm!(self, 1)))
     }
 
     fn ror(&self, instr: &ArmInstruction) -> InstrResult<'a> {
@@ -435,10 +384,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
         if !instr.updates_flags {
             let res_val = bd.build_int_sub(shifter_op, rn_val, "rsb")?;
             let updates = vec![RegUpdate(rd, res_val)];
-            return Ok(InstrEffect {
-                updates,
-                cycles: imm!(self, 1),
-            });
+            return Ok(InstrEffect::new(updates, imm!(self, 1)));
         }
 
         let ures =
@@ -458,10 +404,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
         let cpsr = self.set_flags(Some(n), Some(z), Some(c_flag), Some(v_flag))?;
 
         let updates = vec![RegUpdate(rd, res_val), RegUpdate(Reg::CPSR, cpsr)];
-        Ok(InstrEffect {
-            updates,
-            cycles: imm!(self, 1),
-        })
+        Ok(InstrEffect::new(updates, imm!(self, 1)))
     }
 
     fn rsc(&self, instr: &ArmInstruction) -> InstrResult<'a> {
@@ -494,10 +437,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
 
         if !instr.updates_flags {
             let updates = vec![RegUpdate(rd, s2)];
-            return Ok(InstrEffect {
-                updates,
-                cycles: imm!(self, 1),
-            });
+            return Ok(InstrEffect::new(updates, imm!(self, 1)));
         }
 
         let usub_res_1 =
@@ -522,10 +462,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
         let cpsr = self.set_flags(Some(n), Some(z), Some(c), Some(v))?;
 
         let updates = vec![RegUpdate(rd, s2), RegUpdate(Reg::CPSR, cpsr)];
-        Ok(InstrEffect {
-            updates,
-            cycles: imm!(self, 1),
-        })
+        Ok(InstrEffect::new(updates, imm!(self, 1)))
     }
 
     fn sbc(&self, instr: &ArmInstruction) -> InstrResult<'a> {
@@ -558,10 +495,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
 
         if !instr.updates_flags {
             let updates = vec![RegUpdate(rd, s2)];
-            return Ok(InstrEffect {
-                updates,
-                cycles: imm!(self, 1),
-            });
+            return Ok(InstrEffect::new(updates, imm!(self, 1)));
         }
 
         let usub_res_1 =
@@ -586,10 +520,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
         let cpsr = self.set_flags(Some(n), Some(z), Some(c), Some(v))?;
 
         let updates = vec![RegUpdate(rd, s2), RegUpdate(Reg::CPSR, cpsr)];
-        Ok(InstrEffect {
-            updates,
-            cycles: imm!(self, 1),
-        })
+        Ok(InstrEffect::new(updates, imm!(self, 1)))
     }
 
     fn sub(&self, instr: &ArmInstruction) -> InstrResult<'a> {
@@ -602,10 +533,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
         if !instr.updates_flags {
             let sub_res = bd.build_int_sub(rn_val, shifter_op, "sub")?;
             let updates = vec![RegUpdate(rd, sub_res)];
-            return Ok(InstrEffect {
-                updates,
-                cycles: imm!(self, 1),
-            });
+            return Ok(InstrEffect::new(updates, imm!(self, 1)));
         }
         let ures =
             call_intrinsic!(bd, self.usub_with_overflow, rn_val, shifter_op).into_struct_value();
@@ -629,10 +557,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
         let cpsr = self.set_flags(Some(n_flag), Some(z_flag), Some(c_flag), Some(v_flag))?;
 
         let updates = vec![RegUpdate(rd, sres_val), RegUpdate(Reg::CPSR, cpsr)];
-        Ok(InstrEffect {
-            updates,
-            cycles: imm!(self, 1),
-        })
+        Ok(InstrEffect::new(updates, imm!(self, 1)))
     }
 
     fn teq(&self, instr: &ArmInstruction) -> InstrResult<'a> {
@@ -644,10 +569,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
         instr.updates_flags = true;
         let InstrEffect { updates, .. } = self.eor(&instr)?;
         let updates = updates.into_iter().filter(|up| up.0 == Reg::CPSR).collect();
-        Ok(InstrEffect {
-            updates,
-            cycles: imm!(self, 1),
-        })
+        Ok(InstrEffect::new(updates, imm!(self, 1)))
     }
 
     fn tst(&self, instr: &ArmInstruction) -> InstrResult<'a> {
@@ -660,10 +582,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
 
         let InstrEffect { updates, .. } = self.and(&instr)?;
         let updates = updates.into_iter().filter(|up| up.0 == Reg::CPSR).collect();
-        Ok(InstrEffect {
-            updates,
-            cycles: imm!(self, 1),
-        })
+        Ok(InstrEffect::new(updates, imm!(self, 1)))
     }
 
     fn mla(&self, instr: &ArmInstruction) -> InstrResult<'a> {
@@ -680,10 +599,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
 
         if !instr.updates_flags {
             let updates = vec![RegUpdate(rd, mla)];
-            return Ok(InstrEffect {
-                updates,
-                cycles: imm!(self, 1),
-            });
+            return Ok(InstrEffect::new(updates, imm!(self, 1)));
         }
 
         let n = bd.build_int_compare(IntPredicate::SLT, mla, imm!(self, 0), "n")?;
@@ -691,10 +607,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
         let cpsr = self.set_flags(Some(n), Some(z), None, None)?;
 
         let updates = vec![RegUpdate(rd, mla), RegUpdate(Reg::CPSR, cpsr)];
-        Ok(InstrEffect {
-            updates,
-            cycles: imm!(self, 1),
-        })
+        Ok(InstrEffect::new(updates, imm!(self, 1)))
     }
 
     fn mul(&self, instr: &ArmInstruction) -> InstrResult<'a> {
@@ -708,10 +621,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
 
         if !instr.updates_flags {
             let updates = vec![RegUpdate(rd, mul)];
-            return Ok(InstrEffect {
-                updates,
-                cycles: imm!(self, 1),
-            });
+            return Ok(InstrEffect::new(updates, imm!(self, 1)));
         }
 
         let n = bd.build_int_compare(IntPredicate::SLT, mul, imm!(self, 0), "n")?;
@@ -719,10 +629,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
         let cpsr = self.set_flags(Some(n), Some(z), None, None)?;
 
         let updates = vec![RegUpdate(rd, mul), RegUpdate(Reg::CPSR, cpsr)];
-        Ok(InstrEffect {
-            updates,
-            cycles: imm!(self, 1),
-        })
+        Ok(InstrEffect::new(updates, imm!(self, 1)))
     }
 
     fn smlal(&self, instr: &ArmInstruction) -> InstrResult<'a> {
@@ -754,10 +661,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
 
         if !instr.updates_flags {
             let updates = vec![RegUpdate(rdhi, hi_i32), RegUpdate(rdlo, lo_i32)];
-            return Ok(InstrEffect {
-                updates,
-                cycles: imm!(self, 1),
-            });
+            return Ok(InstrEffect::new(updates, imm!(self, 1)));
         }
 
         let n = bd.build_int_compare(IntPredicate::SLT, mla_res, imm64!(self, 0), "n")?;
@@ -769,10 +673,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
             RegUpdate(rdlo, lo_i32),
             RegUpdate(Reg::CPSR, cpsr),
         ];
-        Ok(InstrEffect {
-            updates,
-            cycles: imm!(self, 1),
-        })
+        Ok(InstrEffect::new(updates, imm!(self, 1)))
     }
 
     fn smull(&self, instr: &ArmInstruction) -> InstrResult<'a> {
@@ -796,10 +697,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
 
         if !instr.updates_flags {
             let updates = vec![RegUpdate(rdhi, hi_i32), RegUpdate(rdlo, lo_i32)];
-            return Ok(InstrEffect {
-                updates,
-                cycles: imm!(self, 1),
-            });
+            return Ok(InstrEffect::new(updates, imm!(self, 1)));
         }
 
         let n = bd.build_int_compare(IntPredicate::SLT, mul_res, imm64!(self, 0), "n")?;
@@ -811,10 +709,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
             RegUpdate(rdlo, lo_i32),
             RegUpdate(Reg::CPSR, cpsr),
         ];
-        Ok(InstrEffect {
-            updates,
-            cycles: imm!(self, 1),
-        })
+        Ok(InstrEffect::new(updates, imm!(self, 1)))
     }
 
     fn umlal(&self, instr: &ArmInstruction) -> InstrResult<'a> {
@@ -846,10 +741,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
 
         if !instr.updates_flags {
             let updates = vec![RegUpdate(rdhi, hi_i32), RegUpdate(rdlo, lo_i32)];
-            return Ok(InstrEffect {
-                updates,
-                cycles: imm!(self, 1),
-            });
+            return Ok(InstrEffect::new(updates, imm!(self, 1)));
         }
 
         let n = bd.build_int_compare(IntPredicate::SLT, mla_res, imm64!(self, 0), "n")?;
@@ -861,10 +753,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
             RegUpdate(rdlo, lo_i32),
             RegUpdate(Reg::CPSR, cpsr),
         ];
-        Ok(InstrEffect {
-            updates,
-            cycles: imm!(self, 1),
-        })
+        Ok(InstrEffect::new(updates, imm!(self, 1)))
     }
 
     fn umull(&self, instr: &ArmInstruction) -> InstrResult<'a> {
@@ -888,10 +777,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
 
         if !instr.updates_flags {
             let updates = vec![RegUpdate(rdhi, hi_i32), RegUpdate(rdlo, lo_i32)];
-            return Ok(InstrEffect {
-                updates,
-                cycles: imm!(self, 1),
-            });
+            return Ok(InstrEffect::new(updates, imm!(self, 1)));
         }
 
         let n = bd.build_int_compare(IntPredicate::SLT, mul_res, imm64!(self, 0), "n")?;
@@ -903,10 +789,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
             RegUpdate(rdlo, lo_i32),
             RegUpdate(Reg::CPSR, cpsr),
         ];
-        Ok(InstrEffect {
-            updates,
-            cycles: imm!(self, 1),
-        })
+        Ok(InstrEffect::new(updates, imm!(self, 1)))
     }
 
     #[allow(clippy::unnecessary_wraps)]
@@ -914,10 +797,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
         let rd = instr.get_reg_op(0);
         let cpsr = self.reg_map.get(Reg::CPSR);
         let updates = vec![RegUpdate(rd, cpsr)];
-        Ok(InstrEffect {
-            updates,
-            cycles: imm!(self, 1),
-        })
+        Ok(InstrEffect::new(updates, imm!(self, 1)))
     }
 
     fn msr(&self, instr: &ArmInstruction) -> InstrResult<'a> {
@@ -946,9 +826,6 @@ impl<'a> FunctionBuilder<'_, 'a> {
         let keep = bd.build_and(curr_status, imm!(self, 0x0fff_ff00), "keep")?;
         let res_val = bd.build_or(masked, keep, "or")?;
         let updates = vec![RegUpdate(reg, res_val)];
-        Ok(InstrEffect {
-            updates,
-            cycles: imm!(self, 1),
-        })
+        Ok(InstrEffect::new(updates, imm!(self, 1)))
     }
 }

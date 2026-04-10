@@ -233,7 +233,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
         if let Some(wb) = addr_mode.writeback {
             updates.push(wb);
         }
-        Ok(InstrEffect { updates, cycles })
+        Ok(InstrEffect::new(updates, cycles))
     }
 
     fn ldmia(&self, instr: &ArmInstruction) -> InstrResult<'a> {
@@ -255,7 +255,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
         if instr.writeback {
             updates.push(RegUpdate(rn, addr));
         }
-        Ok(InstrEffect { updates, cycles })
+        Ok(InstrEffect::new(updates, cycles))
     }
 
     fn ldmib(&self, instr: &ArmInstruction) -> InstrResult<'a> {
@@ -277,7 +277,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
         if instr.writeback {
             updates.push(RegUpdate(rn, addr));
         }
-        Ok(InstrEffect { updates, cycles })
+        Ok(InstrEffect::new(updates, cycles))
     }
 
     fn ldmda(&self, instr: &ArmInstruction) -> InstrResult<'a> {
@@ -303,7 +303,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
                 bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "wb")?,
             ));
         }
-        Ok(InstrEffect { updates, cycles })
+        Ok(InstrEffect::new(updates, cycles))
     }
 
     fn ldmdb(&self, instr: &ArmInstruction) -> InstrResult<'a> {
@@ -328,7 +328,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
                 bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "wb")?,
             ));
         }
-        Ok(InstrEffect { updates, cycles })
+        Ok(InstrEffect::new(updates, cycles))
     }
 
     fn str<T>(&self, instr: &ArmInstruction) -> InstrResult<'a>
@@ -344,7 +344,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
         if let Some(wb) = addr_mode.writeback {
             updates.push(wb);
         }
-        Ok(InstrEffect { updates, cycles })
+        Ok(InstrEffect::new(updates, cycles))
     }
 
     fn stmia(&self, instr: &ArmInstruction) -> InstrResult<'a> {
@@ -365,7 +365,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
         if instr.writeback {
             updates.push(RegUpdate(rn, addr));
         }
-        Ok(InstrEffect { updates, cycles })
+        Ok(InstrEffect::new(updates, cycles))
     }
 
     fn stmib(&self, instr: &ArmInstruction) -> InstrResult<'a> {
@@ -386,7 +386,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
         if instr.writeback {
             updates.push(RegUpdate(rn, addr));
         }
-        Ok(InstrEffect { updates, cycles })
+        Ok(InstrEffect::new(updates, cycles))
     }
 
     fn stmda(&self, instr: &ArmInstruction) -> InstrResult<'a> {
@@ -411,7 +411,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
                 bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "wb")?,
             ));
         }
-        Ok(InstrEffect { updates, cycles })
+        Ok(InstrEffect::new(updates, cycles))
     }
 
     fn stmdb(&self, instr: &ArmInstruction) -> InstrResult<'a> {
@@ -435,7 +435,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
                 bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "wb")?,
             ));
         }
-        Ok(InstrEffect { updates, cycles })
+        Ok(InstrEffect::new(updates, cycles))
     }
 
     // Identical to stmdb but first SP operand and writeback flag are excluded by disassembler
@@ -457,7 +457,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
             Reg::SP,
             bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "wb")?,
         ));
-        Ok(InstrEffect { updates, cycles })
+        Ok(InstrEffect::new(updates, cycles))
     }
 
     // Identical to ldmia but first SP operand and writeback flag are excluded by disassembler
@@ -476,7 +476,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
             addr = bd.build_int_add(addr, imm!(self, 4), "addr")?;
         }
         updates.push(RegUpdate(Reg::SP, addr));
-        Ok(InstrEffect { updates, cycles })
+        Ok(InstrEffect::new(updates, cycles))
     }
 
     fn adr(&self, instr: &ArmInstruction) -> InstrResult<'a> {
@@ -485,10 +485,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
         let pc_offset = instr.get_imm_op(1);
         let addr = bd.build_int_add(self.reg_map.get(Reg::PC), imm!(self, pc_offset), "adr")?;
         let updates = vec![RegUpdate(rd, addr)];
-        Ok(InstrEffect {
-            updates,
-            cycles: imm!(self, 1),
-        })
+        Ok(InstrEffect::new(updates, imm!(self, 1)))
     }
 
     fn swp<T>(&self, instr: &ArmInstruction) -> InstrResult<'a>
@@ -507,10 +504,10 @@ impl<'a> FunctionBuilder<'_, 'a> {
         let (_, write_cycles) = self.call_mem_write::<T>(addr, rm_val)?;
 
         let updates = vec![RegUpdate(rd, load_val)];
-        Ok(InstrEffect {
+        Ok(InstrEffect::new(
             updates,
-            cycles: bd.build_int_add(read_cycles, write_cycles, "cycle")?,
-        })
+            bd.build_int_add(read_cycles, write_cycles, "cycle")?,
+        ))
     }
 }
 

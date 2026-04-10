@@ -147,6 +147,7 @@ where
 struct InstrEffect<'a> {
     updates: Vec<RegUpdate<'a>>,
     cycles: IntValue<'a>,
+    exit: bool,
 }
 
 type InstrResult<'a> = Result<InstrEffect<'a>>;
@@ -360,7 +361,9 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
         // If cond is met, run inner and get set of updates to perform
         self.builder.position_at_end(if_block);
-        let InstrEffect { updates, cycles } = inner(self, instr)?;
+        let InstrEffect {
+            updates, cycles, ..
+        } = inner(self, instr)?;
         let exec_cycles = self
             .builder
             .build_int_add(self.cycles, cycles, "exec_cyc")?;
@@ -468,6 +471,16 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             ArmInsn::ARM_INS_UMLAL => self.arm_umlal(instr),
             ArmInsn::ARM_INS_UMULL => self.arm_umull(instr),
             _ => unimpl_instr!(instr, "UNKNOWN"),
+        }
+    }
+}
+
+impl<'a> InstrEffect<'a> {
+    fn new(updates: Vec<RegUpdate<'a>>, cycles: IntValue<'a>) -> Self {
+        InstrEffect {
+            updates,
+            cycles,
+            exit: false,
         }
     }
 }
