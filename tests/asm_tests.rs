@@ -43,14 +43,13 @@ macro_rules! assembly_test {
             emulator.load_rom(path, CART_START_ADDR).unwrap();
             emulator.state.jump_to(CART_START_ADDR, ArmMode::ARM as i8);
             emulator.run(exit);
-            println!("{:08x?}", emulator.state.regs);
 
             let num_asserts = emulator.state.regs[Reg::R8];
             let mut result_addr = STACK_ADDR - 4;
             for i in 1..=num_asserts {
                 let ReadVal { value, .. } = emulator.state.mem.read::<u32>(result_addr);
-                println!("{}: {}", i, value);
-                assert_eq!(value, 1, "failed on assertion {}", i);
+                let result = value as i32;
+                assert_eq!(result, 1, "failed on assertion {}", i);
                 result_addr -= 4;
             }
             println!("{} assertions passed!", num_asserts);

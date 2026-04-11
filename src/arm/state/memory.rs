@@ -15,6 +15,7 @@ pub enum IoReg {
     DISPSTAT = 0x0400_0004,
 }
 
+/// Always returned as a u32 because we need to know it's width within the JIT code
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct ReadVal {
