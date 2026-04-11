@@ -2,7 +2,7 @@ use anyhow::{Context as _, anyhow};
 use capstone::arch::arm::ArmOperandType;
 use inkwell::IntPredicate;
 
-use crate::arm::disasm::instruction::{ArmInstruction, ArmShift};
+use crate::arm::disasm::instruction::ArmInstruction;
 use crate::arm::state::Reg;
 use crate::jit::flags::C;
 use crate::jit::{FunctionBuilder, InstrEffect, InstrResult, RegUpdate};
@@ -21,7 +21,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
     }
 
     pub(super) fn arm_asr(&mut self, instr: &ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::asr);
+        exec_instr!(self, exec_conditional, instr, Self::shift_op);
     }
 
     pub(super) fn arm_bic(&mut self, instr: &ArmInstruction) {
@@ -41,11 +41,11 @@ impl<'a> FunctionBuilder<'_, 'a> {
     }
 
     pub(super) fn arm_lsl(&mut self, instr: &ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::lsl);
+        exec_instr!(self, exec_conditional, instr, Self::shift_op);
     }
 
     pub(super) fn arm_lsr(&mut self, instr: &ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::lsr);
+        exec_instr!(self, exec_conditional, instr, Self::shift_op);
     }
 
     pub(super) fn arm_mla(&mut self, instr: &ArmInstruction) {
@@ -65,7 +65,11 @@ impl<'a> FunctionBuilder<'_, 'a> {
     }
 
     pub(super) fn arm_ror(&mut self, instr: &ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::ror);
+        exec_instr!(self, exec_conditional, instr, Self::shift_op);
+    }
+
+    pub(super) fn arm_rrx(&mut self, instr: &ArmInstruction) {
+        exec_instr!(self, exec_conditional, instr, Self::rrx);
     }
 
     pub(super) fn arm_rsb(&mut self, instr: &ArmInstruction) {
@@ -229,10 +233,6 @@ impl<'a> FunctionBuilder<'_, 'a> {
         Ok(InstrEffect::new(updates, imm!(self, 1)))
     }
 
-    fn asr(&self, instr: &ArmInstruction) -> InstrResult<'a> {
-        self.thumb_shift(instr, ArmShift::AsrImm, ArmShift::AsrReg)
-    }
-
     fn bic(&self, instr: &ArmInstruction) -> InstrResult<'a> {
         let bd = &self.builder;
         let rd = instr.get_reg_op(0);
@@ -304,15 +304,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
         Ok(InstrEffect::new(updates, imm!(self, 1)))
     }
 
-    fn lsl(&self, instr: &ArmInstruction) -> InstrResult<'a> {
-        self.thumb_shift(instr, ArmShift::LslImm, ArmShift::LslReg)
-    }
-
-    fn lsr(&self, instr: &ArmInstruction) -> InstrResult<'a> {
-        self.thumb_shift(instr, ArmShift::LsrImm, ArmShift::LsrReg)
-    }
-
-    fn mov(&self, instr: &ArmInstruction) -> InstrResult<'a> {
+    pub(super) fn mov(&self, instr: &ArmInstruction) -> InstrResult<'a> {
         let bd = &self.builder;
         let rd = instr.get_reg_op(0);
         let (shifter, c) = self.shifter_operand(instr.get_shifter_op(1)?)?;
@@ -368,10 +360,6 @@ impl<'a> FunctionBuilder<'_, 'a> {
 
         let updates = vec![RegUpdate(rd, res_val), RegUpdate(Reg::CPSR, cpsr)];
         Ok(InstrEffect::new(updates, imm!(self, 1)))
-    }
-
-    fn ror(&self, instr: &ArmInstruction) -> InstrResult<'a> {
-        self.thumb_shift(instr, ArmShift::RorImm, ArmShift::RorReg)
     }
 
     fn rsb(&self, instr: &ArmInstruction) -> InstrResult<'a> {

@@ -1,11 +1,32 @@
 use anyhow::{Result, anyhow};
+use capstone::arch::arm::ArmInsn;
 use inkwell::IntPredicate;
 use inkwell::values::IntValue;
 
 use crate::arm::disasm::instruction::{ArmInstruction, ArmShift, ShifterOperand};
-use crate::arm::state::Reg;
+use crate::arm::state::{ArmMode, Reg};
 use crate::jit::flags::C;
 use crate::jit::{FunctionBuilder, InstrEffect, InstrResult, RegUpdate};
+
+fn get_reg_shift(op: ArmInsn) -> impl Fn(Reg) -> ArmShift {
+    match op {
+        ArmInsn::ARM_INS_ASR => ArmShift::AsrReg,
+        ArmInsn::ARM_INS_LSR => ArmShift::LsrReg,
+        ArmInsn::ARM_INS_LSL => ArmShift::LslReg,
+        ArmInsn::ARM_INS_ROR => ArmShift::RorReg,
+        _ => panic!("instr is not a shift: {op:?}"),
+    }
+}
+
+fn get_imm_shift(op: ArmInsn) -> impl Fn(u32) -> ArmShift {
+    match op {
+        ArmInsn::ARM_INS_ASR => ArmShift::AsrImm,
+        ArmInsn::ARM_INS_LSR => ArmShift::LsrImm,
+        ArmInsn::ARM_INS_LSL => ArmShift::LslImm,
+        ArmInsn::ARM_INS_ROR => ArmShift::RorImm,
+        _ => panic!("instr is not a shift: {op:?}"),
+    }
+}
 
 impl<'a> FunctionBuilder<'_, 'a> {
     // Returns (i32, Option<i1>) - the value of the operand and the shifter carry-out value (None if
@@ -25,7 +46,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
             Some(ArmShift::AsrReg(reg_id)) => self.asr_reg(base, reg_id),
             Some(ArmShift::RorImm(imm)) => self.ror_imm(base, imm),
             Some(ArmShift::RorReg(reg_id)) => self.ror_reg(base, reg_id),
-            Some(ArmShift::Rrx) => self.rrx(base),
+            Some(ArmShift::Rrx) => self.rrx_imm(base),
         }
     }
 
@@ -58,25 +79,69 @@ impl<'a> FunctionBuilder<'_, 'a> {
         }
     }
 
-    pub(super) fn thumb_shift(
-        &self,
-        instr: &ArmInstruction,
-        imm_shift: impl Fn(u32) -> ArmShift,
-        reg_shift: impl Fn(Reg) -> ArmShift,
-    ) -> InstrResult<'a> {
+    pub(super) fn shift_op(&self, instr: &ArmInstruction) -> InstrResult<'a> {
         let bd = &self.builder;
         let rd = instr.get_reg_op(0);
         let rd_val = self.reg_map.get(rd);
 
-        let (sh_val, c) = if instr.operands.len() == 3 {
-            let rm = instr.get_reg_op(1);
-            let rm_val = self.reg_map.get(rm);
-            let shift_amt = instr.get_imm_op(2);
-            self.shift_value(rm_val, Some(imm_shift(shift_amt.cast_unsigned())))?
-        } else {
-            let rs = instr.get_reg_op(1);
-            self.shift_value(rd_val, Some(reg_shift(rs)))?
+        let (sh_val, c) = {
+            // Technically ARMv4 does not support supported shift instructions in ARM mode, but
+            // Capstone decodes some mov instructions with a shifter operand to a shift instruction
+            // e.g.
+            // `mov r1, r1, rrx` is decoded as `rrx r1, r1`
+            // `movs r10, r1, lsl r12` is decoded as `lsls sl, r1, ip`
+            //
+            // In these cases, we don't have the shift type encoded in an operand, so we go back
+            // to the opcode again (get_imm_shift/get_reg_shift).
+            match instr.mode {
+                ArmMode::ARM => {
+                    let num_operands = instr.operands.len();
+                    debug_assert!((2..=3).contains(&num_operands));
+                    // immediate shifts have only two operands, with second being a shifter operand
+                    // (just a mov), registers have 3 (no shifter operand)
+                    if num_operands == 2 {
+                        return self.mov(instr);
+                    }
+                    let rm = instr.get_reg_op(1);
+                    let rm_val = self.reg_map.get(rm);
+                    let rs = instr.get_reg_op(2);
+                    self.shift_value(rm_val, Some(get_reg_shift(instr.opcode)(rs)))?
+                }
+                ArmMode::THUMB => {
+                    let num_operands = instr.operands.len();
+                    debug_assert!((2..=3).contains(&num_operands));
+                    // immediate shifts come through with 3 operands (rd, rd, #imm) while by reg
+                    // comes through with 2 (rd, rm)
+                    if num_operands == 2 {
+                        let rm = instr.get_reg_op(1);
+                        let rm_val = self.reg_map.get(rm);
+                        let shift_reg = instr.get_reg_op(2);
+                        self.shift_value(rm_val, Some(get_reg_shift(instr.opcode)(shift_reg)))?
+                    } else {
+                        let shift_amt = instr.get_imm_op(2);
+                        self.shift_value(
+                            rd_val,
+                            Some(get_imm_shift(instr.opcode)(shift_amt.cast_unsigned())),
+                        )?
+                    }
+                }
+            }
         };
+        let n = bd.build_int_compare(IntPredicate::SLT, sh_val, imm!(self, 0), "n")?;
+        let z = bd.build_int_compare(IntPredicate::EQ, sh_val, imm!(self, 0), "z")?;
+        let cpsr = self.set_flags(Some(n), Some(z), c, None)?;
+
+        let updates = vec![RegUpdate(rd, sh_val), RegUpdate(Reg::CPSR, cpsr)];
+        Ok(InstrEffect::new(updates, imm!(self, 1)))
+    }
+
+    pub(super) fn rrx(&self, instr: &ArmInstruction) -> InstrResult<'a> {
+        let bd = &self.builder;
+        let rd = instr.get_reg_op(0);
+        let rm = instr.get_reg_op(1);
+        let rm_val = self.reg_map.get(rm);
+
+        let (sh_val, c) = self.shift_value(rm_val, Some(ArmShift::Rrx))?;
 
         let n = bd.build_int_compare(IntPredicate::SLT, sh_val, imm!(self, 0), "n")?;
         let z = bd.build_int_compare(IntPredicate::EQ, sh_val, imm!(self, 0), "z")?;
@@ -347,7 +412,8 @@ impl<'a> FunctionBuilder<'_, 'a> {
         Ok((rot, Some(c)))
     }
 
-    fn rrx(&self, base: IntValue<'a>) -> Result<(IntValue<'a>, Option<IntValue<'a>>)> {
+    /// Only has 1 possible immediate value - 1
+    fn rrx_imm(&self, base: IntValue<'a>) -> Result<(IntValue<'a>, Option<IntValue<'a>>)> {
         let bd = &self.builder;
         let one = imm!(self, 1);
 

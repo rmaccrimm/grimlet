@@ -64,3 +64,4 @@ assembly_test!(bx.gba);
 assembly_test!(mov_pc.gba);
 assembly_test!(factorial.gba);
 assembly_test!(flags.gba);
+assembly_test!(data_proc_flags.gba);

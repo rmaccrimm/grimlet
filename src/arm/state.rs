@@ -57,9 +57,9 @@ pub const REG_ITEMS: [Reg; NUM_REGS as usize] = [
     Reg::R7,
     Reg::R8,
     Reg::R9,
-    Reg::R10,
+    Reg::R10, // aka SL (stack limit)
     Reg::R11,
-    Reg::R12,
+    Reg::R12, // aka IP (intermediary pointer)
     Reg::SP,
     Reg::LR,
     Reg::PC,

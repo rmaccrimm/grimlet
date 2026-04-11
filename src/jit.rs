@@ -580,6 +580,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             ArmInsn::ARM_INS_POP => self.arm_pop(instr),
             ArmInsn::ARM_INS_PUSH => self.arm_push(instr),
             ArmInsn::ARM_INS_ROR => self.arm_ror(instr),
+            ArmInsn::ARM_INS_RRX => self.arm_rrx(instr),
             ArmInsn::ARM_INS_RSB => self.arm_rsb(instr),
             ArmInsn::ARM_INS_RSC => self.arm_rsc(instr),
             ArmInsn::ARM_INS_SBC => self.arm_sbc(instr),

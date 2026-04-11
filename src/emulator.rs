@@ -21,7 +21,6 @@ pub mod video;
 // 2^24 / 60 rounded down
 const CYCLES_PER_FRAME: u32 = 279_620;
 
-/// Print codeblocks before running
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
 enum DebugOutput {
     Assembly,

@@ -13,9 +13,10 @@ Named after this guy ↴
 
 ### Environment Variable Reference
 
-| Variable          | Description                                | Possible Values                                             |
-|-------------------|--------------------------------------------|-------------------------------------------------------------|
-| `PRINT_STATE`     | Print CPU state after each block executes  | `true`                                                      |
-| `DEBUG_OUTPUT`    | Print each disassembled block              | `assembly`<br>`struct`                                      |
-| `DUMP_LLVM`       | Dump generated LLVM IR to file             | `on-fail` <br>`before-compilation` <br> `after-compilation` |
-| `LLVM_OUTPUT_DIR` | Where to write LLVM files (default "llvm") |                                                             |
+| Variable        | Description                               | Possible Values                                    |
+|-----------------|-------------------------------------------|----------------------------------------------------|
+| PRINT_STATE     | Print CPU state after each block executes | true                                               |
+| DEBUG_OUTPUT    | Print each disassembled block             | assembly<br>struct                                 |
+| DUMP_LLVM       | Dump generated LLVM IR to file            | on-fail<br>before-compilation<br>after-compilation |
+| LLVM_OUTPUT_DIR | Where to write LLVM files                 | default: llvm                                      |
+
