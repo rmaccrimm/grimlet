@@ -1,0 +1,193 @@
+// Primarily making sure every type of shift can be decoded & executed - actual shifter behavior
+// is tested fairly thoroughly in src/jit/shift.rs
+
+.begin main
+    .arm
+    // number of test cases - incremented as we go
+    mov r8, #0
+    // stack
+    ldr sp, =0x03008000
+    // flag mask
+    ldr r7, =0xf0000000
+
+    b case_0
+
+init:
+    add r8, r8, #1
+    mov pc, lr
+
+fail:
+    ldr r7, =-1
+    push {r7}
+    b exit
+
+success:
+    mov r7, #1
+    push {r7}
+    mov pc, lr
+    
+case_0:    
+    bl init
+    ldr r1, =-4096
+    mov r0, r1, asr #11
+    ldr r1, =-2
+    cmp r0, r1
+    bne fail
+    bl success
+
+case_1:
+    bl init
+    ldr r1, =-1
+    mov r0, r1, lsr #31
+    cmp r0, #1
+    bne fail
+    bl success
+    cmp r0, r1
+    bne fail
+    bl success
+
+case_2:
+    bl init
+    mov r0, r1, lsl #17
+    cmp r0, r1
+    bne fail
+    bl success
+
+case_3:
+    bl init
+    mov r0, r1, ror #23
+    cmp r0, r1
+    bne fail
+    bl success
+
+case_4:
+    bl init
+    mov r0, r1, rrx
+    cmp r0, r1
+    bne fail
+    bl success
+
+case_5:
+    bl init
+    mov r0, #19
+    cmp r0, r1
+    bne fail
+    bl success
+
+case_6:
+    bl init
+    mov r0, r1, asr r2
+    cmp r0, r1
+    bne fail
+    bl success
+
+case_7:
+    bl init
+    mov r0, #10
+    cmp r0, r1
+    bne fail
+    bl success
+
+case_8:
+    bl init
+    mov r0, r1, lsr r2
+    cmp r0, r1
+    bne fail
+    bl success
+
+case_9:
+    bl init
+    mov r0, #29
+    cmp r0, r1
+    bne fail
+    bl success
+
+case_10:
+    bl init
+    mov r0, r1, lsl r2
+    cmp r0, r1
+    bne fail
+    bl success
+
+case_11:
+    bl init
+    mov r0, #8
+    cmp r0, r1
+    bne fail
+    bl success
+
+case_12:
+    bl init
+    mov r0, r1, ror r2    
+    cmp r0, r1
+    bne fail
+    bl success
+
+    ldr r3, =thumb
+    bx r3
+.thumb
+thumb:
+    b case_13
+fail_t:
+    ldr r7, =-1
+    push {r7}
+    ldr r3, =exit
+    bx r3
+
+case_13:
+    bl init
+    asr r0, r1    
+    cmp r0, r1
+    bne fail_t
+    bl success
+
+case_14:
+    bl init
+    lsr r0, r1    
+    cmp r0, r1
+    bne fail_t
+    bl success
+
+case_15:
+    bl init
+    lsl r0, r1    
+    cmp r0, r1
+    bne fail_t
+    bl success
+
+case_16:
+    bl init
+    ror r0, r1    
+    cmp r0, r1
+    bne fail_t
+    bl success
+
+case_17:
+    bl init
+    asr r0, #17    
+    cmp r0, r1
+    bne fail_t
+    bl success
+
+case_18:
+    bl init
+    lsr r0, #15    
+    cmp r0, r1
+    bne fail_t
+    bl success
+
+case_19:
+    bl init
+    lsl r0, #5    
+    cmp r0, r1
+    bne fail_t
+    bl success
+
+exit: 
+    // emulator test exit condition
+    mov r11, #0x6300
+    b end
+end:
+    b end
+    .pool
+.end
