@@ -30,16 +30,20 @@ macro_rules! assembly_test {
             emulator.state.jump_to(CART_START_ADDR, ArmMode::ARM as i8);
             emulator.run(exit);
 
-            let num_asserts = emulator.state.regs[Reg::R7];
+            let num_cases = emulator.state.regs[Reg::R6];
             let mut result_addr = STACK_ADDR - 4;
-            for i in 1..=num_asserts {
+            for i in 1..=num_cases {
                 let ReadVal { value, .. } = emulator.state.mem.read::<u32>(result_addr);
                 let result = value as i32;
                 assert_eq!(result, 1, "failed on case {}", i);
                 result_addr -= 4;
             }
-            println!("{} case passed!", num_asserts);
-            assert_eq!(emulator.state.regs[Reg::SP], STACK_ADDR - (4 * num_asserts));
+            println!("{} case passed!", num_cases);
+            assert_eq!(
+                emulator.state.regs[Reg::SP],
+                STACK_ADDR - (4 * num_cases),
+                "wrong stack pointer - fewer than expected cases ran"
+            );
         }
     };
 }
