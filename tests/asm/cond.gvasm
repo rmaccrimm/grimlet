@@ -16,7 +16,7 @@ success:
     mov r7, #1
     push {r7}
     mov pc, lr
-    
+
 set_flags:
     mov r0, r0, lsl #28
     msr cpsr_flg, r0
@@ -27,7 +27,7 @@ case_1:
     //         nzcv
     ldr r0, =0b0001
     bl set_flags
-    ldr r1, =8fbb76da
+    ldr r1, =0x9d42ac44
     moveq r0, r1
     cmp r0, r1
     beq fail
@@ -38,7 +38,7 @@ case_2:
     //         nzcv
     ldr r0, =0b0111
     bl set_flags
-    ldr r1, =ec655279
+    ldr r1, =0xf6ab2afc
     moveq r0, r1
     cmp r0, r1
     bne fail
@@ -49,7 +49,7 @@ case_3:
     //         nzcv
     ldr r0, =0b1000
     bl set_flags
-    ldr r1, =1551c04b
+    ldr r1, =0xa699a261
     movne r0, r1
     cmp r0, r1
     bne fail
@@ -60,7 +60,7 @@ case_4:
     //         nzcv
     ldr r0, =0b1110
     bl set_flags
-    ldr r1, =8c46c1cb
+    ldr r1, =0x5983c7cd
     movne r0, r1
     cmp r0, r1
     beq fail
@@ -71,7 +71,7 @@ case_5:
     //         nzcv
     ldr r0, =0b0100
     bl set_flags
-    ldr r1, =ef16a71a
+    ldr r1, =0xb27e8483
     movhs r0, r1
     cmp r0, r1
     beq fail
@@ -82,7 +82,7 @@ case_6:
     //         nzcv
     ldr r0, =0b1010
     bl set_flags
-    ldr r1, =8fa7d11e
+    ldr r1, =0x3b29cf81
     movhs r0, r1
     cmp r0, r1
     bne fail
@@ -93,7 +93,7 @@ case_7:
     //         nzcv
     ldr r0, =0b1001
     bl set_flags
-    ldr r1, =6d39b1c7
+    ldr r1, =0x1c5d098a
     movlo r0, r1
     cmp r0, r1
     bne fail
@@ -104,7 +104,7 @@ case_8:
     //         nzcv
     ldr r0, =0b1110
     bl set_flags
-    ldr r1, =6b5f21b0
+    ldr r1, =0x9d2640c5
     movlo r0, r1
     cmp r0, r1
     beq fail
@@ -115,7 +115,7 @@ case_9:
     //         nzcv
     ldr r0, =0b0000
     bl set_flags
-    ldr r1, =043b2281
+    ldr r1, =0xdb0e33b5
     movmi r0, r1
     cmp r0, r1
     beq fail
@@ -126,7 +126,7 @@ case_10:
     //         nzcv
     ldr r0, =0b1001
     bl set_flags
-    ldr r1, =ba21437e
+    ldr r1, =0xd1db940d
     movmi r0, r1
     cmp r0, r1
     bne fail
@@ -137,7 +137,7 @@ case_11:
     //         nzcv
     ldr r0, =0b0000
     bl set_flags
-    ldr r1, =6137dba7
+    ldr r1, =0x00262aa8
     movpl r0, r1
     cmp r0, r1
     bne fail
@@ -148,7 +148,7 @@ case_12:
     //         nzcv
     ldr r0, =0b1000
     bl set_flags
-    ldr r1, =d92d0349
+    ldr r1, =0xd19f44fd
     movpl r0, r1
     cmp r0, r1
     beq fail
@@ -159,7 +159,7 @@ case_13:
     //         nzcv
     ldr r0, =0b0010
     bl set_flags
-    ldr r1, =e0776600
+    ldr r1, =0xfe0f7d7a
     movvs r0, r1
     cmp r0, r1
     beq fail
@@ -170,7 +170,7 @@ case_14:
     //         nzcv
     ldr r0, =0b1001
     bl set_flags
-    ldr r1, =7432f5d6
+    ldr r1, =0x9a52c5b3
     movvs r0, r1
     cmp r0, r1
     bne fail
@@ -181,7 +181,7 @@ case_15:
     //         nzcv
     ldr r0, =0b1100
     bl set_flags
-    ldr r1, =e74c90b1
+    ldr r1, =0x37119b71
     movvc r0, r1
     cmp r0, r1
     bne fail
@@ -192,7 +192,7 @@ case_16:
     //         nzcv
     ldr r0, =0b1101
     bl set_flags
-    ldr r1, =5c385edc
+    ldr r1, =0x3d1a4dc9
     movvc r0, r1
     cmp r0, r1
     beq fail
@@ -203,7 +203,7 @@ case_17:
     //         nzcv
     ldr r0, =0b0001
     bl set_flags
-    ldr r1, =6aa32402
+    ldr r1, =0x51ea8b49
     movhi r0, r1
     cmp r0, r1
     beq fail
@@ -214,7 +214,7 @@ case_18:
     //         nzcv
     ldr r0, =0b0011
     bl set_flags
-    ldr r1, =b49a4660
+    ldr r1, =0x24edca80
     movhi r0, r1
     cmp r0, r1
     bne fail
@@ -225,7 +225,7 @@ case_19:
     //         nzcv
     ldr r0, =0b1100
     bl set_flags
-    ldr r1, =aa623e95
+    ldr r1, =0x09a4b6bf
     movhi r0, r1
     cmp r0, r1
     beq fail
@@ -236,7 +236,7 @@ case_20:
     //         nzcv
     ldr r0, =0b0110
     bl set_flags
-    ldr r1, =abdf6c43
+    ldr r1, =0x25604569
     movhi r0, r1
     cmp r0, r1
     beq fail
@@ -247,7 +247,7 @@ case_21:
     //         nzcv
     ldr r0, =0b0000
     bl set_flags
-    ldr r1, =089ccd0f
+    ldr r1, =0x3abbdc1e
     movls r0, r1
     cmp r0, r1
     bne fail
@@ -258,7 +258,7 @@ case_22:
     //         nzcv
     ldr r0, =0b0010
     bl set_flags
-    ldr r1, =5565354d
+    ldr r1, =0xfb57c8f6
     movls r0, r1
     cmp r0, r1
     beq fail
@@ -269,7 +269,7 @@ case_23:
     //         nzcv
     ldr r0, =0b0100
     bl set_flags
-    ldr r1, =07798187
+    ldr r1, =0xaad49ec4
     movls r0, r1
     cmp r0, r1
     bne fail
@@ -280,7 +280,7 @@ case_24:
     //         nzcv
     ldr r0, =0b0110
     bl set_flags
-    ldr r1, =288d0133
+    ldr r1, =0xb8c9264d
     movls r0, r1
     cmp r0, r1
     bne fail
@@ -291,7 +291,7 @@ case_25:
     //         nzcv
     ldr r0, =0b0000
     bl set_flags
-    ldr r1, =2fd33073
+    ldr r1, =0x7fa6c7c7
     movge r0, r1
     cmp r0, r1
     bne fail
@@ -302,7 +302,7 @@ case_26:
     //         nzcv
     ldr r0, =0b0001
     bl set_flags
-    ldr r1, =3ede4bfd
+    ldr r1, =0x0731dd74
     movge r0, r1
     cmp r0, r1
     beq fail
@@ -313,7 +313,7 @@ case_27:
     //         nzcv
     ldr r0, =0b1000
     bl set_flags
-    ldr r1, =dbe4b0de
+    ldr r1, =0x1dc199f0
     movge r0, r1
     cmp r0, r1
     beq fail
@@ -324,7 +324,7 @@ case_28:
     //         nzcv
     ldr r0, =0b1001
     bl set_flags
-    ldr r1, =468534b0
+    ldr r1, =0xa9191c65
     movge r0, r1
     cmp r0, r1
     bne fail
@@ -335,7 +335,7 @@ case_29:
     //         nzcv
     ldr r0, =0b0000
     bl set_flags
-    ldr r1, =db7d1ccd
+    ldr r1, =0x450ff5d2
     movlt r0, r1
     cmp r0, r1
     beq fail
@@ -346,7 +346,7 @@ case_30:
     //         nzcv
     ldr r0, =0b0001
     bl set_flags
-    ldr r1, =60cc54c0
+    ldr r1, =0x85abe9e8
     movlt r0, r1
     cmp r0, r1
     bne fail
@@ -357,7 +357,7 @@ case_31:
     //         nzcv
     ldr r0, =0b1000
     bl set_flags
-    ldr r1, =51c0ec50
+    ldr r1, =0xb6448841
     movlt r0, r1
     cmp r0, r1
     bne fail
@@ -368,7 +368,7 @@ case_32:
     //         nzcv
     ldr r0, =0b1001
     bl set_flags
-    ldr r1, =bcc94102
+    ldr r1, =0xd1b1f646
     movlt r0, r1
     cmp r0, r1
     beq fail
@@ -379,7 +379,7 @@ case_33:
     //         nzcv
     ldr r0, =0b0010
     bl set_flags
-    ldr r1, =834f9dd5
+    ldr r1, =0xd90dfbc3
     movgt r0, r1
     cmp r0, r1
     bne fail
@@ -390,7 +390,7 @@ case_34:
     //         nzcv
     ldr r0, =0b0001
     bl set_flags
-    ldr r1, =0016417e
+    ldr r1, =0x01186d9c
     movgt r0, r1
     cmp r0, r1
     beq fail
@@ -401,7 +401,7 @@ case_35:
     //         nzcv
     ldr r0, =0b1000
     bl set_flags
-    ldr r1, =84b83939
+    ldr r1, =0x9297eba4
     movgt r0, r1
     cmp r0, r1
     beq fail
@@ -412,7 +412,7 @@ case_36:
     //         nzcv
     ldr r0, =0b1011
     bl set_flags
-    ldr r1, =cf6f8443
+    ldr r1, =0x7d4e2e8c
     movgt r0, r1
     cmp r0, r1
     bne fail
@@ -423,7 +423,7 @@ case_37:
     //         nzcv
     ldr r0, =0b0110
     bl set_flags
-    ldr r1, =a4d5ccd7
+    ldr r1, =0x71b66ab3
     movgt r0, r1
     cmp r0, r1
     beq fail
@@ -434,7 +434,7 @@ case_38:
     //         nzcv
     ldr r0, =0b0101
     bl set_flags
-    ldr r1, =358ec17f
+    ldr r1, =0xe51c4b3b
     movgt r0, r1
     cmp r0, r1
     beq fail
@@ -445,7 +445,7 @@ case_39:
     //         nzcv
     ldr r0, =0b1100
     bl set_flags
-    ldr r1, =eaf17e60
+    ldr r1, =0x9d8098ab
     movgt r0, r1
     cmp r0, r1
     beq fail
@@ -456,7 +456,7 @@ case_40:
     //         nzcv
     ldr r0, =0b1111
     bl set_flags
-    ldr r1, =d3d4b413
+    ldr r1, =0xfa672928
     movgt r0, r1
     cmp r0, r1
     beq fail
@@ -467,7 +467,7 @@ case_41:
     //         nzcv
     ldr r0, =0b0000
     bl set_flags
-    ldr r1, =c64a8e5c
+    ldr r1, =0xcc3ab713
     movle r0, r1
     cmp r0, r1
     beq fail
@@ -478,7 +478,7 @@ case_42:
     //         nzcv
     ldr r0, =0b0001
     bl set_flags
-    ldr r1, =1b9c7d92
+    ldr r1, =0x9c01d956
     movle r0, r1
     cmp r0, r1
     bne fail
@@ -489,7 +489,7 @@ case_43:
     //         nzcv
     ldr r0, =0b1000
     bl set_flags
-    ldr r1, =39354130
+    ldr r1, =0xe6cd37da
     movle r0, r1
     cmp r0, r1
     bne fail
@@ -500,7 +500,7 @@ case_44:
     //         nzcv
     ldr r0, =0b1011
     bl set_flags
-    ldr r1, =88e31869
+    ldr r1, =0xad0f494a
     movle r0, r1
     cmp r0, r1
     beq fail
@@ -511,7 +511,7 @@ case_45:
     //         nzcv
     ldr r0, =0b0110
     bl set_flags
-    ldr r1, =d2dac267
+    ldr r1, =0x221be493
     movle r0, r1
     cmp r0, r1
     bne fail
@@ -522,7 +522,7 @@ case_46:
     //         nzcv
     ldr r0, =0b0101
     bl set_flags
-    ldr r1, =0e5fd15b
+    ldr r1, =0xdbd1495f
     movle r0, r1
     cmp r0, r1
     bne fail
@@ -533,7 +533,7 @@ case_47:
     //         nzcv
     ldr r0, =0b1100
     bl set_flags
-    ldr r1, =436f3cb2
+    ldr r1, =0xe92a57b3
     movle r0, r1
     cmp r0, r1
     bne fail
@@ -544,13 +544,11 @@ case_48:
     //         nzcv
     ldr r0, =0b1101
     bl set_flags
-    ldr r1, =81438635
+    ldr r1, =0x072f48fe
     movle r0, r1
     cmp r0, r1
     bne fail
     bl success
-
-
 
 exit: 
     // asm_tests exit condition
