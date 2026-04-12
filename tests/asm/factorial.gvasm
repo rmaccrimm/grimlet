@@ -20,7 +20,7 @@
 .begin main
     .arm
     // number of assertions
-    mov r8, #7
+    mov r7, #7
     // stack
     ldr sp, =0x03008000
     // test success, pushed onto stack

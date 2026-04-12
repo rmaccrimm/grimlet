@@ -20,7 +20,7 @@
 .begin main
     .arm
     // number of assertions
-    mov r8, #2
+    mov r7, #2
     // stack
     ldr sp, =0x03008000
 

@@ -4,7 +4,7 @@
 .begin main
     .arm
     // number of test cases - incremented as we go
-    mov r6, #0
+    mov r7, #0
     // stack
     ldr sp, =0x03008000
     // flag mask
@@ -13,7 +13,7 @@
     b case_1
 
 init:
-    add r6, r6, #1
+    add r7, r7, #1
     mov pc, lr
 
 fail:
@@ -147,7 +147,7 @@ case_13:
 .align 4
 .thumb
 init_t:
-    add r6, r6, #1
+    add r7, r7, #1
     mov pc, lr
 
 fail_t:
@@ -230,7 +230,6 @@ case_20:
 .align 4
 exit: 
     // emulator test exit condition
-    mov r8, r6
     mov r11, #0x6300
     b end
 end:

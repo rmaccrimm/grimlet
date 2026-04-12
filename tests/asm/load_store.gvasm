@@ -20,7 +20,7 @@
 .begin main
     .arm
     // number of assertions
-    mov r8, #23
+    mov r7, #23
     // stack
     ldr sp, =0x03008000
     // data address

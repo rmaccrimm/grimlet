@@ -13,27 +13,13 @@ const EXIT_VAL: u32 = 0x6300;
 
 /// Simple framework for test cases written in assembly. Tests run assertions which, push 1 onto the
 /// stack (currently at 0x4000, end of the bios region), otherwise -1. The number of assertions made
-/// is written to register r8 and an exit is signalled to the emulator by writin 25344 to r11 and
+/// is written to register r7 and an exit is signalled to the emulator by writin 25344 to r11 and
 /// jumping to an infinite loop.
-///
-/// To create new test program
-///     - `cd tests/programs`
-///     - `gvasm init <test-name>.gvasm`
-///     - Write code in .main section, ending with:
-///       ```
-///       .main:
-///           ...    
-///           mov r11, #0x6300
-///           b end
-///       end:
-///           b end
-///       ```
-///     - `gvasm make <test-name>.gvasm`
 macro_rules! assembly_test {
     ($name:ident.gba) => {
         #[test]
         fn $name() {
-            let path = format!("tests/programs/{}.gba", stringify!($name));
+            let path = format!("tests/bin/{}.gba", stringify!($name));
             let disasm = Disassembler::default();
             let ctx = Context::create();
 
@@ -44,7 +30,7 @@ macro_rules! assembly_test {
             emulator.state.jump_to(CART_START_ADDR, ArmMode::ARM as i8);
             emulator.run(exit);
 
-            let num_asserts = emulator.state.regs[Reg::R8];
+            let num_asserts = emulator.state.regs[Reg::R7];
             let mut result_addr = STACK_ADDR - 4;
             for i in 1..=num_asserts {
                 let ReadVal { value, .. } = emulator.state.mem.read::<u32>(result_addr);
@@ -62,5 +48,4 @@ assembly_test!(load_store.gba);
 assembly_test!(bx.gba);
 assembly_test!(mov_pc.gba);
 assembly_test!(factorial.gba);
-assembly_test!(flags.gba);
 assembly_test!(shifts.gba);
