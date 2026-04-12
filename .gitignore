@@ -7,4 +7,5 @@
 /.vscode
 .github/
 *.sna
+*.gba
 tests/**/*.txt
