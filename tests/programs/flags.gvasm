@@ -40,9 +40,6 @@
     eor r0, r0
     msr cpsr_flg, r0
 
-    // adc
-    adc 
-
     movs r1, #1
     beq fail
     bmi fail

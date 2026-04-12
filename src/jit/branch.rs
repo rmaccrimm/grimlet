@@ -56,8 +56,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
         };
 
         if save_return {
-            let pc_offset = imm!(self, instr.mode.pc_byte_offset() / 2);
-            let return_addr = bd.build_int_sub(self.reg_map.get(Reg::PC), pc_offset, "ret")?;
+            let return_addr = imm!(self, instr.addr + instr.size);
             // Update lr temporarily, and restore it after the context switch so that
             // the unaltered value is used if we skip the end block
             let mut tmp_reg_map = self.reg_map.clone();
@@ -70,7 +69,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
 
         // No need to branch to end block, since we have returned already
         bd.position_at_end(end_block);
-        self.increment_pc(mode);
+        self.increment_pc(instr.size);
         self.write_state_out(&self.reg_map)?;
 
         self.builder.build_return(None)?;

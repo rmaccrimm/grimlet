@@ -88,6 +88,8 @@ impl ArmState {
             ..Self::default()
         }
     }
+
+    // Is this reliable in Thumb mode?
     pub fn curr_instr_addr(&self) -> u32 { self.regs[Reg::PC] - self.current_mode.pc_byte_offset() }
 
     pub fn add_cycles(&mut self, cycles: u32) { self.cycle_count += cycles; }
@@ -97,6 +99,8 @@ impl ArmState {
         if new_mode != self.current_mode {
             self.current_mode = new_mode;
         }
+        // TODO - is this always true or de we actually have to parse the next two instructions to
+        // set this (since in Thumb mode they can have variable size)?
         self.regs[Reg::PC] = addr + self.current_mode.pc_byte_offset();
     }
 }
@@ -120,6 +124,14 @@ impl ArmMode {
         }
     }
 
+    // TODO - delete this
+    // So this could actually be six? Or as high as 8?
+    // bl - bl, add, sub
+    //               ^- PC
+    // bl - bl, bl - bl, bl - bl
+    //                   ^- PC
+    //
+    // Might need to actually properly implement the instruction pipeline somehow
     pub fn pc_byte_offset(&self) -> u32 { 2 * self.instr_size() }
 }
 

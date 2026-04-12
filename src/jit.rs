@@ -389,9 +389,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         Ok(())
     }
 
-    fn increment_pc(&mut self, mode: ArmMode) {
+    fn increment_pc(&mut self, step: u32) {
         let curr_pc = self.reg_map.get(Reg::PC);
-        let step = mode.instr_size();
         self.reg_map.update(
             Reg::PC,
             self.builder
@@ -479,7 +478,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             self.branch_and_return(target, imm8!(self, instr.mode as i8))?;
 
             self.builder.position_at_end(end_block);
-            self.increment_pc(instr.mode);
+            self.increment_pc(instr.size);
             self.write_state_out(&self.reg_map)?;
             self.builder.build_return(None)?;
 
@@ -521,7 +520,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             let exit_var = exit_phi.as_basic_value().into_int_value();
             self.exit_queue.push_back(ExitCountdown::new(exit_var));
         }
-        self.increment_pc(instr.mode);
+        self.increment_pc(instr.size);
         self.current_block = end_block;
         Ok(())
     }

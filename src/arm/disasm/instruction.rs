@@ -20,6 +20,8 @@ pub struct ArmInstruction {
     pub updates_flags: bool,
     pub writeback: bool,
     pub binary: u32,
+    // variable for Thumb
+    pub size: u32,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -120,6 +122,7 @@ impl ArmInstruction {
             updates_flags: arm_detail.update_flags(),
             writeback: arm_detail.writeback(),
             binary: b,
+            size: u32::try_from(insn.len()).expect("size too large"),
         }
     }
 
@@ -278,6 +281,7 @@ impl ArmInstruction {
     }
 }
 
+// Why do I have this trait? Probably just tests?
 impl Default for ArmInstruction {
     fn default() -> Self {
         Self {
@@ -290,6 +294,7 @@ impl Default for ArmInstruction {
             updates_flags: true,
             writeback: false,
             binary: 0,
+            size: 4,
         }
     }
 }
