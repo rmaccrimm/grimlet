@@ -1,17 +1,17 @@
 pub mod code_block;
 pub mod instruction;
 
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 
 use anyhow::Result;
 use capstone::Capstone;
 use capstone::arch::BuildsCapstone;
-use capstone::arch::arm::ArchMode;
+use capstone::arch::arm::{ArchMode, ArmInsn, ArmOperandType};
 
 use crate::arm::disasm::code_block::CodeBlock;
 use crate::arm::disasm::instruction::ArmInstruction;
-use crate::arm::state::ArmMode;
 use crate::arm::state::memory::MemoryManager;
+use crate::arm::state::{ArmMode, Reg};
 
 pub struct InstrWindow<'a> {
     queue: VecDeque<ArmInstruction>,
@@ -21,12 +21,53 @@ pub struct InstrWindow<'a> {
     mode: ArmMode,
     pos: usize,
     window_len: usize,
+    new_registers: HashSet<Reg>,
+    registers_seen: HashSet<Reg>,
 }
 
-impl InstrWindow<'_> {
+impl<'a> InstrWindow<'a> {
     pub fn peek_one(&self) -> Option<&ArmInstruction> { self.queue.front() }
 
     pub fn peek_two(&self) -> Option<&ArmInstruction> { self.queue.get(1) }
+
+    pub fn contains(&self, addr: u32) -> bool {
+        self.queue.iter().find(|i| i.addr == addr).is_some()
+    }
+
+    /// As the window slides forward, we need to track new registers that are encountered so they
+    /// can be initialized from memory. Calling resets the set back None.
+    pub fn get_new_registers(&mut self) -> HashSet<Reg> { std::mem::take(&mut self.new_registers) }
+
+    fn with_len(
+        window_len: usize,
+        bytes: &'a [u8],
+        cs: &'a Capstone,
+        mode: ArmMode,
+        start_addr: u32,
+    ) -> Self {
+        assert!(
+            window_len >= 2,
+            "InstrWindow must have at least 2 instructions"
+        );
+        let mut registers_seen = HashSet::default();
+        // always need the pc, and usually need cpsr
+        registers_seen.insert(Reg::PC);
+        registers_seen.insert(Reg::CPSR);
+
+        let mut window = Self {
+            queue: VecDeque::with_capacity(window_len),
+            bytes,
+            cs,
+            pos: 0,
+            mode,
+            start_addr: start_addr as usize,
+            window_len,
+            new_registers: registers_seen.clone(),
+            registers_seen,
+        };
+        window.refill();
+        window
+    }
 
     fn refill(&mut self) {
         while self.queue.len() < self.window_len {
@@ -38,14 +79,56 @@ impl InstrWindow<'_> {
                 .cs
                 .disasm_count(&self.bytes[self.pos..], addr, 1)
                 .expect("Capstone disassembly failed");
-            let i = instructions
+            let cs_instr = instructions
                 .as_ref()
                 .first()
                 .expect("Capstone returned no instructions");
-            self.pos += i.len();
-            self.queue
-                .push_back(ArmInstruction::from_cs_insn(self.cs, i, self.mode));
+            self.pos += cs_instr.len();
+            let instr = ArmInstruction::from_cs_insn(self.cs, cs_instr, self.mode);
+            self.check_registers(&instr)
+                .unwrap_or_else(|e| panic!("Disassembly failed: {e}"));
+            self.queue.push_back(instr);
         }
+    }
+
+    fn insert_if_new(&mut self, reg: Reg) {
+        if self.registers_seen.contains(&reg) {
+            return;
+        }
+        self.new_registers.insert(reg);
+        self.registers_seen.insert(reg);
+    }
+
+    fn check_registers(&mut self, instr: &ArmInstruction) -> Result<()> {
+        for a in &instr.operands {
+            match a.op_type {
+                ArmOperandType::Reg(reg_id) => {
+                    self.insert_if_new(Reg::try_from(reg_id)?);
+                }
+                ArmOperandType::Mem(arm_op_mem) => {
+                    let base = arm_op_mem.base();
+                    let index = arm_op_mem.index();
+                    if base.0 != 0 {
+                        self.insert_if_new(Reg::try_from(base)?);
+                    }
+                    if index.0 != 0 {
+                        self.insert_if_new(Reg::try_from(index)?);
+                    }
+                }
+                _ => (),
+            }
+        }
+        // instructions with implicit operands
+        match instr.opcode {
+            ArmInsn::ARM_INS_PUSH | ArmInsn::ARM_INS_POP => {
+                self.insert_if_new(Reg::SP);
+            }
+            ArmInsn::ARM_INS_BL => {
+                self.insert_if_new(Reg::LR);
+            }
+            _ => (),
+        }
+        Ok(())
     }
 }
 
@@ -119,27 +202,8 @@ impl<'a> Disassembler {
         }
     }
 
-    pub fn new_window(
-        &'a self,
-        bytes: &'a [u8],
-        start_addr: u32,
-        window_len: usize,
-    ) -> InstrWindow<'a> {
-        assert!(
-            window_len >= 2,
-            "InstrWindow must have at least 3 instructions"
-        );
-        let mut window = InstrWindow {
-            queue: VecDeque::with_capacity(window_len),
-            bytes,
-            cs: &self.cs,
-            pos: 0,
-            mode: self.current_mode,
-            start_addr: start_addr as usize,
-            window_len,
-        };
-        window.refill();
-        window
+    pub fn new_window(&'a self, bytes: &'a [u8], start_addr: u32) -> InstrWindow<'a> {
+        InstrWindow::with_len(2, bytes, &self.cs, self.current_mode, start_addr)
     }
 }
 
@@ -196,7 +260,7 @@ mod tests {
             0xa0, 0xe1,
         ];
         let disasm = Disassembler::default();
-        let mut window = disasm.new_window(&program, 0x4000, 3);
+        let mut window = InstrWindow::with_len(3, &program, &disasm.cs, ArmMode::ARM, 0x4000);
         assert_eq!(window.queue.len(), 3);
 
         let next = window.next().unwrap();
@@ -246,8 +310,7 @@ mod tests {
         ];
         let mut disasm = Disassembler::default();
         disasm.set_mode(ArmMode::THUMB);
-
-        let window = disasm.new_window(&program, 0x0800_0000, 2);
+        let window = InstrWindow::with_len(2, &program, &disasm.cs, ArmMode::THUMB, 0x0800_0000);
         assert_eq!(window.queue.len(), 2);
 
         let first = window.peek_one().unwrap();
@@ -265,6 +328,46 @@ mod tests {
         let expected_addrs = [0x0800_0000, 0x0800_0004, 0x0800_0008, 0x0800_000a];
         for (i, instr) in window.enumerate() {
             assert_eq!(instr.addr, expected_addrs[i]);
+        }
+    }
+
+    #[test]
+    fn test_get_new_registers() {
+        //   add r0, r1, #1
+        //   mov r0, r2
+        //   ldr r2, [r10, #4]
+        //   pop {r0}               <- introduce sp
+        //   sub r6, r7, r8
+        //   bl <loop>              <- introduces lr
+        //   add r0, r1, r2
+        //   push {r9}
+        //   bl <label>
+        let program = [
+            0x01, 0x00, 0x81, 0xe2, 0x02, 0x00, 0xa0, 0xe1, 0x04, 0x20, 0x9a, 0xe5, 0x01, 0x00,
+            0xbd, 0xe8, 0x08, 0x60, 0x47, 0xe0, 0x04, 0x00, 0x00, 0xeb, 0x02, 0x00, 0x81, 0xe0,
+            0x00, 0x02, 0x2d, 0xe9, 0x01, 0x00, 0x00, 0xeb,
+        ];
+        let disasm = Disassembler::default();
+        let mut window = InstrWindow::with_len(2, &program, &disasm.cs, ArmMode::ARM, 0);
+        assert_eq!(window.queue.len(), 2);
+
+        let expected_new = vec![
+            vec![Reg::R0, Reg::R1, Reg::R2, Reg::PC, Reg::CPSR],
+            vec![Reg::R10],
+            vec![Reg::SP],
+            vec![Reg::R6, Reg::R7, Reg::R8],
+            vec![Reg::LR],
+            vec![],
+            vec![Reg::R9],
+            vec![],
+            vec![],
+            vec![],
+        ];
+
+        for exp in expected_new {
+            assert_eq!(window.get_new_registers(), exp.into_iter().collect());
+            assert!(window.get_new_registers().is_empty());
+            window.next();
         }
     }
 }
