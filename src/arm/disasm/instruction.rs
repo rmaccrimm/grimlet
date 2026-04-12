@@ -93,13 +93,14 @@ impl ArmInstruction {
             }
         }
         let cond = arm_detail.cc();
-        let b = match mode {
-            ArmMode::ARM => {
-                u32::from_le_bytes(insn.bytes().try_into().expect("failed to parse bytes"))
-            }
-            ArmMode::THUMB => u32::from(u16::from_le_bytes(
+        let b = match insn.len() {
+            4 => u32::from_le_bytes(insn.bytes().try_into().expect("failed to parse bytes")),
+            2 => u32::from(u16::from_le_bytes(
                 insn.bytes().try_into().expect("failed to parse bytes"),
             )),
+            _ => {
+                panic!("unexpected number of bytes read: {}", insn.len());
+            }
         };
 
         Self {
@@ -328,7 +329,8 @@ mod tests {
 
     // Using assembled bytes to test as we cannot construct a capstone::ArmMemOp
     fn get_mem_op_from_assembled(bin: u32) -> MemOperand {
-        let instr = Disassembler::default().disasm_single(&bin.to_le_bytes(), 0);
+        let disasm = Disassembler::default();
+        let instr = disasm.instr_iter(&bin.to_le_bytes(), 0).next().unwrap();
         instr.get_mem_op(1).unwrap()
     }
 

@@ -58,7 +58,7 @@ fn main() -> Result<()> {
             &bin[0..4]
         };
 
-        let instr = ds.disasm_single(bytes, 0);
+        let instr = ds.instr_iter(bytes, 0).next().unwrap();
         Ok(format!("{:#?}", instr))
     };
     let result = run();

@@ -3,6 +3,7 @@ use std::env;
 use std::fs::{self, File};
 use std::io::{BufReader, Read};
 use std::rc::Rc;
+use std::slice::Chunks;
 use std::sync::mpsc;
 
 use anyhow::{Result, bail};
@@ -401,7 +402,9 @@ mod tests {
 
                 assert_eq!(emulator.state.regs[Reg::SP], expected_sp);
                 let expected = [1, 2, 3, 5, 7, 11, 13, 17];
-                for (i, w) in emulator.state.mem.iter_word(0x4000 - 32).unwrap().enumerate() {
+
+                let mem_ref = emulator.state.mem.mem_map_lookup(0x4000 - 32).unwrap().0;
+                for (i, w) in mem_ref.chunks(4).enumerate() {
                     assert_eq!(u32::from_le_bytes(w.try_into().unwrap()), expected[i])
                 }
             }

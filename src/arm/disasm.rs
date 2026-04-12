@@ -20,39 +20,63 @@ pub trait Disasm {
     fn get_mode(&self) -> ArmMode;
 }
 
+pub struct InstrIter<'a> {
+    bytes: &'a [u8],
+    cs: &'a Capstone,
+    pos: usize,
+    start_addr: u32,
+    mode: ArmMode,
+}
+
+impl Iterator for InstrIter<'_> {
+    type Item = ArmInstruction;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.pos >= self.bytes.len() {
+            return None;
+        }
+        let instructions = self
+            .cs
+            .disasm_count(
+                &self.bytes[self.pos..],
+                u64::from(self.start_addr + u32::try_from(self.pos).expect("position too large")),
+                1,
+            )
+            .expect("Capstone disassembly failed");
+        let i = instructions
+            .as_ref()
+            .first()
+            .expect("Capstone returned no instructions");
+        self.pos += i.len();
+        Some(ArmInstruction::from_cs_insn(self.cs, i, self.mode))
+    }
+}
+
 // Produces CodeBlocks from in-memory program
 pub struct Disassembler {
     cs: Capstone,
     current_mode: ArmMode,
 }
 
-impl Disassembler {
-    pub fn disasm_single(&self, chunk: &[u8], addr: u32) -> ArmInstruction {
-        let instructions = self
-            .cs
-            .disasm_count(chunk, u64::from(addr), 1)
-            .expect("Capstone disassembly failed");
-
-        let i = instructions
-            .as_ref()
-            .first()
-            .expect("Capstone returned no instructions");
-        ArmInstruction::from_cs_insn(&self.cs, i, self.current_mode)
+impl<'a> Disassembler {
+    pub fn instr_iter(&'a self, bytes: &'a [u8], start_addr: u32) -> InstrIter<'a> {
+        InstrIter {
+            bytes,
+            cs: &self.cs,
+            pos: 0,
+            start_addr,
+            mode: self.current_mode,
+        }
     }
 }
 
 impl Disasm for Disassembler {
     fn next_code_block(&self, mem: &MemoryManager, start_addr: u32) -> Result<CodeBlock> {
         // TODO what's the appropriate type for addresses?
-        let mem_iter = match self.current_mode {
-            ArmMode::ARM => mem.iter_word(start_addr),
-            ArmMode::THUMB => mem.iter_halfword(start_addr),
-        }?;
-        let instr_iter = mem_iter.enumerate().map(move |(i, ch)| {
-            let addr = start_addr + self.current_mode.instr_size() * u32::try_from(i).unwrap();
-            self.disasm_single(ch, addr)
-        });
-        Ok(CodeBlock::from_instructions(instr_iter, start_addr))
+        Ok(CodeBlock::from_instructions(
+            self.instr_iter(mem.mem_map_lookup(start_addr)?.0, start_addr),
+            start_addr,
+        ))
     }
 
     fn set_mode(&mut self, mode: ArmMode) {

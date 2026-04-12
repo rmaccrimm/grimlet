@@ -5,6 +5,7 @@ use std::slice::Chunks;
 use std::sync::mpsc::Sender;
 
 use anyhow::{Result, bail};
+use num::Integer as _;
 use num::traits::{AsPrimitive, FromBytes, ToBytes};
 
 use crate::utils::interval_tree::IntervalTree;
@@ -80,22 +81,6 @@ impl MemoryManager {
 
     pub fn set_curr_addr_range(&mut self, start: u32, end: u32) {
         self.current_addr_range = (start, end);
-    }
-
-    pub fn iter_word(&self, start_addr: u32) -> Result<Chunks<'_, u8>> {
-        assert!(
-            start_addr.is_multiple_of(4),
-            "Mis-alligned word address: {start_addr:x}"
-        );
-        Ok(self.mem_map_lookup(start_addr)?.0.chunks(4))
-    }
-
-    pub fn iter_halfword(&self, start_addr: u32) -> Result<Chunks<'_, u8>> {
-        assert!(
-            start_addr.is_multiple_of(2),
-            "Mis-alligned halfword address: {start_addr:x}"
-        );
-        Ok(self.mem_map_lookup(start_addr)?.0.chunks(2))
     }
 
     /// Sign or zero-extends the result to 32 bits depending type parameter
