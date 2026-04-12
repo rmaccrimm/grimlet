@@ -130,7 +130,10 @@ impl ArmInstruction {
             .unwrap_or_else(|| panic!("\"{self}\" missing operand {ind}"))
             .op_type
         {
-            Reg::from(reg_id)
+            match Reg::try_from(reg_id) {
+                Ok(reg) => reg,
+                Err(e) => panic!("failed to get reg op for instr {self:?}: {e}"),
+            }
         } else {
             panic!("\"{self}\" operand {ind} is not a register");
         }
@@ -160,7 +163,7 @@ impl ArmInstruction {
             bail!("operand is not a memory address: {mem_op:?}");
         };
 
-        let base = Reg::from(inner_mem_op.base());
+        let base = Reg::try_from(inner_mem_op.base())?;
 
         if let Some(post_op) = post_index_op {
             debug_assert_eq!(inner_mem_op.index().0, 0);
@@ -169,7 +172,7 @@ impl ArmInstruction {
             let wb_mode = Some(WritebackMode::PostIndex);
             let offset = match post_op.op_type {
                 ArmOperandType::Reg(reg_id) => MemOffset::Reg {
-                    index: Reg::from(reg_id),
+                    index: Reg::try_from(reg_id)?,
                     shift: ArmShift::try_from(post_op.shift).ok(),
                     subtract: post_op.subtracted,
                 },
@@ -195,7 +198,7 @@ impl ArmInstruction {
             } else {
                 debug_assert_eq!(inner_mem_op.disp(), 0);
                 MemOffset::Reg {
-                    index: Reg::from(index),
+                    index: Reg::try_from(index)?,
                     shift: ArmShift::try_from(mem_op.shift).ok(),
                     subtract: mem_op.subtracted,
                 }
@@ -213,7 +216,7 @@ impl ArmInstruction {
         let mut regs = vec![];
         for operand in self.operands.iter().skip(skip) {
             match operand.op_type {
-                ArmOperandType::Reg(reg_id) => regs.push(Reg::from(reg_id)),
+                ArmOperandType::Reg(reg_id) => regs.push(Reg::try_from(reg_id)?),
                 _ => bail!("non-register operand in register list"),
             }
         }
@@ -231,7 +234,7 @@ impl ArmInstruction {
             .ok_or(anyhow!("missing 1st shifter operand"))?;
         Ok(match first.op_type {
             ArmOperandType::Reg(reg_id) => ShifterOperand::Reg {
-                reg: Reg::from(reg_id),
+                reg: Reg::try_from(reg_id)?,
                 shift: ArmShift::try_from(first.shift).ok(),
             },
             ArmOperandType::Imm(imm) => match op_iter.next() {
@@ -301,21 +304,21 @@ impl Display for ArmInstruction {
 }
 
 impl TryFrom<CsArmShift> for ArmShift {
-    type Error = String;
+    type Error = anyhow::Error;
 
     fn try_from(value: CsArmShift) -> std::result::Result<Self, Self::Error> {
         let shift = match value {
             CsArmShift::Invalid => {
-                return Err("Invalid shift".into());
+                return Err(anyhow!("Invalid shift"));
             }
             CsArmShift::Asr(imm) => ArmShift::AsrImm(imm),
             CsArmShift::Lsl(imm) => ArmShift::LslImm(imm),
             CsArmShift::Lsr(imm) => ArmShift::LsrImm(imm),
             CsArmShift::Ror(imm) => ArmShift::RorImm(imm),
-            CsArmShift::AsrReg(reg_id) => ArmShift::AsrReg(Reg::from(reg_id)),
-            CsArmShift::LslReg(reg_id) => ArmShift::LslReg(Reg::from(reg_id)),
-            CsArmShift::LsrReg(reg_id) => ArmShift::LsrReg(Reg::from(reg_id)),
-            CsArmShift::RorReg(reg_id) => ArmShift::RorReg(Reg::from(reg_id)),
+            CsArmShift::AsrReg(reg_id) => ArmShift::AsrReg(Reg::try_from(reg_id)?),
+            CsArmShift::LslReg(reg_id) => ArmShift::LslReg(Reg::try_from(reg_id)?),
+            CsArmShift::LsrReg(reg_id) => ArmShift::LsrReg(Reg::try_from(reg_id)?),
+            CsArmShift::RorReg(reg_id) => ArmShift::RorReg(Reg::try_from(reg_id)?),
             CsArmShift::Rrx(_) | CsArmShift::RrxReg(_) => ArmShift::Rrx,
         };
         Ok(shift)

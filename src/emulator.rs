@@ -196,10 +196,10 @@ mod tests {
     impl Disasm for VecDisassembler {
         fn next_code_block(&self, _mem: &MemoryManager, addr: u32) -> Result<CodeBlock> {
             let ind = addr as usize / 4;
-            Ok(CodeBlock::from_instructions(
+            CodeBlock::from_instructions(
                 self.program[ind..].iter().cloned(),
                 addr,
-            ))
+            )
         }
 
         fn get_mode(&self) -> ArmMode { ArmMode::ARM }

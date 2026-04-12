@@ -805,7 +805,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
         }
         let bd = &self.builder;
         let update_val = match instr.operands[1].op_type {
-            ArmOperandType::Reg(reg_id) => self.reg_map.get(Reg::from(reg_id)),
+            ArmOperandType::Reg(reg_id) => self.reg_map.get(Reg::try_from(reg_id)?),
             ArmOperandType::Imm(imm) => imm!(self, imm),
             _ => panic!("unhandled operand type"),
         };

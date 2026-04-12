@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::fmt::Display;
 
+use anyhow::Result;
 use capstone::arch::arm::{ArmInsn, ArmOperand, ArmOperandType};
 
 use crate::arm::disasm::instruction::ArmInstruction;
@@ -19,7 +20,7 @@ impl CodeBlock {
     pub fn from_instructions(
         instr_iter: impl Iterator<Item = ArmInstruction>,
         start_addr: u32,
-    ) -> Self {
+    ) -> Result<Self> {
         let mut instrs = Vec::new();
         let mut regs_accessed = HashSet::new();
         // always need the pc, and usually need cpsr
@@ -32,16 +33,16 @@ impl CodeBlock {
             for a in &instr.operands {
                 match a.op_type {
                     ArmOperandType::Reg(reg_id) => {
-                        regs_accessed.insert(Reg::from(reg_id));
+                        regs_accessed.insert(Reg::try_from(reg_id)?);
                     }
                     ArmOperandType::Mem(arm_op_mem) => {
                         let base = arm_op_mem.base();
                         let index = arm_op_mem.index();
                         if base.0 != 0 {
-                            regs_accessed.insert(Reg::from(base));
+                            regs_accessed.insert(Reg::try_from(base)?);
                         }
                         if index.0 != 0 {
-                            regs_accessed.insert(Reg::from(index));
+                            regs_accessed.insert(Reg::try_from(index)?);
                         }
                     }
                     _ => (),
@@ -57,19 +58,19 @@ impl CodeBlock {
                 }
                 _ => {}
             }
-            if is_terminator(instr) {
+            if is_terminator(instr)? {
                 break;
             }
         }
         // Shouldn't ever end up with zero length, but who knows.
         debug_assert!(!instrs.is_empty());
         let end_addr = instrs.last().map_or(start_addr, |i| i.addr);
-        CodeBlock {
+        Ok(CodeBlock {
             instrs,
             regs_accessed,
             start_addr,
             end_addr,
-        }
+        })
     }
 }
 
@@ -88,9 +89,9 @@ impl Display for CodeBlock {
 }
 
 /// This function ends the LLVM function (performs a branch)
-fn is_terminator(instr: &ArmInstruction) -> bool {
+fn is_terminator(instr: &ArmInstruction) -> Result<bool> {
     match instr.opcode {
-        ArmInsn::ARM_INS_B | ArmInsn::ARM_INS_BX | ArmInsn::ARM_INS_BL => true,
+        ArmInsn::ARM_INS_B | ArmInsn::ARM_INS_BX | ArmInsn::ARM_INS_BL => Ok(true),
         // Instructions that write to pc
         ArmInsn::ARM_INS_AND
         | ArmInsn::ARM_INS_EOR
@@ -107,8 +108,8 @@ fn is_terminator(instr: &ArmInstruction) -> bool {
             Some(ArmOperand {
                 op_type: ArmOperandType::Reg(reg_id),
                 ..
-            }) => Reg::from(*reg_id) == Reg::PC,
-            _ => false,
+            }) => Ok(Reg::try_from(*reg_id)? == Reg::PC),
+            _ => Ok(false),
         },
         ArmInsn::ARM_INS_LDR
         | ArmInsn::ARM_INS_LDRB
@@ -120,27 +121,27 @@ fn is_terminator(instr: &ArmInstruction) -> bool {
             // the capstone operands alltogether on first load. This would also allow for some
             // separation of error types (builder can just return BuilderErrors)
             let op = instr.get_mem_op(1).expect("failed to get mem op");
-            rd == Reg::PC || (instr.writeback && op.base == Reg::PC)
+            Ok(rd == Reg::PC || (instr.writeback && op.base == Reg::PC))
         }
         ArmInsn::ARM_INS_STR | ArmInsn::ARM_INS_STRB | ArmInsn::ARM_INS_STRH => {
             let op = instr.get_mem_op(1).expect("failed to get mem op");
-            instr.writeback && op.base == Reg::PC
+            Ok(instr.writeback && op.base == Reg::PC)
         }
         ArmInsn::ARM_INS_LDM
         | ArmInsn::ARM_INS_LDMIB
         | ArmInsn::ARM_INS_LDMDA
-        | ArmInsn::ARM_INS_LDMDB => instr
+        | ArmInsn::ARM_INS_LDMDB => Ok(instr
             .get_reg_list(1)
             .expect("failed to get reg list")
             .into_iter()
-            .any(|r| r == Reg::PC),
-        ArmInsn::ARM_INS_POP => instr
+            .any(|r| r == Reg::PC)),
+        ArmInsn::ARM_INS_POP => Ok(instr
             .get_reg_list(0)
             .expect("failed to get reg list")
             .into_iter()
-            .any(|r| r == Reg::PC),
+            .any(|r| r == Reg::PC)),
         // Behaviour of a number of others (mul, e.g.) is unpredictable if they write to pc.
         // Ignoring these for now.
-        _ => false,
+        _ => Ok(false),
     }
 }

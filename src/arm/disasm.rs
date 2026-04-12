@@ -76,7 +76,7 @@ impl Disasm for Disassembler {
         Ok(CodeBlock::from_instructions(
             self.instr_iter(mem.mem_map_lookup(start_addr)?.0, start_addr),
             start_addr,
-        ))
+        )?)
     }
 
     fn set_mode(&mut self, mode: ArmMode) {

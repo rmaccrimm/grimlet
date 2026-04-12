@@ -3,6 +3,7 @@ pub mod memory;
 use std::fmt::{self, Display};
 use std::ops::{Index, IndexMut};
 
+use anyhow::anyhow;
 use capstone::arch::arm::ArmReg;
 
 use crate::arm::state::memory::MemoryManager;
@@ -146,9 +147,11 @@ impl Display for ArmMode {
     }
 }
 
-impl From<capstone::RegId> for Reg {
-    fn from(value: capstone::RegId) -> Self {
-        match u32::from(value.0) {
+impl TryFrom<capstone::RegId> for Reg {
+    type Error = anyhow::Error;
+
+    fn try_from(value: capstone::RegId) -> Result<Self, Self::Error> {
+        Ok(match u32::from(value.0) {
             ArmReg::ARM_REG_R0 => Reg::R0,
             ArmReg::ARM_REG_R1 => Reg::R1,
             ArmReg::ARM_REG_R2 => Reg::R2,
@@ -167,8 +170,8 @@ impl From<capstone::RegId> for Reg {
             ArmReg::ARM_REG_PC => Reg::PC,
             // Not 100% sure about this one
             ArmReg::ARM_REG_CPSR | ArmReg::ARM_REG_APSR | ArmReg::ARM_REG_SPSR => Reg::CPSR,
-            _ => panic!("unhandled register id: {}", value.0),
-        }
+            _ => return Err(anyhow!("unhandled register id: {}", value.0)),
+        })
     }
 }
 
