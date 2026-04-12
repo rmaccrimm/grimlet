@@ -1,7 +1,7 @@
 use capstone::Capstone;
 use capstone::arch::BuildsCapstone as _;
+use capstone::arch::arm::ArchMode;
 use clap::Parser;
-use grimlet::utils::interval_tree::IntervalTree;
 
 #[derive(Parser)]
 struct Args {
@@ -9,16 +9,19 @@ struct Args {
 }
 
 fn main() -> anyhow::Result<()> {
-    let buf = [0xff, 0xf7, 0xf5, 0xff, 0xea, 0x20];
-    let cs = Capstone::new()
+    let buf = [
+        0xff, 0xf7, 0xf5, 0xff, 0xff, 0xf7, 0xf5, 0xff, 0x00, 0x20, 0x00, 0x21,
+    ];
+    let mut cs = Capstone::new()
         .arm()
-        .mode(capstone::arch::arm::ArchMode::Thumb)
+        .mode(ArchMode::Arm)
         .detail(true)
         .build()?;
 
-    let ins = cs.disasm_count(&buf, 0, 1)?;
+    cs.set_mode(ArchMode::Thumb.into()).unwrap();
+    let ins = cs.disasm_all(&buf[0..4], 0)?;
     for instr in ins.iter() {
-        println!("{:#?}", instr);
+        println!("{instr}");
     }
     Ok(())
 }

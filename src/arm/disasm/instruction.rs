@@ -77,6 +77,8 @@ pub enum WritebackMode {
 pub struct ProgramStatusReg(pub Reg, pub u32);
 
 impl ArmInstruction {
+    // TODO this should probably return a result. Just need to think about how/where I want to log
+    // it. The iterator can't return a result
     pub fn from_cs_insn(cs: &Capstone, insn: &Insn, mode: ArmMode) -> Self {
         let detail = cs
             .insn_detail(insn)
