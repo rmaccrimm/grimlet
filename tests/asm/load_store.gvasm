@@ -1,114 +1,130 @@
-// include standard library for useful constants
-.stdlib
-
-// GBA header
-.begin header
-  .arm
-  b main
-  .logo
-  .title "GAME"
-  .str "CUNE77"
-  .i16 150, 0, 0, 0, 0
-  .i8 0            // version
-  .crc
-  .i16 0
-  b header         // ensure ROM isn't interpreted as multi-boot
-  .str "SRAM_Vnnn" // tell emulators to reserve 32K of SRAM
-  .align 4
-.end
-
 .begin main
     .arm
-    // number of assertions
-    mov r7, #23
+    // number of test cases - incremented as we go
+    mov r8, #0
     // stack
     ldr sp, =0x03008000
     // data address
     ldr r10, =data
-    // test result, pushed onto stack
-    mov r9, #1 
 
-// 1. load word 1
+    b case_1
+init:
+    add r8, r8, #1
+    mov pc, lr
+fail:
+    ldr r7, =-1
+    push {r7}
+    b exit
+success:
+    mov r7, #1
+    push {r7}
+    mov pc, lr
+
+case_1: // 1. load word 1
+    bl init
     ldr r0, [r10]
     ldr r1, =0x56c7c13d
     cmp r0, r1
     bne fail
-    push {r9}
+    bl success
 
-// 2. load word 2
+case_2:  // 2. load word 2
+    bl init
     ldr r0, [r10, #4]
     ldr r1, =0x4800c3c4
     cmp r0, r1
     bne fail
-    push {r9}
+    bl success
 
-// 3. load halfword 1
+case_3: 
+    bl init
+    // 3. load halfword 1
     ldrh r0, [r10]
     ldr r1, =0xc13d
     cmp r0, r1
     bne fail
-    push {r9}
+    bl success
     
+case_4: 
+    bl init    
 // 4. load halfword, halfword-alligned
     ldrh r0, [r10, #2]
     ldr r1, =0x56c7
     cmp r0, r1
     bne fail
-    push {r9}
+    bl success
 
+case_5: 
+    bl init
 // 5. load byte 1
     ldrb r0, [r10]
     ldr r1, =0x3d
     cmp r0, r1
     bne fail
-    push {r9}
+    bl success
 
+case_6: 
+    bl init
 // 6. load byte 2
     ldrb r0, [r10, #1]
     ldr r1, =0xc1
     cmp r0, r1
     bne fail
-    push {r9}
+    bl success
 
+case_7: 
+    bl init
 // 7. load byte 3
     ldrb r0, [r10, #2]
     ldr r1, =0xc7
     cmp r0, r1
     bne fail
-    push {r9}
+    bl success
 
+case_8: 
+    bl init
 // 8. load word, rotated offset
     mov r2, #1
     ldr r0, [r10, r2, ror #30] // = 4
     ldr r1, =0x4800c3c4
     cmp r0, r1
     bne fail
-    push {r9}
+    bl success
 
+case_9: 
+    bl init
 // 9-10. load word, writeback pre-increment
     ldr r2, =empty
     ldr r0, [r2, #-8]!
     ldr r1, =0x56c7c13d
     cmp r0, r1
     bne fail
-    push {r9}
+    bl success
 
+case_10: 
+    bl init
     cmp r2, r10
     bne fail
-    push {r9}
+    bl success
 
+case_11: 
+    bl init
 // 11-12. load word, writeback post-increment
     ldr r2, =empty
     ldr r0, [r2], #-8
     ldr r1, =0x00000000
     cmp r0, r1
     bne fail
-    push {r9}
+    bl success
 
+case_12: 
+    bl init
     cmp r2, r10
     bne fail
-    push {r9}
+    bl success
 
+case_13: 
+    bl init
 // 13. store word 1
     ldr r10, =0x03000000
     ldr r2, =0xf170339c
@@ -116,8 +132,10 @@
     ldr r1, [r10]
     cmp r1, r2
     bne fail
-    push {r9}
+    bl success
 
+case_14: 
+    bl init
 // 14-15. store word 2, writeback pre-increment
     ldr r2, =0xe03bbd00
     mov r3, r10
@@ -125,13 +143,17 @@
     sub r3, r3, #4
     cmp r3, r10
     bne fail
-    push {r9}
+    bl success
 
+case_15: 
+    bl init
     ldr r1, [r10, #4]
     cmp r1, r2
     bne fail
-    push {r9}
+    bl success
 
+case_16: 
+    bl init
 // 16-23. store byte and halfword, load multiple
     ldr r2, =0x0343a12c
     mov r3, r10    
@@ -140,8 +162,10 @@
     add r3, r3, #12
     cmp r10, r3
     bne fail
-    push {r9}
+    bl success
 
+case_17: 
+    bl init
     ldr r2, =0x5eb79b81 // upper bytes will be ignored
     strh r2, [r10], #4
 
@@ -149,8 +173,10 @@
     add r2, r2, #16
     cmp r10, r2 // checking r10 is still where expected
     bne fail
-    push {r9}
+    bl success
 
+case_18: 
+    bl init
     ldr r2, =0x45851dc3 // upper bytes will be ignored
     strb r2, [r10, #4] // skipping a word, since r10 was already incremented
 
@@ -160,39 +186,46 @@
     ldr r0, =0xf170339c
     cmp r1, r0
     bne fail
-    push {r9}
+    bl success
 
+case_19: 
+    bl init
     ldr r0, =0xe03bbd00
     cmp r2, r0
     bne fail
-    push {r9}
+    bl success
 
+case_20: 
+    bl init
     ldr r0, =0x0343a12c
     cmp r3, r0
     bne fail
-    push {r9}
+    bl success
 
+case_21: 
+    bl init
     ldr r0, =0x00009b81
     cmp r4, r0
     bne fail
-    push {r9}
+    bl success
 
+case_22: 
+    bl init
     mov r0, #0
     cmp r5, r0
     bne fail
-    push {r9}
+    bl success
 
+case_23: 
+    bl init
     ldr r0, =0x000000c3
     cmp r6, r0
     bne fail
-    push {r9}
+    bl success
 
-    b exit
-fail:
-    ldr r9, =-1
-    push {r9}
 exit: 
     // emulator test exit condition
+    mov r6, r8
     mov r11, #0x6300
     b end
 data:

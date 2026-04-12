@@ -1,81 +1,21 @@
-// include standard library for useful constants
-.stdlib
-
-// GBA header
-.begin header
-  .arm
-  b main
-  .logo
-  .title "GAME"
-  .str "CUNE77"
-  .i16 150, 0, 0, 0, 0
-  .i8 0            // version
-  .crc
-  .i16 0
-  b header         // ensure ROM isn't interpreted as multi-boot
-  .str "SRAM_Vnnn" // tell emulators to reserve 32K of SRAM
-  .align 4
-.end
-
 .begin main
     .arm
-    // number of assertions
-    mov r7, #7
+    // number of test cases - incremented as we go
+    mov r6, #0
     // stack
     ldr sp, =0x03008000
-    // test success, pushed onto stack
-    mov r9, #1 
-
-    mov r0, #0
-    bl factorial
-    mov r0, #1
-    cmp r0, r1
-    bne fail
-    push {r9}
-
-    mov r0, #1
-    bl factorial
-    mov r0, #1
-    cmp r0, r1
-    bne fail
-    push {r9}
-
-    mov r0, #2 
-    bl factorial
-    mov r0, #2
-    cmp r0, r1
-    bne fail
-    push {r9}
-
-    mov r0, #3
-    bl factorial
-    mov r0, #6
-    cmp r0, r1
-    bne fail
-    push {r9}
-
-    mov r0, #4
-    bl factorial
-    mov r0, #24
-    cmp r0, r1
-    bne fail
-    push {r9}
-
-    mov r0, #5
-    bl factorial
-    mov r0, #120
-    cmp r0, r1
-    bne fail
-    push {r9}
-
-    mov r0, #12
-    bl factorial
-    ldr r0, =479001600
-    cmp r0, r1
-    bne fail
-    push {r9}
-
+    b case_1
+init:
+    add r6, r6, #1
+    mov pc, lr
+fail:
+    ldr r7, =-1
+    push {r7}
     b exit
+success:
+    mov r7, #1
+    push {r7}
+    mov pc, lr
 
 // subroutine: r1 <- factorial(r0)
 factorial:
@@ -93,9 +33,68 @@ base_case:
     mov r1, #1
     mov pc, lr
 
-fail:
-    ldr r9, =-1
-    push {r9}
+case_1:
+    bl init
+    mov r0, #0
+    bl factorial
+    mov r0, #1
+    cmp r0, r1
+    bne fail
+    bl success
+
+case_2:
+    bl init
+    mov r0, #1
+    bl factorial
+    mov r0, #1
+    cmp r0, r1
+    bne fail
+    bl success
+
+case_3:
+    bl init
+    mov r0, #2 
+    bl factorial
+    mov r0, #2
+    cmp r0, r1
+    bne fail
+    bl success
+
+case_4:
+    bl init    
+    mov r0, #3
+    bl factorial
+    mov r0, #6
+    cmp r0, r1
+    bne fail
+    bl success
+
+case_5:
+    bl init
+    mov r0, #4
+    bl factorial
+    mov r0, #24
+    cmp r0, r1
+    bne fail
+    bl success
+
+case_6:
+    bl init
+    mov r0, #5
+    bl factorial
+    mov r0, #120
+    cmp r0, r1
+    bne fail
+    bl success
+
+case_7:
+    bl init
+    mov r0, #12
+    bl factorial
+    ldr r0, =479001600
+    cmp r0, r1
+    bne fail
+    bl success
 exit: 
     // emulator test exit condition
     mov r11, #0x6300
