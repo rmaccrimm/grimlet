@@ -108,6 +108,9 @@ impl<'a> Emulator<'a> {
             }
             let instr_addr = self.state.curr_instr_addr();
             let func = if let Some(func) = self.func_cache.get(instr_addr) {
+                if self.config.debug_output.is_some() {
+                    println!("<compiled function at {instr_addr:08x}>\n");
+                }
                 func
             } else {
                 self.compile_new_func(instr_addr);
@@ -254,41 +257,6 @@ mod tests {
                 ..Default::default()
             }
         };
-    }
-
-    #[test]
-    fn test_cmp_flags() {
-        // cmp r0, #1
-        // b 100
-        let disasm = VecDisassembler::new(vec![
-            op!(ArmInsn::ARM_INS_CMP, None, reg(0), imm(1)),
-            op!(ArmInsn::ARM_INS_B, None, imm(100)),
-        ]);
-
-        let ctx = Context::create();
-        let mut em = Emulator::new(disasm, &ctx);
-
-        let exit = |st: &ArmState| -> bool { st.curr_instr_addr() == 100 };
-        let r0 = Reg::R0;
-        let cpsr = Reg::CPSR as usize;
-
-        let mut test_case = |n: u32| -> u32 {
-            em.state.jump_to(0, ArmMode::ARM as i8);
-            em.state.regs[r0] = n;
-            em.state.regs[cpsr] = 0;
-            em.run(exit);
-            em.state.regs[cpsr] >> 28
-        };
-        // Positive result
-        assert_eq!(test_case(2), 0b0010); // nzcv
-        // 0 result
-        assert_eq!(test_case(1), 0b0110); // nzcv
-        // negative result (unsigned underflow)
-        assert_eq!(test_case(0), 0b1000); // nzcv
-        // negative result (no underflow)
-        assert_eq!(test_case((-1i32).cast_unsigned()), 0b1010); // nzcv
-        // signed underflow only (positive result)
-        assert_eq!(test_case(i32::MIN.cast_unsigned()), 0b0011); // nzcv
     }
 
     macro_rules! stmdb_tests {

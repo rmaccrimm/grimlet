@@ -1,0 +1,101 @@
+.begin main
+    .arm
+    // number of test cases - incremented as we go
+    mov r6, #0
+    // stack
+    ldr sp, =0x03008000
+    b case_1
+init:
+    add r6, r6, #1
+    mov pc, lr
+fail:
+    ldr r7, =-1
+    push {r7}
+    b exit
+success:
+    mov r7, #1
+    push {r7}
+    mov pc, lr
+set_flags:
+    mov r0, r0, lsl #28
+    msr cpsr_flg, r0
+    mov pc, lr
+
+case_1: // Positive result
+    bl init
+    eor r0, r0, r0
+    bl set_flags
+    //         nzcv
+    ldr r2, =0b0010
+    ldr r0, =2
+    cmp r0, #1
+    
+    mrs r1, cpsr
+    cmp r1, r2, lsl #28
+    bne fail
+    bl success
+
+case_2: // 0 result
+    bl init
+    eor r0, r0, r0
+    bl set_flags
+    //         nzcv
+    ldr r2, =0b0110
+    ldr r0, =1
+    cmp r0, #1
+    
+    mrs r1, cpsr
+    cmp r1, r2, lsl #28
+    bne fail
+    bl success
+
+case_3: // negative result (unsigned underflow)
+    bl init
+    eor r0, r0, r0
+    bl set_flags
+    //         nzcv
+    ldr r2, =0b1000
+    ldr r0, =0
+    cmp r0, #1
+    
+    mrs r1, cpsr
+    cmp r1, r2, lsl #28
+    bne fail
+    bl success
+
+case_4: // negative result (no underflow)
+    bl init
+    eor r0, r0, r0
+    bl set_flags
+    //         nzcv
+    ldr r2, =0b1010
+    ldr r0, =-1
+    cmp r0, #1
+    
+    mrs r1, cpsr
+    cmp r1, r2, lsl #28
+    bne fail
+    bl success
+
+case_5: // signed underflow only (positive result)
+    bl init
+    eor r0, r0, r0
+    bl set_flags
+    //         nzcv
+    ldr r2, =0b0011
+    ldr r0, =-2147483648
+    cmp r0, #1
+    
+    mrs r1, cpsr
+    cmp r1, r2, lsl #28
+    bne fail
+    bl success
+
+exit: 
+    // asm_tests exit condition
+    mov r11, #0x6300
+    b end
+end:
+    b end
+    .pool
+.end
