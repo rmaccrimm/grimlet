@@ -49,10 +49,10 @@ macro_rules! assembly_test {
             for i in 1..=num_asserts {
                 let ReadVal { value, .. } = emulator.state.mem.read::<u32>(result_addr);
                 let result = value as i32;
-                assert_eq!(result, 1, "failed on assertion {}", i);
+                assert_eq!(result, 1, "failed on case {}", i);
                 result_addr -= 4;
             }
-            println!("{} assertions passed!", num_asserts);
+            println!("{} case passed!", num_asserts);
             assert_eq!(emulator.state.regs[Reg::SP], STACK_ADDR - (4 * num_asserts));
         }
     };
@@ -64,3 +64,4 @@ assembly_test!(mov_pc.gba);
 assembly_test!(factorial.gba);
 assembly_test!(flags.gba);
 assembly_test!(data_proc_flags.gba);
+assembly_test!(shifts.gba);
