@@ -1,26 +1,7 @@
-// include standard library for useful constants
-.stdlib
-
-// GBA header
-.begin header
-  .arm
-  b main
-  .logo
-  .title "GAME"
-  .str "CUNE77"
-  .i16 150, 0, 0, 0, 0
-  .i8 0            // version
-  .crc
-  .i16 0
-  b header         // ensure ROM isn't interpreted as multi-boot
-  .str "SRAM_Vnnn" // tell emulators to reserve 32K of SRAM
-  .align 4
-.end
-
 .begin main
     .arm
-    // number of assertions
-    mov r7, #2
+    // not really assertions but one push from ARM, one from THUMB
+    mov r6, #2
     // stack
     ldr sp, =0x03008000
 
