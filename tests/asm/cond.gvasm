@@ -1,6 +1,562 @@
 .begin main
-  .arm
-  
+    .arm
+    // number of test cases - incremented as we go
+    mov r6, #0
+    // stack
+    ldr sp, =0x03008000
+    b case_1
+init:
+    add r6, r6, #1
+    mov pc, lr
+fail:
+    ldr r7, =-1
+    push {r7}
+    b exit
+success:
+    mov r7, #1
+    push {r7}
+    mov pc, lr
+    
+set_flags:
+    mov r0, r0, lsl #28
+    msr cpsr_flg, r0
+    mov pc, lr
 
-  .pool
+case_1:
+    bl init
+    //         nzcv
+    ldr r0, =0b0001
+    bl set_flags
+    ldr r1, =8fbb76da
+    moveq r0, r1
+    cmp r0, r1
+    beq fail
+    bl success
+
+case_2:
+    bl init
+    //         nzcv
+    ldr r0, =0b0111
+    bl set_flags
+    ldr r1, =ec655279
+    moveq r0, r1
+    cmp r0, r1
+    bne fail
+    bl success
+
+case_3:
+    bl init
+    //         nzcv
+    ldr r0, =0b1000
+    bl set_flags
+    ldr r1, =1551c04b
+    movne r0, r1
+    cmp r0, r1
+    bne fail
+    bl success
+
+case_4:
+    bl init
+    //         nzcv
+    ldr r0, =0b1110
+    bl set_flags
+    ldr r1, =8c46c1cb
+    movne r0, r1
+    cmp r0, r1
+    beq fail
+    bl success
+
+case_5:
+    bl init
+    //         nzcv
+    ldr r0, =0b0100
+    bl set_flags
+    ldr r1, =ef16a71a
+    movhs r0, r1
+    cmp r0, r1
+    beq fail
+    bl success
+
+case_6:
+    bl init
+    //         nzcv
+    ldr r0, =0b1010
+    bl set_flags
+    ldr r1, =8fa7d11e
+    movhs r0, r1
+    cmp r0, r1
+    bne fail
+    bl success
+
+case_7:
+    bl init
+    //         nzcv
+    ldr r0, =0b1001
+    bl set_flags
+    ldr r1, =6d39b1c7
+    movlo r0, r1
+    cmp r0, r1
+    bne fail
+    bl success
+
+case_8:
+    bl init
+    //         nzcv
+    ldr r0, =0b1110
+    bl set_flags
+    ldr r1, =6b5f21b0
+    movlo r0, r1
+    cmp r0, r1
+    beq fail
+    bl success
+
+case_9:
+    bl init
+    //         nzcv
+    ldr r0, =0b0000
+    bl set_flags
+    ldr r1, =043b2281
+    movmi r0, r1
+    cmp r0, r1
+    beq fail
+    bl success
+
+case_10:
+    bl init
+    //         nzcv
+    ldr r0, =0b1001
+    bl set_flags
+    ldr r1, =ba21437e
+    movmi r0, r1
+    cmp r0, r1
+    bne fail
+    bl success
+
+case_11:
+    bl init
+    //         nzcv
+    ldr r0, =0b0000
+    bl set_flags
+    ldr r1, =6137dba7
+    movpl r0, r1
+    cmp r0, r1
+    bne fail
+    bl success
+
+case_12:
+    bl init
+    //         nzcv
+    ldr r0, =0b1000
+    bl set_flags
+    ldr r1, =d92d0349
+    movpl r0, r1
+    cmp r0, r1
+    beq fail
+    bl success
+
+case_13:
+    bl init
+    //         nzcv
+    ldr r0, =0b0010
+    bl set_flags
+    ldr r1, =e0776600
+    movvs r0, r1
+    cmp r0, r1
+    beq fail
+    bl success
+
+case_14:
+    bl init
+    //         nzcv
+    ldr r0, =0b1001
+    bl set_flags
+    ldr r1, =7432f5d6
+    movvs r0, r1
+    cmp r0, r1
+    bne fail
+    bl success
+
+case_15:
+    bl init
+    //         nzcv
+    ldr r0, =0b1100
+    bl set_flags
+    ldr r1, =e74c90b1
+    movvc r0, r1
+    cmp r0, r1
+    bne fail
+    bl success
+
+case_16:
+    bl init
+    //         nzcv
+    ldr r0, =0b1101
+    bl set_flags
+    ldr r1, =5c385edc
+    movvc r0, r1
+    cmp r0, r1
+    beq fail
+    bl success
+
+case_17:
+    bl init
+    //         nzcv
+    ldr r0, =0b0001
+    bl set_flags
+    ldr r1, =6aa32402
+    movhi r0, r1
+    cmp r0, r1
+    beq fail
+    bl success
+
+case_18:
+    bl init
+    //         nzcv
+    ldr r0, =0b0011
+    bl set_flags
+    ldr r1, =b49a4660
+    movhi r0, r1
+    cmp r0, r1
+    bne fail
+    bl success
+
+case_19:
+    bl init
+    //         nzcv
+    ldr r0, =0b1100
+    bl set_flags
+    ldr r1, =aa623e95
+    movhi r0, r1
+    cmp r0, r1
+    beq fail
+    bl success
+
+case_20:
+    bl init
+    //         nzcv
+    ldr r0, =0b0110
+    bl set_flags
+    ldr r1, =abdf6c43
+    movhi r0, r1
+    cmp r0, r1
+    beq fail
+    bl success
+
+case_21:
+    bl init
+    //         nzcv
+    ldr r0, =0b0000
+    bl set_flags
+    ldr r1, =089ccd0f
+    movls r0, r1
+    cmp r0, r1
+    bne fail
+    bl success
+
+case_22:
+    bl init
+    //         nzcv
+    ldr r0, =0b0010
+    bl set_flags
+    ldr r1, =5565354d
+    movls r0, r1
+    cmp r0, r1
+    beq fail
+    bl success
+
+case_23:
+    bl init
+    //         nzcv
+    ldr r0, =0b0100
+    bl set_flags
+    ldr r1, =07798187
+    movls r0, r1
+    cmp r0, r1
+    bne fail
+    bl success
+
+case_24:
+    bl init
+    //         nzcv
+    ldr r0, =0b0110
+    bl set_flags
+    ldr r1, =288d0133
+    movls r0, r1
+    cmp r0, r1
+    bne fail
+    bl success
+
+case_25:
+    bl init
+    //         nzcv
+    ldr r0, =0b0000
+    bl set_flags
+    ldr r1, =2fd33073
+    movge r0, r1
+    cmp r0, r1
+    bne fail
+    bl success
+
+case_26:
+    bl init
+    //         nzcv
+    ldr r0, =0b0001
+    bl set_flags
+    ldr r1, =3ede4bfd
+    movge r0, r1
+    cmp r0, r1
+    beq fail
+    bl success
+
+case_27:
+    bl init
+    //         nzcv
+    ldr r0, =0b1000
+    bl set_flags
+    ldr r1, =dbe4b0de
+    movge r0, r1
+    cmp r0, r1
+    beq fail
+    bl success
+
+case_28:
+    bl init
+    //         nzcv
+    ldr r0, =0b1001
+    bl set_flags
+    ldr r1, =468534b0
+    movge r0, r1
+    cmp r0, r1
+    bne fail
+    bl success
+
+case_29:
+    bl init
+    //         nzcv
+    ldr r0, =0b0000
+    bl set_flags
+    ldr r1, =db7d1ccd
+    movlt r0, r1
+    cmp r0, r1
+    beq fail
+    bl success
+
+case_30:
+    bl init
+    //         nzcv
+    ldr r0, =0b0001
+    bl set_flags
+    ldr r1, =60cc54c0
+    movlt r0, r1
+    cmp r0, r1
+    bne fail
+    bl success
+
+case_31:
+    bl init
+    //         nzcv
+    ldr r0, =0b1000
+    bl set_flags
+    ldr r1, =51c0ec50
+    movlt r0, r1
+    cmp r0, r1
+    bne fail
+    bl success
+
+case_32:
+    bl init
+    //         nzcv
+    ldr r0, =0b1001
+    bl set_flags
+    ldr r1, =bcc94102
+    movlt r0, r1
+    cmp r0, r1
+    beq fail
+    bl success
+
+case_33:
+    bl init
+    //         nzcv
+    ldr r0, =0b0010
+    bl set_flags
+    ldr r1, =834f9dd5
+    movgt r0, r1
+    cmp r0, r1
+    bne fail
+    bl success
+
+case_34:
+    bl init
+    //         nzcv
+    ldr r0, =0b0001
+    bl set_flags
+    ldr r1, =0016417e
+    movgt r0, r1
+    cmp r0, r1
+    beq fail
+    bl success
+
+case_35:
+    bl init
+    //         nzcv
+    ldr r0, =0b1000
+    bl set_flags
+    ldr r1, =84b83939
+    movgt r0, r1
+    cmp r0, r1
+    beq fail
+    bl success
+
+case_36:
+    bl init
+    //         nzcv
+    ldr r0, =0b1011
+    bl set_flags
+    ldr r1, =cf6f8443
+    movgt r0, r1
+    cmp r0, r1
+    bne fail
+    bl success
+
+case_37:
+    bl init
+    //         nzcv
+    ldr r0, =0b0110
+    bl set_flags
+    ldr r1, =a4d5ccd7
+    movgt r0, r1
+    cmp r0, r1
+    beq fail
+    bl success
+
+case_38:
+    bl init
+    //         nzcv
+    ldr r0, =0b0101
+    bl set_flags
+    ldr r1, =358ec17f
+    movgt r0, r1
+    cmp r0, r1
+    beq fail
+    bl success
+
+case_39:
+    bl init
+    //         nzcv
+    ldr r0, =0b1100
+    bl set_flags
+    ldr r1, =eaf17e60
+    movgt r0, r1
+    cmp r0, r1
+    beq fail
+    bl success
+
+case_40:
+    bl init
+    //         nzcv
+    ldr r0, =0b1111
+    bl set_flags
+    ldr r1, =d3d4b413
+    movgt r0, r1
+    cmp r0, r1
+    beq fail
+    bl success
+
+case_41:
+    bl init
+    //         nzcv
+    ldr r0, =0b0000
+    bl set_flags
+    ldr r1, =c64a8e5c
+    movle r0, r1
+    cmp r0, r1
+    beq fail
+    bl success
+
+case_42:
+    bl init
+    //         nzcv
+    ldr r0, =0b0001
+    bl set_flags
+    ldr r1, =1b9c7d92
+    movle r0, r1
+    cmp r0, r1
+    bne fail
+    bl success
+
+case_43:
+    bl init
+    //         nzcv
+    ldr r0, =0b1000
+    bl set_flags
+    ldr r1, =39354130
+    movle r0, r1
+    cmp r0, r1
+    bne fail
+    bl success
+
+case_44:
+    bl init
+    //         nzcv
+    ldr r0, =0b1011
+    bl set_flags
+    ldr r1, =88e31869
+    movle r0, r1
+    cmp r0, r1
+    beq fail
+    bl success
+
+case_45:
+    bl init
+    //         nzcv
+    ldr r0, =0b0110
+    bl set_flags
+    ldr r1, =d2dac267
+    movle r0, r1
+    cmp r0, r1
+    bne fail
+    bl success
+
+case_46:
+    bl init
+    //         nzcv
+    ldr r0, =0b0101
+    bl set_flags
+    ldr r1, =0e5fd15b
+    movle r0, r1
+    cmp r0, r1
+    bne fail
+    bl success
+
+case_47:
+    bl init
+    //         nzcv
+    ldr r0, =0b1100
+    bl set_flags
+    ldr r1, =436f3cb2
+    movle r0, r1
+    cmp r0, r1
+    bne fail
+    bl success
+
+case_48:
+    bl init
+    //         nzcv
+    ldr r0, =0b1101
+    bl set_flags
+    ldr r1, =81438635
+    movle r0, r1
+    cmp r0, r1
+    bne fail
+    bl success
+
+
+
+exit: 
+    // asm_tests exit condition
+    mov r11, #0x6300
+    b end
+end:
+    b end
+    .pool
 .end
