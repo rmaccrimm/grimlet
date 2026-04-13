@@ -22,6 +22,9 @@ impl<'a> Disassembler {
     }
 
     pub fn set_mode(&mut self, mode: ArmMode) {
+        if mode == self.current_mode {
+            return;
+        }
         self.current_mode = mode;
         let res = match mode {
             ArmMode::ARM => self.cs.set_mode(ArchMode::Arm.into()),
@@ -29,8 +32,6 @@ impl<'a> Disassembler {
         };
         res.expect("error while updating capstone mode");
     }
-
-    pub fn get_mode(&self) -> ArmMode { self.current_mode }
 }
 
 impl Default for Disassembler {

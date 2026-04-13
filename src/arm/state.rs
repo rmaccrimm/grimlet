@@ -91,8 +91,6 @@ impl ArmState {
         let mode = ArmMode::from(mode);
         self.jump_target = Some(JumpTarget { addr, mode });
     }
-
-    pub fn get_jump(&mut self) -> Option<JumpTarget> { self.jump_target.take() }
 }
 
 impl Default for ArmState {

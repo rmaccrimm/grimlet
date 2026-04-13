@@ -347,7 +347,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             match debug_output {
                 Some(DebugOutput::Struct) => println!("{instr:#?}"),
                 Some(DebugOutput::Assembly) => println!("{instr}"),
-                None => todo!(),
+                None => (),
             }
             // initial register values are loaded lazily, as they are encountered
             let new_regs = self.instr_iter.as_mut().unwrap().get_new_registers();

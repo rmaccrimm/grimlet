@@ -10,8 +10,8 @@ use clap::ValueEnum;
 use inkwell::context::Context;
 
 use crate::arm::disasm::Disassembler;
-use crate::arm::state::ArmState;
 use crate::arm::state::memory::MemoryManager;
+use crate::arm::state::{ArmState, JumpTarget, Reg};
 use crate::jit::FunctionBuilder;
 use crate::jit::cache::FunctionCache;
 use crate::utils::interval_tree::IntervalTree;
@@ -102,9 +102,25 @@ impl<'a> Emulator<'a> {
         F: Fn(&ArmState) -> bool,
     {
         loop {
-            if self.disasm.get_mode() != self.state.current_mode {
-                self.disasm.set_mode(self.state.current_mode);
+            if let Some(JumpTarget { addr, mode }) = self.state.jump_target.take() {
+                let (mem_ref, _) = self
+                    .state
+                    .mem
+                    .mem_map_lookup(addr)
+                    .expect("invalid address");
+                // It'd be nice if we could avoid doing this initial disassembly twice
+                let mut window = self.disasm.new_window(mem_ref, addr);
+                window.next();
+                // Should Compiled Function handle this?
+                self.state.regs[Reg::PC] = window
+                    .peek_two()
+                    .map_or(addr + mode.pc_byte_offset(), |instr| instr.addr);
+                // TOOD Sort this out, probably depends on where we're jumping to (i.e. can't
+                // ignore the wait states above). Also where should this code go?
+                self.state.add_cycles(2);
+                self.disasm.set_mode(mode);
             }
+
             let instr_addr = self.state.curr_instr_addr();
             let func = if let Some(func) = self.func_cache.get(instr_addr) {
                 if self.config.debug_output.is_some() {
@@ -119,6 +135,7 @@ impl<'a> Emulator<'a> {
                 func.call(&mut self.state);
             }
             self.func_cache.update();
+
             if self.config.print_state {
                 println!("{}", self.state);
             }
