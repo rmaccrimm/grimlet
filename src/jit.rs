@@ -86,6 +86,7 @@ use uuid::Uuid;
 use crate::arm::disasm::InstrWindow;
 use crate::arm::disasm::instruction::ArmInstruction;
 use crate::arm::state::{ArmState, NUM_REGS, Reg};
+use crate::emulator::{DebugOutput, DumpLLVM, EnvConfig};
 use crate::jit::reg_map::{RegMap, RegMapItem};
 
 macro_rules! unimpl_instr {
@@ -179,6 +180,7 @@ where
     // Optional just to keep old tests working. A little bit clunky
     instr_iter: Option<InstrWindow<'a>>,
     exit_queue: VecDeque<ExitCountdown<'a>>,
+    config: Option<EnvConfig>,
 
     // References to LLVM state
     ctx: &'ctx Context,
@@ -324,12 +326,29 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             fshr,
             exit_queue: VecDeque::new(),
             instr_iter: None,
+            config: None,
         })
     }
 
+    #[must_use]
+    pub fn set_config(mut self, config: EnvConfig) -> Self {
+        self.config = Some(config);
+        self
+    }
+
     pub fn build_body(mut self, instr_window: InstrWindow<'a>) -> Result<Self> {
+        let debug_output = self.config.as_ref().and_then(|c| c.debug_output);
+        if debug_output.is_some() {
+            println!("-------------------------");
+        }
         self.instr_iter = Some(instr_window);
+
         while let Some(instr) = self.instr_iter.as_mut().and_then(InstrWindow::next) {
+            match debug_output {
+                Some(DebugOutput::Struct) => println!("{instr:#?}"),
+                Some(DebugOutput::Assembly) => println!("{instr}"),
+                None => todo!(),
+            }
             // initial register values are loaded lazily, as they are encountered
             let new_regs = self.instr_iter.as_mut().unwrap().get_new_registers();
             if !new_regs.is_empty() {
@@ -350,19 +369,37 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
                 break;
             }
         }
+        if debug_output.is_some() {
+            println!("-------------------------");
+        }
         Ok(self)
     }
 
     pub fn compile(&self) -> Result<CompiledFunction<'ctx>> {
+        let (dump_llvm, llvm_output_dir) =
+            self.config.as_ref().map_or((None, String::new()), |c| {
+                (c.dump_llvm, c.llvm_output_dir.clone())
+            });
+
+        if matches!(dump_llvm, Some(DumpLLVM::BeforeCompilation)) {
+            self.dump_llvm(&llvm_output_dir);
+        }
         if self.func.verify(true) {
-            unsafe {
-                Ok(CompiledFunction {
+            let compiled = unsafe {
+                CompiledFunction {
                     start_addr: self.start_addr,
                     end_addr: self.end_addr,
                     inner: self.execution_engine.get_function(&self.name)?,
-                })
+                }
+            };
+            if matches!(dump_llvm, Some(DumpLLVM::AfterCompilation)) {
+                self.dump_llvm(&llvm_output_dir);
             }
+            Ok(compiled)
         } else {
+            if matches!(dump_llvm, Some(DumpLLVM::OnFail)) {
+                self.dump_llvm(&llvm_output_dir);
+            }
             Err(anyhow!("Function verification failed"))
         }
     }

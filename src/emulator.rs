@@ -22,27 +22,27 @@ pub mod video;
 const CYCLES_PER_FRAME: u32 = 279_620;
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
-enum DebugOutput {
+pub enum DebugOutput {
     Assembly,
     Struct,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, ValueEnum, Debug)]
-enum DumpLLVM {
+pub enum DumpLLVM {
     OnFail,
     BeforeCompilation,
     AfterCompilation,
 }
 
-#[derive(Debug, Default)]
-struct Config {
-    debug_output: Option<DebugOutput>,
-    dump_llvm: Option<DumpLLVM>,
-    print_state: bool,
-    llvm_output_dir: String,
+#[derive(Clone, Debug, Default)]
+pub struct EnvConfig {
+    pub debug_output: Option<DebugOutput>,
+    pub dump_llvm: Option<DumpLLVM>,
+    pub print_state: bool,
+    pub llvm_output_dir: String,
 }
 
-impl Config {
+impl EnvConfig {
     fn load_from_env() -> Self {
         Self {
             debug_output: env::var("DEBUG_OUTPUT")
@@ -64,7 +64,7 @@ pub struct Emulator<'a> {
     ctx: &'a Context,
     disasm: Disassembler,
     func_cache: FunctionCache<'a>,
-    config: Config,
+    config: EnvConfig,
 }
 
 impl<'a> Emulator<'a> {
@@ -72,7 +72,7 @@ impl<'a> Emulator<'a> {
         let (tx, rx) = mpsc::channel();
         let ival_tree = Rc::new(RefCell::new(IntervalTree::default()));
         let mem = MemoryManager::new(ival_tree.clone(), tx);
-        let config = Config::load_from_env();
+        let config = EnvConfig::load_from_env();
 
         Self {
             ctx: llvm_ctx,
@@ -144,23 +144,15 @@ impl<'a> Emulator<'a> {
 
         let builder = FunctionBuilder::new(self.ctx, addr)
             .expect("failed to initialize function")
+            .set_config(self.config.clone())
             .build_body(window)
             .expect("failed to build function");
 
-        if matches!(self.config.dump_llvm, Some(DumpLLVM::BeforeCompilation)) {
-            builder.dump_llvm(&self.config.llvm_output_dir);
-        }
         match builder.compile() {
             Ok(compiled) => {
                 self.func_cache.insert(compiled);
-                if matches!(self.config.dump_llvm, Some(DumpLLVM::AfterCompilation)) {
-                    builder.dump_llvm(&self.config.llvm_output_dir);
-                }
             }
             Err(e) => {
-                if matches!(self.config.dump_llvm, Some(DumpLLVM::OnFail)) {
-                    builder.dump_llvm(&self.config.llvm_output_dir);
-                }
                 panic!("{e}");
             }
         }

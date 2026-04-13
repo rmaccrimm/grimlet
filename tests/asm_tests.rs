@@ -1,4 +1,3 @@
-use grimlet::arm::disasm::Disassembler;
 use grimlet::arm::state::memory::ReadVal;
 use grimlet::arm::state::{ArmMode, ArmState, Reg};
 use grimlet::emulator::Emulator;
