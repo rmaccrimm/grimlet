@@ -38,7 +38,7 @@ macro_rules! assembly_test {
                 assert_eq!(result, 1, "failed on case {}", i);
                 result_addr -= 4;
             }
-            println!("{} case passed!", num_cases);
+            println!("{} cases passed", num_cases);
             assert_eq!(
                 emulator.state.regs[Reg::SP],
                 STACK_ADDR - (4 * num_cases),
@@ -48,8 +48,10 @@ macro_rules! assembly_test {
     };
 }
 
-assembly_test!(load_store.gba);
 assembly_test!(bx.gba);
-assembly_test!(mov_pc.gba);
+assembly_test!(cond.gba);
+assembly_test!(cmp_flags.gba);
 assembly_test!(factorial.gba);
+assembly_test!(load_store.gba);
+assembly_test!(mov_pc.gba);
 assembly_test!(shifts.gba);

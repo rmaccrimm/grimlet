@@ -1,7 +1,7 @@
 .begin main
     .arm
     // number of test cases - incremented as we go
-    mov r8, #0
+    mov r6, #0
     // stack
     ldr sp, =0x03008000
     // data address
@@ -9,7 +9,7 @@
 
     b case_1
 init:
-    add r8, r8, #1
+    add r6, r6, #1
     mov pc, lr
 fail:
     ldr r7, =-1
@@ -181,7 +181,8 @@ case_18:
     strb r2, [r10, #4] // skipping a word, since r10 was already incremented
 
     ldr r10, =0x03000000
-    ldmia r10, {r1, r2, r3, r4, r5, r6}
+    // These are checked in cases 18 - 23
+    ldmia r10, {r1, r2, r3, r4, r5, r8} 
 
     ldr r0, =0xf170339c
     cmp r1, r0
@@ -219,13 +220,161 @@ case_22:
 case_23: 
     bl init
     ldr r0, =0x000000c3
-    cmp r6, r0
+    cmp r8, r0
+    bne fail
+    bl success
+    b case_24
+
+// From emulator.rs originally, tested by just checking mem array after
+stmdb_setup:
+    // address to write to
+    ldr r9, =0x4000
+    mov r0, #1
+    mov r1, #2
+    mov r2, #3
+    mov r3, #5
+    mov r4, #7
+    mov r5, #11
+    mov r7, #13
+    mov r8, #17
+    mov pc, lr
+
+case_24: // stmdb writeback
+    bl init
+    bl stmdb_setup
+    stmdb r9!, {r0, r2, r5, r1, r3, r8, r7, r4}
+    ldr r11, =0x4000
+    sub r11, r11, #32
+    // Check mem register was written to, check values stored in following cases
+    cmp r9, r11
+    bne fail
+    bl success
+
+case_25:
+    bl init
+    ldr r12, [r11], #4
+    cmp r12, #1
+    bne fail
+    bl success
+
+case_26:
+    bl init
+    ldr r12, [r11], #4
+    cmp r12, #2
+    bne fail
+    bl success
+
+case_27:
+    bl init
+    ldr r12, [r11], #4
+    cmp r12, #3
+    bne fail
+    bl success
+
+case_28:
+    bl init
+    ldr r12, [r11], #4
+    cmp r12, #5
+    bne fail
+    bl success
+
+case_29:
+    bl init
+    ldr r12, [r11], #4
+    cmp r12, #7
+    bne fail
+    bl success
+
+case_30:
+    bl init
+    ldr r12, [r11], #4
+    cmp r12, #11
+    bne fail
+    bl success
+
+case_31:
+    bl init
+    ldr r12, [r11], #4
+    cmp r12, #13
+    bne fail
+    bl success
+
+case_32:
+    bl init
+    ldr r12, [r11], #4
+    cmp r12, #17
+    bne fail
+    bl success
+
+case_33: // stmdb no writeback
+    bl init
+    bl stmdb_setup
+    stmdb r9, {r0, r5, r2, r8, r7, r3, r1, r4}
+    ldr r11, =0x4000
+    // Check mem register was written to, check values stored in following cases
+    cmp r9, r11
+    bne fail
+    bl success
+    sub r11, r11, #32
+
+case_34:
+    bl init
+    ldr r12, [r11], #4
+    cmp r12, #1
+    bne fail
+    bl success
+
+case_35:
+    bl init
+    ldr r12, [r11], #4
+    cmp r12, #2
+    bne fail
+    bl success
+
+case_36:
+    bl init
+    ldr r12, [r11], #4
+    cmp r12, #3
+    bne fail
+    bl success
+
+case_37:
+    bl init
+    ldr r12, [r11], #4
+    cmp r12, #5
+    bne fail
+    bl success
+
+case_38:
+    bl init
+    ldr r12, [r11], #4
+    cmp r12, #7
+    bne fail
+    bl success
+
+case_39:
+    bl init
+    ldr r12, [r11], #4
+    cmp r12, #11
+    bne fail
+    bl success
+
+case_40:
+    bl init
+    ldr r12, [r11], #4
+    cmp r12, #13
+    bne fail
+    bl success
+
+case_41:
+    bl init
+    ldr r12, [r11], #4
+    cmp r12, #17
     bne fail
     bl success
 
 exit: 
     // emulator test exit condition
-    mov r6, r8
     mov r11, #0x6300
     b end
 data:
