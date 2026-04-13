@@ -3,7 +3,7 @@ use std::process::{Command, Stdio};
 
 use anyhow::{Result, bail};
 use clap::Parser;
-use grimlet::arm::disasm::{Disasm as _, Disassembler};
+use grimlet::arm::disasm::Disassembler;
 use grimlet::arm::state::ArmMode;
 
 #[derive(Parser, Debug)]
@@ -58,7 +58,7 @@ fn main() -> Result<()> {
             &bin[0..4]
         };
 
-        let instr = ds.instr_iter(bytes, 0).next().unwrap();
+        let instr = ds.new_window(bytes, 0).next().unwrap();
         Ok(format!("{:#?}", instr))
     };
     let result = run();

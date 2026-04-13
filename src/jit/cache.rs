@@ -30,8 +30,10 @@ impl<'ctx> FunctionCache<'ctx> {
         }
     }
 
-    pub fn insert(&mut self, start: u32, end: u32, v: CompiledFunction<'ctx>) {
-        let res = self.map.insert(start, CacheEntry { func: v, hits: 0 });
+    pub fn insert(&mut self, func: CompiledFunction<'ctx>) {
+        let start = func.start_addr;
+        let end = func.end_addr;
+        let res = self.map.insert(start, CacheEntry { func, hits: 0 });
         debug_assert!(res.is_none());
         self.interval_tree.borrow_mut().insert((start, end));
     }

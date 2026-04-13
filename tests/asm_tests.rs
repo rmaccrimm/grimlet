@@ -20,10 +20,8 @@ macro_rules! assembly_test {
         #[test]
         fn $name() {
             let path = format!("tests/bin/{}.gba", stringify!($name));
-            let disasm = Disassembler::default();
             let ctx = Context::create();
-
-            let mut emulator = Emulator::new(disasm, &ctx);
+            let mut emulator = Emulator::new(&ctx);
             let exit = |st: &ArmState| -> bool { st.regs[Reg::R11] == EXIT_VAL };
 
             emulator.load_rom(path, CART_START_ADDR).unwrap();

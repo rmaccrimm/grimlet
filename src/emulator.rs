@@ -9,7 +9,7 @@ use anyhow::{Result, bail};
 use clap::ValueEnum;
 use inkwell::context::Context;
 
-use crate::arm::disasm::Disasm;
+use crate::arm::disasm::Disassembler;
 use crate::arm::state::ArmState;
 use crate::arm::state::memory::MemoryManager;
 use crate::jit::FunctionBuilder;
@@ -62,13 +62,13 @@ impl Config {
 pub struct Emulator<'a> {
     pub state: ArmState,
     ctx: &'a Context,
-    disasm: Box<dyn Disasm>,
+    disasm: Disassembler,
     func_cache: FunctionCache<'a>,
     config: Config,
 }
 
 impl<'a> Emulator<'a> {
-    pub fn new(disasm: impl Disasm + 'static, llvm_ctx: &'a Context) -> Self {
+    pub fn new(llvm_ctx: &'a Context) -> Self {
         let (tx, rx) = mpsc::channel();
         let ival_tree = Rc::new(RefCell::new(IntervalTree::default()));
         let mem = MemoryManager::new(ival_tree.clone(), tx);
@@ -77,7 +77,7 @@ impl<'a> Emulator<'a> {
         Self {
             ctx: llvm_ctx,
             state: ArmState::new(mem),
-            disasm: Box::new(disasm),
+            disasm: Disassembler::default(),
             func_cache: FunctionCache::new(ival_tree, rx),
             config,
         }
@@ -134,19 +134,17 @@ impl<'a> Emulator<'a> {
     }
 
     fn compile_new_func(&mut self, addr: u32) {
-        let code_block = self
-            .disasm
-            .next_code_block(&self.state.mem, addr)
-            .expect("disassembly failed");
+        let (mem_ref, _) = self
+            .state
+            .mem
+            .mem_map_lookup(addr)
+            .expect("invalid address");
 
-        match self.config.debug_output {
-            Some(DebugOutput::Assembly) => println!("{code_block}"),
-            Some(DebugOutput::Struct) => println!("{code_block:#?}"),
-            None => (),
-        }
+        let window = self.disasm.new_window(mem_ref, addr);
+
         let builder = FunctionBuilder::new(self.ctx, addr)
             .expect("failed to initialize function")
-            .build_body(&code_block)
+            .build_body(window)
             .expect("failed to build function");
 
         if matches!(self.config.dump_llvm, Some(DumpLLVM::BeforeCompilation)) {
@@ -154,9 +152,7 @@ impl<'a> Emulator<'a> {
         }
         match builder.compile() {
             Ok(compiled) => {
-                self.func_cache
-                    .insert(code_block.start_addr, code_block.end_addr, compiled);
-
+                self.func_cache.insert(compiled);
                 if matches!(self.config.dump_llvm, Some(DumpLLVM::AfterCompilation)) {
                     builder.dump_llvm(&self.config.llvm_output_dir);
                 }
@@ -174,7 +170,6 @@ impl<'a> Emulator<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::arm::disasm::Disassembler;
     use crate::arm::state::{ArmMode, Reg};
 
     #[rustfmt::skip]
@@ -198,8 +193,7 @@ mod tests {
         ];
 
         let ctx = Context::create();
-        let disasm = Disassembler::default();
-        let mut emulator = Emulator::new(disasm, &ctx);
+        let mut emulator = Emulator::new(&ctx);
 
         let (mem, _) = emulator.state.mem.mem_map_lookup_mut(0).unwrap();
         mem[..program.len()].copy_from_slice(&program);
@@ -241,8 +235,7 @@ mod tests {
         ];
 
         let ctx = Context::create();
-        let disasm = Disassembler::default();
-        let mut emulator = Emulator::new(disasm, &ctx);
+        let mut emulator = Emulator::new(&ctx);
 
         // gvasm generated assembly - needs to be loaded into cartridge mem for labels to work
         // (Could this be a problem later? I don't know if this should actually be writeable)

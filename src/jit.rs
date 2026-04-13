@@ -83,7 +83,7 @@ use inkwell::values::{BasicValueEnum, FunctionValue, IntValue, PointerValue};
 use inkwell::{AddressSpace, OptimizationLevel};
 use uuid::Uuid;
 
-use crate::arm::disasm::code_block::CodeBlock;
+use crate::arm::disasm::InstrWindow;
 use crate::arm::disasm::instruction::ArmInstruction;
 use crate::arm::state::{ArmState, NUM_REGS, Reg};
 use crate::jit::reg_map::{RegMap, RegMapItem};
@@ -104,8 +104,8 @@ macro_rules! unimpl_instr {
 /// Entrypoint into JIT-compiled code. Wraps the Inkwell JIT function and handles some other
 /// updates required before calling into it.
 pub struct CompiledFunction<'a> {
-    start_addr: u32,
-    end_addr: u32,
+    pub start_addr: u32,
+    pub end_addr: u32,
     inner: JitFunction<'a, unsafe extern "C" fn(*mut ArmState)>,
 }
 
@@ -176,6 +176,17 @@ pub struct FunctionBuilder<'ctx, 'a>
 where
     'ctx: 'a,
 {
+    // Optional just to keep old tests working. A little bit clunky
+    instr_iter: Option<InstrWindow<'a>>,
+    exit_queue: VecDeque<ExitCountdown<'a>>,
+
+    // References to LLVM state
+    ctx: &'ctx Context,
+    builder: Builder<'ctx>,
+    module: Module<'ctx>,
+    execution_engine: ExecutionEngine<'ctx>,
+    current_block: BasicBlock<'a>,
+
     name: String,
     func: FunctionValue<'a>,
     start_addr: u32,
@@ -184,13 +195,6 @@ where
     // Latest value for each register
     reg_map: RegMap<'a>,
     cycles: IntValue<'a>,
-
-    // References to LLVM state
-    ctx: &'ctx Context,
-    builder: Builder<'ctx>,
-    module: Module<'ctx>,
-    execution_engine: ExecutionEngine<'ctx>,
-    current_block: BasicBlock<'a>,
 
     // Pointers to emulated state
     arm_state_ptr: PointerValue<'a>,
@@ -210,8 +214,6 @@ where
     uadd_with_overflow: FunctionValue<'a>,
     usub_with_overflow: FunctionValue<'a>,
     fshr: FunctionValue<'a>,
-
-    exit_queue: VecDeque<ExitCountdown<'a>>,
 }
 
 fn get_ptr_param(func: FunctionValue<'_>, i: u32) -> Result<PointerValue<'_>> {
@@ -321,13 +323,15 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             usub_with_overflow,
             fshr,
             exit_queue: VecDeque::new(),
+            instr_iter: None,
         })
     }
 
-    pub fn build_body(mut self, code_block: &CodeBlock) -> Result<Self> {
-        self.load_initial_reg_values(&code_block.regs_accessed)
-            .expect("initial register load failed");
-        for instr in &code_block.instrs {
+    pub fn build_body(mut self, instr_window: InstrWindow<'a>) -> Result<Self> {
+        self.instr_iter = Some(instr_window);
+        // self.load_initial_reg_values(&code_block.regs_accessed)
+        //     .expect("initial register load failed");
+        while let Some(instr) = self.instr_iter.as_mut().and_then(InstrWindow::next) {
             if let Some(ex) = self.exit_queue.front()
                 && ex.counter == 0
             {
@@ -337,8 +341,12 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             for ex in &mut self.exit_queue {
                 ex.counter -= 1;
             }
-            self.build(instr);
+            self.build(&instr);
             self.end_addr = instr.addr;
+            println!(
+                "{}",
+                self.instr_iter.as_ref().unwrap().peek_one().unwrap().addr
+            );
         }
         Ok(self)
     }
