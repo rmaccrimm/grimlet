@@ -1,11 +1,9 @@
 use std::array::TryFromSliceError;
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::slice::Chunks;
 use std::sync::mpsc::Sender;
 
 use anyhow::{Result, bail};
-use num::Integer as _;
 use num::traits::{AsPrimitive, FromBytes, ToBytes};
 
 use crate::utils::interval_tree::IntervalTree;

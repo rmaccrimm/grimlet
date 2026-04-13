@@ -3,7 +3,6 @@ use std::env;
 use std::fs::{self, File};
 use std::io::{BufReader, Read};
 use std::rc::Rc;
-use std::slice::Chunks;
 use std::sync::mpsc;
 
 use anyhow::{Result, bail};

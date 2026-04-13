@@ -30,7 +30,6 @@ impl<'a> FunctionBuilder<'_, 'a> {
         F: Fn(&Self, &ArmInstruction) -> Result<BranchAction<'a>>,
     {
         let bd = &self.builder;
-        let mode = instr.mode;
         let ctx = self.ctx;
         let if_block = ctx.append_basic_block(self.func, "if");
         let end_block = ctx.append_basic_block(self.func, "end");

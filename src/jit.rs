@@ -85,7 +85,7 @@ use uuid::Uuid;
 
 use crate::arm::disasm::code_block::CodeBlock;
 use crate::arm::disasm::instruction::ArmInstruction;
-use crate::arm::state::{ArmMode, ArmState, NUM_REGS, Reg};
+use crate::arm::state::{ArmState, NUM_REGS, Reg};
 use crate::jit::reg_map::{RegMap, RegMapItem};
 
 macro_rules! unimpl_instr {
@@ -610,7 +610,7 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
-    use crate::arm::state::{ArmState, REG_ITEMS, Reg};
+    use crate::arm::state::{ArmMode, ArmState, REG_ITEMS, Reg};
 
     macro_rules! compile_and_run {
         ($func:ident, $state:ident) => {
