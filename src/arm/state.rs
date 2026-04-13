@@ -8,13 +8,9 @@ use capstone::arch::arm::ArmReg;
 
 use crate::arm::state::memory::MemoryManager;
 
-/// Emulated CPU state (and interpreter?)
-#[repr(C)]
-pub struct ArmState {
-    pub current_mode: ArmMode,
-    pub regs: [u32; NUM_REGS as usize],
-    pub cycle_count: u32,
-    pub mem: MemoryManager,
+pub struct JumpTarget {
+    pub addr: u32,
+    pub mode: ArmMode,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -68,17 +64,14 @@ pub const REG_ITEMS: [Reg; NUM_REGS as usize] = [
     Reg::SPSR,
 ];
 
-impl Default for ArmState {
-    fn default() -> Self {
-        let mut regs = [0; NUM_REGS as usize];
-        regs[Reg::PC] = 8; // 2 instructions ahead
-        Self {
-            current_mode: ArmMode::ARM,
-            regs,
-            mem: MemoryManager::default(),
-            cycle_count: 0,
-        }
-    }
+/// Emulated CPU state (and interpreter?)
+#[repr(C)]
+pub struct ArmState {
+    pub current_mode: ArmMode,
+    pub regs: [u32; NUM_REGS as usize],
+    pub cycle_count: u32,
+    pub mem: MemoryManager,
+    pub jump_target: Option<JumpTarget>,
 }
 
 impl ArmState {
@@ -95,13 +88,24 @@ impl ArmState {
     pub fn add_cycles(&mut self, cycles: u32) { self.cycle_count += cycles; }
 
     pub fn jump_to(&mut self, addr: u32, mode: i8) {
-        let new_mode = ArmMode::from(mode);
-        if new_mode != self.current_mode {
-            self.current_mode = new_mode;
+        let mode = ArmMode::from(mode);
+        self.jump_target = Some(JumpTarget { addr, mode });
+    }
+
+    pub fn get_jump(&mut self) -> Option<JumpTarget> { self.jump_target.take() }
+}
+
+impl Default for ArmState {
+    fn default() -> Self {
+        let mut regs = [0; NUM_REGS as usize];
+        regs[Reg::PC] = 8; // 2 instructions ahead
+        Self {
+            current_mode: ArmMode::ARM,
+            regs,
+            mem: MemoryManager::default(),
+            cycle_count: 0,
+            jump_target: None,
         }
-        // TODO - is this always true or de we actually have to parse the next two instructions to
-        // set this (since in Thumb mode they can have variable size)?
-        self.regs[Reg::PC] = addr + self.current_mode.pc_byte_offset();
     }
 }
 
