@@ -340,7 +340,10 @@ mod tests {
     // Using assembled bytes to test as we cannot construct a capstone::ArmMemOp
     fn get_mem_op_from_assembled(bin: u32) -> MemOperand {
         let disasm = Disassembler::default();
-        let instr = disasm.new_window(&bin.to_le_bytes(), 0).next().unwrap();
+        let instr = disasm
+            .new_window_iter(&bin.to_le_bytes(), 0)
+            .next()
+            .unwrap();
         instr.get_mem_op(1).unwrap()
     }
 

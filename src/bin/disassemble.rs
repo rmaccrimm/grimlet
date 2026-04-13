@@ -58,7 +58,7 @@ fn main() -> Result<()> {
             &bin[0..4]
         };
 
-        let instr = ds.new_window(bytes, 0).next().unwrap();
+        let instr = ds.new_window_iter(bytes, 0).next().unwrap();
         Ok(format!("{:#?}", instr))
     };
     let result = run();

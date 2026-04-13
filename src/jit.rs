@@ -83,7 +83,7 @@ use inkwell::values::{BasicValueEnum, FunctionValue, IntValue, PointerValue};
 use inkwell::{AddressSpace, OptimizationLevel};
 use uuid::Uuid;
 
-use crate::arm::disasm::InstrWindow;
+use crate::arm::disasm::InstrWindowIter;
 use crate::arm::disasm::instruction::ArmInstruction;
 use crate::arm::state::{ArmState, NUM_REGS, Reg};
 use crate::emulator::{DebugOutput, DumpLLVM, EnvConfig};
@@ -178,7 +178,7 @@ where
     'ctx: 'a,
 {
     // Optional just to keep old tests working. A little bit clunky
-    instr_iter: Option<InstrWindow<'a>>,
+    instr_iter: Option<InstrWindowIter<'a>>,
     exit_queue: VecDeque<ExitCountdown<'a>>,
     config: Option<EnvConfig>,
 
@@ -336,14 +336,14 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         self
     }
 
-    pub fn build_body(mut self, instr_window: InstrWindow<'a>) -> Result<Self> {
+    pub fn build_body(mut self, instr_iter: InstrWindowIter<'a>) -> Result<Self> {
         let debug_output = self.config.as_ref().and_then(|c| c.debug_output);
         if debug_output.is_some() {
             println!("-------------------------");
         }
-        self.instr_iter = Some(instr_window);
+        self.instr_iter = Some(instr_iter);
 
-        while let Some(instr) = self.instr_iter.as_mut().and_then(InstrWindow::next) {
+        while let Some(instr) = self.instr_iter.as_mut().and_then(InstrWindowIter::next) {
             match debug_output {
                 Some(DebugOutput::Struct) => println!("{instr:#?}"),
                 Some(DebugOutput::Assembly) => println!("{instr}"),

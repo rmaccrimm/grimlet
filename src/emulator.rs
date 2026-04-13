@@ -109,10 +109,10 @@ impl<'a> Emulator<'a> {
                     .mem_map_lookup(addr)
                     .expect("invalid address");
                 // It'd be nice if we could avoid doing this initial disassembly twice
-                let mut window = self.disasm.new_window(mem_ref, addr);
-                window.next();
+                let mut iter = self.disasm.new_window_iter(mem_ref, addr);
+                iter.next();
                 // Should Compiled Function handle this?
-                self.state.regs[Reg::PC] = window
+                self.state.regs[Reg::PC] = iter
                     .peek_two()
                     .map_or(addr + mode.pc_byte_offset(), |instr| instr.addr);
                 // TOOD Sort this out, probably depends on where we're jumping to (i.e. can't
@@ -157,12 +157,12 @@ impl<'a> Emulator<'a> {
             .mem_map_lookup(addr)
             .expect("invalid address");
 
-        let window = self.disasm.new_window(mem_ref, addr);
+        let iter = self.disasm.new_window_iter(mem_ref, addr);
 
         let builder = FunctionBuilder::new(self.ctx, addr)
             .expect("failed to initialize function")
             .set_config(self.config.clone())
-            .build_body(window)
+            .build_body(iter)
             .expect("failed to build function");
 
         match builder.compile() {

@@ -17,8 +17,8 @@ pub struct Disassembler {
 }
 
 impl<'a> Disassembler {
-    pub fn new_window(&'a self, bytes: &'a [u8], start_addr: u32) -> InstrWindow<'a> {
-        InstrWindow::with_len(2, bytes, &self.cs, self.current_mode, start_addr)
+    pub fn new_window_iter(&'a self, bytes: &'a [u8], start_addr: u32) -> InstrWindowIter<'a> {
+        InstrWindowIter::with_len(2, bytes, &self.cs, self.current_mode, start_addr)
     }
 
     pub fn set_mode(&mut self, mode: ArmMode) {
@@ -49,7 +49,8 @@ impl Default for Disassembler {
     }
 }
 
-pub struct InstrWindow<'a> {
+/// A sliding window of instructions used to perform lookaheads when necessary
+pub struct InstrWindowIter<'a> {
     queue: VecDeque<ArmInstruction>,
     bytes: &'a [u8],
     cs: &'a Capstone,
@@ -61,7 +62,7 @@ pub struct InstrWindow<'a> {
     registers_seen: HashSet<Reg>,
 }
 
-impl<'a> InstrWindow<'a> {
+impl<'a> InstrWindowIter<'a> {
     pub fn peek_one(&self) -> Option<&ArmInstruction> { self.queue.front() }
 
     pub fn peek_two(&self) -> Option<&ArmInstruction> { self.queue.get(1) }
@@ -168,7 +169,7 @@ impl<'a> InstrWindow<'a> {
     }
 }
 
-impl Iterator for InstrWindow<'_> {
+impl Iterator for InstrWindowIter<'_> {
     type Item = ArmInstruction;
 
     // Return the next instruction to compile and refill the window
@@ -196,7 +197,7 @@ mod tests {
             0xa0, 0xe1,
         ];
         let disasm = Disassembler::default();
-        let mut window = InstrWindow::with_len(3, &program, &disasm.cs, ArmMode::ARM, 0x4000);
+        let mut window = InstrWindowIter::with_len(3, &program, &disasm.cs, ArmMode::ARM, 0x4000);
         assert_eq!(window.queue.len(), 3);
 
         let next = window.next().unwrap();
@@ -246,7 +247,8 @@ mod tests {
         ];
         let mut disasm = Disassembler::default();
         disasm.set_mode(ArmMode::THUMB);
-        let window = InstrWindow::with_len(2, &program, &disasm.cs, ArmMode::THUMB, 0x0800_0000);
+        let window =
+            InstrWindowIter::with_len(2, &program, &disasm.cs, ArmMode::THUMB, 0x0800_0000);
         assert_eq!(window.queue.len(), 2);
 
         let first = window.peek_one().unwrap();
@@ -284,7 +286,7 @@ mod tests {
             0x00, 0x02, 0x2d, 0xe9, 0x01, 0x00, 0x00, 0xeb,
         ];
         let disasm = Disassembler::default();
-        let mut window = InstrWindow::with_len(2, &program, &disasm.cs, ArmMode::ARM, 0);
+        let mut window = InstrWindowIter::with_len(2, &program, &disasm.cs, ArmMode::ARM, 0);
         assert_eq!(window.queue.len(), 2);
 
         let expected_new = vec![
