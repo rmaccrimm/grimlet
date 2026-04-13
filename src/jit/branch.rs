@@ -12,20 +12,20 @@ pub(super) struct BranchAction<'a> {
 }
 
 impl<'a> FunctionBuilder<'_, 'a> {
-    pub(super) fn arm_b(&mut self, instr: &ArmInstruction) {
-        exec_instr!(self, exec_branch_conditional, instr, Self::b);
+    pub(super) fn arm_b(&mut self, instr: &ArmInstruction) -> bool {
+        exec_instr!(self, exec_branch_conditional, instr, Self::b)
     }
 
-    pub(super) fn arm_bl(&mut self, instr: &ArmInstruction) {
-        exec_instr!(self, exec_branch_conditional, instr, Self::bl);
+    pub(super) fn arm_bl(&mut self, instr: &ArmInstruction) -> bool {
+        exec_instr!(self, exec_branch_conditional, instr, Self::bl)
     }
 
-    pub(super) fn arm_bx(&mut self, instr: &ArmInstruction) {
-        exec_instr!(self, exec_branch_conditional, instr, Self::bx);
+    pub(super) fn arm_bx(&mut self, instr: &ArmInstruction) -> bool {
+        exec_instr!(self, exec_branch_conditional, instr, Self::bx)
     }
 
     // Either executes the branch built by `inner`, or increments the PC and exits the function
-    fn exec_branch_conditional<F>(&mut self, instr: &ArmInstruction, inner: F) -> Result<()>
+    fn exec_branch_conditional<F>(&mut self, instr: &ArmInstruction, inner: F) -> Result<bool>
     where
         F: Fn(&Self, &ArmInstruction) -> Result<BranchAction<'a>>,
     {
@@ -72,7 +72,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
         self.write_state_out(&self.reg_map)?;
 
         self.builder.build_return(None)?;
-        Ok(())
+        Ok(true)
     }
 
     // self.write_state_out should be called before calling this

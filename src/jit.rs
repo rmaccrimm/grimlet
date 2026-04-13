@@ -329,9 +329,13 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
     pub fn build_body(mut self, instr_window: InstrWindow<'a>) -> Result<Self> {
         self.instr_iter = Some(instr_window);
-        // self.load_initial_reg_values(&code_block.regs_accessed)
-        //     .expect("initial register load failed");
         while let Some(instr) = self.instr_iter.as_mut().and_then(InstrWindow::next) {
+            // initial register values are loaded lazily, as they are encountered
+            let new_regs = self.instr_iter.as_mut().unwrap().get_new_registers();
+            if !new_regs.is_empty() {
+                self.load_initial_reg_values(&new_regs)
+                    .expect("initial register load failed");
+            }
             if let Some(ex) = self.exit_queue.front()
                 && ex.counter == 0
             {
@@ -341,12 +345,10 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             for ex in &mut self.exit_queue {
                 ex.counter -= 1;
             }
-            self.build(&instr);
-            self.end_addr = instr.addr;
-            println!(
-                "{}",
-                self.instr_iter.as_ref().unwrap().peek_one().unwrap().addr
-            );
+            if self.build(&instr) {
+                self.end_addr = instr.addr;
+                break;
+            }
         }
         Ok(self)
     }
@@ -444,7 +446,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
     /// Wrapper for all ARM instructions that evaluates cond, conditionally executes the instruction
     /// and performs register updates as necessary.
-    fn exec_conditional<F>(&mut self, instr: &ArmInstruction, inner: F) -> Result<()>
+    fn exec_conditional<F>(&mut self, instr: &ArmInstruction, inner: F) -> Result<bool>
     where
         F: Fn(&Self, &ArmInstruction) -> InstrResult<'a>,
     {
@@ -490,7 +492,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             self.write_state_out(&self.reg_map)?;
             self.builder.build_return(None)?;
 
-            return Ok(());
+            return Ok(true);
         }
 
         self.builder.build_unconditional_branch(end_block)?;
@@ -530,7 +532,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         }
         self.increment_pc(instr.size);
         self.current_block = end_block;
-        Ok(())
+        Ok(false)
     }
 
     pub fn build_conditional_return(&mut self, must_exit: IntValue<'a>) -> Result<()> {
@@ -552,7 +554,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         Ok(())
     }
 
-    pub fn build(&mut self, instr: &ArmInstruction) {
+    /// Returns true if the instruction terminates the function
+    pub fn build(&mut self, instr: &ArmInstruction) -> bool {
         match instr.opcode {
             ArmInsn::ARM_INS_ADC => self.arm_adc(instr),
             ArmInsn::ARM_INS_ADD => self.arm_add(instr),

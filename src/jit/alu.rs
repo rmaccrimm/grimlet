@@ -8,120 +8,120 @@ use crate::jit::flags::C;
 use crate::jit::{FunctionBuilder, InstrEffect, InstrResult, RegUpdate};
 
 impl<'a> FunctionBuilder<'_, 'a> {
-    pub(super) fn arm_adc(&mut self, instr: &ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::adc);
+    pub(super) fn arm_adc(&mut self, instr: &ArmInstruction) -> bool {
+        exec_instr!(self, exec_conditional, instr, Self::adc)
     }
 
-    pub(super) fn arm_add(&mut self, instr: &ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::add);
+    pub(super) fn arm_add(&mut self, instr: &ArmInstruction) -> bool {
+        exec_instr!(self, exec_conditional, instr, Self::add)
     }
 
-    pub(super) fn arm_and(&mut self, instr: &ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::and);
+    pub(super) fn arm_and(&mut self, instr: &ArmInstruction) -> bool {
+        exec_instr!(self, exec_conditional, instr, Self::and)
     }
 
-    pub(super) fn arm_asr(&mut self, instr: &ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::shift_op);
+    pub(super) fn arm_asr(&mut self, instr: &ArmInstruction) -> bool {
+        exec_instr!(self, exec_conditional, instr, Self::shift_op)
     }
 
-    pub(super) fn arm_bic(&mut self, instr: &ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::bic);
+    pub(super) fn arm_bic(&mut self, instr: &ArmInstruction) -> bool {
+        exec_instr!(self, exec_conditional, instr, Self::bic)
     }
 
-    pub(super) fn arm_cmn(&mut self, instr: &ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::cmn);
+    pub(super) fn arm_cmn(&mut self, instr: &ArmInstruction) -> bool {
+        exec_instr!(self, exec_conditional, instr, Self::cmn)
     }
 
-    pub(super) fn arm_cmp(&mut self, instr: &ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::cmp);
+    pub(super) fn arm_cmp(&mut self, instr: &ArmInstruction) -> bool {
+        exec_instr!(self, exec_conditional, instr, Self::cmp)
     }
 
-    pub(super) fn arm_eor(&mut self, instr: &ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::eor);
+    pub(super) fn arm_eor(&mut self, instr: &ArmInstruction) -> bool {
+        exec_instr!(self, exec_conditional, instr, Self::eor)
     }
 
-    pub(super) fn arm_lsl(&mut self, instr: &ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::shift_op);
+    pub(super) fn arm_lsl(&mut self, instr: &ArmInstruction) -> bool {
+        exec_instr!(self, exec_conditional, instr, Self::shift_op)
     }
 
-    pub(super) fn arm_lsr(&mut self, instr: &ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::shift_op);
+    pub(super) fn arm_lsr(&mut self, instr: &ArmInstruction) -> bool {
+        exec_instr!(self, exec_conditional, instr, Self::shift_op)
     }
 
-    pub(super) fn arm_mla(&mut self, instr: &ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::mla);
+    pub(super) fn arm_mla(&mut self, instr: &ArmInstruction) -> bool {
+        exec_instr!(self, exec_conditional, instr, Self::mla)
     }
 
-    pub(super) fn arm_mov(&mut self, instr: &ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::mov);
+    pub(super) fn arm_mov(&mut self, instr: &ArmInstruction) -> bool {
+        exec_instr!(self, exec_conditional, instr, Self::mov)
     }
 
-    pub(super) fn arm_mvn(&mut self, instr: &ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::mvn);
+    pub(super) fn arm_mvn(&mut self, instr: &ArmInstruction) -> bool {
+        exec_instr!(self, exec_conditional, instr, Self::mvn)
     }
 
-    pub(super) fn arm_orr(&mut self, instr: &ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::orr);
+    pub(super) fn arm_orr(&mut self, instr: &ArmInstruction) -> bool {
+        exec_instr!(self, exec_conditional, instr, Self::orr)
     }
 
-    pub(super) fn arm_ror(&mut self, instr: &ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::shift_op);
+    pub(super) fn arm_ror(&mut self, instr: &ArmInstruction) -> bool {
+        exec_instr!(self, exec_conditional, instr, Self::shift_op)
     }
 
-    pub(super) fn arm_rrx(&mut self, instr: &ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::rrx);
+    pub(super) fn arm_rrx(&mut self, instr: &ArmInstruction) -> bool {
+        exec_instr!(self, exec_conditional, instr, Self::rrx)
     }
 
-    pub(super) fn arm_rsb(&mut self, instr: &ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::rsb);
+    pub(super) fn arm_rsb(&mut self, instr: &ArmInstruction) -> bool {
+        exec_instr!(self, exec_conditional, instr, Self::rsb)
     }
 
-    pub(super) fn arm_rsc(&mut self, instr: &ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::rsc);
+    pub(super) fn arm_rsc(&mut self, instr: &ArmInstruction) -> bool {
+        exec_instr!(self, exec_conditional, instr, Self::rsc)
     }
 
-    pub(super) fn arm_sbc(&mut self, instr: &ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::sbc);
+    pub(super) fn arm_sbc(&mut self, instr: &ArmInstruction) -> bool {
+        exec_instr!(self, exec_conditional, instr, Self::sbc)
     }
 
-    pub(super) fn arm_smlal(&mut self, instr: &ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::smlal);
+    pub(super) fn arm_smlal(&mut self, instr: &ArmInstruction) -> bool {
+        exec_instr!(self, exec_conditional, instr, Self::smlal)
     }
 
-    pub(super) fn arm_smull(&mut self, instr: &ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::smull);
+    pub(super) fn arm_smull(&mut self, instr: &ArmInstruction) -> bool {
+        exec_instr!(self, exec_conditional, instr, Self::smull)
     }
 
-    pub(super) fn arm_sub(&mut self, instr: &ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::sub);
+    pub(super) fn arm_sub(&mut self, instr: &ArmInstruction) -> bool {
+        exec_instr!(self, exec_conditional, instr, Self::sub)
     }
 
-    pub(super) fn arm_teq(&mut self, instr: &ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::teq);
+    pub(super) fn arm_teq(&mut self, instr: &ArmInstruction) -> bool {
+        exec_instr!(self, exec_conditional, instr, Self::teq)
     }
 
-    pub(super) fn arm_tst(&mut self, instr: &ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::tst);
+    pub(super) fn arm_tst(&mut self, instr: &ArmInstruction) -> bool {
+        exec_instr!(self, exec_conditional, instr, Self::tst)
     }
 
-    pub(super) fn arm_umlal(&mut self, instr: &ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::umlal);
+    pub(super) fn arm_umlal(&mut self, instr: &ArmInstruction) -> bool {
+        exec_instr!(self, exec_conditional, instr, Self::umlal)
     }
 
-    pub(super) fn arm_umull(&mut self, instr: &ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::umull);
+    pub(super) fn arm_umull(&mut self, instr: &ArmInstruction) -> bool {
+        exec_instr!(self, exec_conditional, instr, Self::umull)
     }
 
-    pub(super) fn arm_mul(&mut self, instr: &ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::mul);
+    pub(super) fn arm_mul(&mut self, instr: &ArmInstruction) -> bool {
+        exec_instr!(self, exec_conditional, instr, Self::mul)
     }
 
-    pub(super) fn arm_mrs(&mut self, instr: &ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::mrs);
+    pub(super) fn arm_mrs(&mut self, instr: &ArmInstruction) -> bool {
+        exec_instr!(self, exec_conditional, instr, Self::mrs)
     }
 
-    pub(super) fn arm_msr(&mut self, instr: &ArmInstruction) {
-        exec_instr!(self, exec_conditional, instr, Self::msr);
+    pub(super) fn arm_msr(&mut self, instr: &ArmInstruction) -> bool {
+        exec_instr!(self, exec_conditional, instr, Self::msr)
     }
 
     fn adc(&self, instr: &ArmInstruction) -> InstrResult<'a> {
