@@ -10,6 +10,9 @@ use capstone::arch::arm::{ArchMode, ArmInsn, ArmOperandType};
 use crate::arm::disasm::instruction::ArmInstruction;
 use crate::arm::state::{ArmMode, Reg};
 
+// Currently just the minimum required to set PC correctly (initial instr + 2)
+const DISASM_WINDOW_LEN: usize = 3;
+
 /// Stores the Capstone instance and produces `InstrWindow` iterators for compilation
 pub struct Disassembler {
     cs: Capstone,
@@ -18,7 +21,13 @@ pub struct Disassembler {
 
 impl<'a> Disassembler {
     pub fn new_window_iter(&'a self, bytes: &'a [u8], start_addr: u32) -> InstrWindowIter<'a> {
-        InstrWindowIter::with_len(2, bytes, &self.cs, self.current_mode, start_addr)
+        InstrWindowIter::with_len(
+            DISASM_WINDOW_LEN,
+            bytes,
+            &self.cs,
+            self.current_mode,
+            start_addr,
+        )
     }
 
     pub fn set_mode(&mut self, mode: ArmMode) {
@@ -63,9 +72,7 @@ pub struct InstrWindowIter<'a> {
 }
 
 impl<'a> InstrWindowIter<'a> {
-    pub fn peek_one(&self) -> Option<&ArmInstruction> { self.queue.front() }
-
-    pub fn peek_two(&self) -> Option<&ArmInstruction> { self.queue.get(1) }
+    pub fn peek(&self, i: usize) -> Option<&ArmInstruction> { self.queue.get(i) }
 
     pub fn contains(&self, addr: u32) -> bool {
         self.queue.iter().find(|i| i.addr == addr).is_some()
@@ -83,8 +90,8 @@ impl<'a> InstrWindowIter<'a> {
         start_addr: u32,
     ) -> Self {
         assert!(
-            window_len >= 2,
-            "InstrWindow must have at least 2 instructions"
+            window_len >= 3,
+            "InstrWindow must have at least 3 instructions"
         );
         let mut registers_seen = HashSet::default();
         // always need the pc, and usually need cpsr
@@ -116,10 +123,10 @@ impl<'a> InstrWindowIter<'a> {
                 .cs
                 .disasm_count(&self.bytes[self.pos..], addr, 1)
                 .expect("Capstone disassembly failed");
-            let cs_instr = instructions
-                .as_ref()
-                .first()
-                .expect("Capstone returned no instructions");
+            let Some(cs_instr) = instructions.as_ref().first() else {
+                // We've hit the end of the code region, so stop advancing the window
+                return;
+            };
             self.pos += cs_instr.len();
             let instr = ArmInstruction::from_cs_insn(self.cs, cs_instr, self.mode);
             self.check_registers(&instr)
@@ -206,13 +213,13 @@ mod tests {
         assert_eq!(next.size, 4);
         assert_eq!(window.queue.len(), 3);
 
-        let peek = window.peek_one().unwrap();
+        let peek = window.peek(0).unwrap();
         assert_eq!(peek.opcode, ArmInsn::ARM_INS_MOV);
         assert_eq!(peek.addr, 0x4004);
         assert_eq!(peek.size, 4);
         assert_eq!(window.queue.len(), 3);
 
-        let peek_two = window.peek_two().unwrap();
+        let peek_two = window.peek(1).unwrap();
         assert_eq!(peek_two.opcode, ArmInsn::ARM_INS_STR);
         assert_eq!(peek_two.addr, 0x4008);
         assert_eq!(peek_two.size, 4);
@@ -220,18 +227,18 @@ mod tests {
 
         window.next().unwrap();
         assert_eq!(window.queue.len(), 2);
-        assert!(window.peek_one().is_some());
-        assert!(window.peek_two().is_some());
+        assert!(window.peek(0).is_some());
+        assert!(window.peek(1).is_some());
 
         window.next().unwrap();
         assert_eq!(window.queue.len(), 1);
-        assert!(window.peek_one().is_some());
-        assert!(window.peek_two().is_none());
+        assert!(window.peek(0).is_some());
+        assert!(window.peek(1).is_none());
 
         window.next().unwrap();
         assert_eq!(window.queue.len(), 0);
-        assert!(window.peek_one().is_none());
-        assert!(window.peek_two().is_none());
+        assert!(window.peek(0).is_none());
+        assert!(window.peek(1).is_none());
 
         assert!(window.next().is_none());
     }
@@ -248,16 +255,16 @@ mod tests {
         let mut disasm = Disassembler::default();
         disasm.set_mode(ArmMode::THUMB);
         let window =
-            InstrWindowIter::with_len(2, &program, &disasm.cs, ArmMode::THUMB, 0x0800_0000);
-        assert_eq!(window.queue.len(), 2);
+            InstrWindowIter::with_len(3, &program, &disasm.cs, ArmMode::THUMB, 0x0800_0000);
+        assert_eq!(window.queue.len(), 3);
 
-        let first = window.peek_one().unwrap();
+        let first = window.peek(0).unwrap();
         assert_eq!(first.opcode, ArmInsn::ARM_INS_BL);
         assert_eq!(first.size, 4);
         assert_eq!(first.addr, 0x0800_0000);
         assert_eq!(first.mode, ArmMode::THUMB);
 
-        let second = window.peek_two().unwrap();
+        let second = window.peek(1).unwrap();
         assert_eq!(second.opcode, ArmInsn::ARM_INS_BL);
         assert_eq!(second.size, 4);
         assert_eq!(second.addr, 0x0800_0004);
