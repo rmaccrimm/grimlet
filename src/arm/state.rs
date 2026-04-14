@@ -8,6 +8,7 @@ use capstone::arch::arm::ArmReg;
 
 use crate::arm::state::memory::MemoryManager;
 
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub struct JumpTarget {
     pub addr: u32,
     pub mode: ArmMode,
@@ -121,14 +122,8 @@ impl ArmMode {
         }
     }
 
-    // TODO - delete this
-    // So this could actually be six? Or as high as 8?
-    // bl - bl, add, sub
-    //               ^- PC
-    // bl - bl, bl - bl, bl - bl
-    //                   ^- PC
-    //
-    // Might need to actually properly implement the instruction pipeline somehow
+    /// Default offset for pc, not necessarily true for Thumb instructions (e.g. bl).
+    /// Used as a fallback when we don't have more instructions to decode
     pub fn pc_byte_offset(&self) -> u32 { 2 * self.instr_size() }
 }
 

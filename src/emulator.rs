@@ -172,24 +172,18 @@ mod tests {
     use super::*;
     use crate::arm::state::{ArmMode, Reg};
 
-    #[rustfmt::skip]
     #[test]
     fn test_early_exit_and_cache_invalidation_on_write_to_current_block() {
         // 0:  mov r0, #1.   <- make sure we exit
         // 4:  mov r1, #0
         // 8:  str r1, [r1]  <- writes to address 0 (within current code block)
-        // 12: nop           
+        // 12: nop
         // 16: mov r1, #4    <- last instruction executed before exiting
         // 20: mov r1, #24   <- should not be executed
         // 24: b #104        <- just so we have a stopping point
         let program = [
-            0x01, 0x00, 0xa0, 0xe3, 
-            0x00, 0x10, 0xa0, 0xe3, 
-            0x00, 0x10, 0x81, 0xe5,
-            0x00, 0x00, 0xa0, 0xe1, 
-            0x01, 0x1f, 0xa0, 0xe3, 
-            0x06, 0x1f, 0xa0, 0xe3,
-            0x12, 0x00, 0x00, 0xea,
+            0x01, 0x00, 0xa0, 0xe3, 0x00, 0x10, 0xa0, 0xe3, 0x00, 0x10, 0x81, 0xe5, 0x00, 0x00,
+            0xa0, 0xe1, 0x01, 0x1f, 0xa0, 0xe3, 0x06, 0x1f, 0xa0, 0xe3, 0x12, 0x00, 0x00, 0xea,
         ];
 
         let ctx = Context::create();
@@ -204,9 +198,8 @@ mod tests {
         assert_eq!(emulator.state.regs[Reg::PC], 28);
     }
 
-    #[rustfmt::skip]
     #[test]
-    fn test_self_modifying_code_cache_invalidation() {        
+    fn test_self_modifying_code_cache_invalidation() {
         //     main:
         //  0:     mov r1, #1           <- r1 > 0 = exit
         //  4:     cmp r1, #1
@@ -214,24 +207,17 @@ mod tests {
         // 12:     b end
         //     func:
         // 16:     ldr r0, =main
-        // 20:     ldr r2, =0xe3a01f06  <- writes instruction 'mov r1, #24' to 0
-        // 24:     str r2, [r0]
+        // 20:     ldr r2, =0xe3a01f06
+        // 24:     str r2, [r0]         <- writes instruction 'mov r1, #24' to 0
         // 28:     b main
         //     end:
         // 32:     b end
         // 36:     .pool
         let program = [
-            0x01, 0x10, 0xa0, 0xe3, 
-            0x01, 0x00, 0x51, 0xe3, 
-            0x00, 0x00, 0x00, 0x0a, 
-            0x03, 0x00, 0x00, 0xea, 
-            0x02, 0x03, 0xa0, 0xe3, 
-            0x0c, 0x20, 0x9f, 0xe5, 
-            0x00, 0x20, 0x80, 0xe5, 
-            0xf7, 0xff, 0xff, 0xea, 
-            0xfe, 0xff, 0xff, 0xea, 
-            0x00, 0x00, 0x00, 0x00, 
-            0x06, 0x1f, 0xa0, 0xe3,
+            0x01, 0x10, 0xa0, 0xe3, 0x01, 0x00, 0x51, 0xe3, 0x00, 0x00, 0x00, 0x0a, 0x03, 0x00,
+            0x00, 0xea, 0x02, 0x03, 0xa0, 0xe3, 0x0c, 0x20, 0x9f, 0xe5, 0x00, 0x20, 0x80, 0xe5,
+            0xf7, 0xff, 0xff, 0xea, 0xfe, 0xff, 0xff, 0xea, 0x00, 0x00, 0x00, 0x00, 0x06, 0x1f,
+            0xa0, 0xe3,
         ];
 
         let ctx = Context::create();
@@ -249,13 +235,30 @@ mod tests {
 
         emulator.run(exit_cond);
         assert!(emulator.func_cache.get(cart_addr).is_some());
-        assert_eq!(emulator.state.next_instr_addr, cart_addr + 16);
+        // next_instr_addr still just points 1 ahead
+        assert_eq!(emulator.state.next_instr_addr, cart_addr + 12);
+        // but we actually jumped to 2 instructions ahead
+        assert_eq!(
+            emulator.state.jump_target,
+            Some(JumpTarget {
+                mode: ArmMode::ARM,
+                addr: cart_addr + 16
+            })
+        );
 
         emulator.run(exit_cond);
         // first block was invalidated, second was not
         assert!(emulator.func_cache.get(cart_addr).is_none());
         assert!(emulator.func_cache.get(cart_addr + 16).is_some());
-        assert_eq!(emulator.state.next_instr_addr, cart_addr);
+        assert_eq!(emulator.state.next_instr_addr, cart_addr + 32);
+        // jumped back to start
+        assert_eq!(
+            emulator.state.jump_target,
+            Some(JumpTarget {
+                mode: ArmMode::ARM,
+                addr: cart_addr
+            })
+        );
 
         emulator.run(exit_cond);
         // Modified code ran
