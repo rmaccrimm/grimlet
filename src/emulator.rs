@@ -102,34 +102,25 @@ impl<'a> Emulator<'a> {
         F: Fn(&ArmState) -> bool,
     {
         loop {
-            if let Some(JumpTarget { addr, mode }) = self.state.jump_target.take() {
-                let (mem_ref, _) = self
-                    .state
-                    .mem
-                    .mem_map_lookup(addr)
-                    .expect("invalid address");
-                // It'd be nice if we could avoid doing this initial disassembly twice
-                let mut iter = self.disasm.new_window_iter(mem_ref, addr);
-                iter.next();
-                // Should Compiled Function handle this?
-                self.state.regs[Reg::PC] = iter
-                    .peek_two()
-                    .map_or(addr + mode.pc_byte_offset(), |instr| instr.addr);
-                // TOOD Sort this out, probably depends on where we're jumping to (i.e. can't
-                // ignore the wait states above). Also where should this code go?
-                self.state.add_cycles(2);
+            let addr = if let Some(JumpTarget { addr, mode }) = self.state.jump_target.take() {
+                // Does current_instr_addr need to be updated? I don't think it matters
+                // TODO Sort this out, probably depends on where we're jumping to (i.e. an't
+                // ignore the wait states
+                self.state.cycle_count += 2;
                 self.disasm.set_mode(mode);
-            }
+                addr
+            } else {
+                self.state.next_instr_addr
+            };
 
-            let instr_addr = self.state.curr_instr_addr();
-            let func = if let Some(func) = self.func_cache.get(instr_addr) {
+            let func = if let Some(func) = self.func_cache.get(addr) {
                 if self.config.debug_output.is_some() {
-                    println!("<compiled function at {instr_addr:08x}>\n");
+                    println!("<compiled function at {addr:08x}>\n");
                 }
                 func
             } else {
-                self.compile_new_func(instr_addr);
-                self.func_cache.get(instr_addr).unwrap()
+                self.compile_new_func(addr);
+                self.func_cache.get(addr).unwrap()
             };
             unsafe {
                 func.call(&mut self.state);
@@ -258,13 +249,13 @@ mod tests {
 
         emulator.run(exit_cond);
         assert!(emulator.func_cache.get(cart_addr).is_some());
-        assert_eq!(emulator.state.curr_instr_addr(), cart_addr + 16);
+        assert_eq!(emulator.state.next_instr_addr, cart_addr + 16);
 
         emulator.run(exit_cond);
         // first block was invalidated, second was not
         assert!(emulator.func_cache.get(cart_addr).is_none());
         assert!(emulator.func_cache.get(cart_addr + 16).is_some());
-        assert_eq!(emulator.state.curr_instr_addr(), cart_addr);
+        assert_eq!(emulator.state.next_instr_addr, cart_addr);
 
         emulator.run(exit_cond);
         // Modified code ran

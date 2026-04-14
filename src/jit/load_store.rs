@@ -698,7 +698,6 @@ mod tests {
         /// r9: stores calculated address
         fn new(context: &'ctx Context, mem_op: &MemOperand) -> Self {
             let mut f = FunctionBuilder::new(context, 0).unwrap();
-
             f.load_initial_reg_values(
                 &vec![Reg::R7, Reg::R8, Reg::R9, Reg::CPSR]
                     .into_iter()

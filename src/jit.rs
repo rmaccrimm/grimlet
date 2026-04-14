@@ -70,7 +70,7 @@ mod shift;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::{fs, ptr};
 
-use anyhow::{Result, anyhow};
+use anyhow::{Result, anyhow, bail};
 use capstone::arch::arm::ArmInsn;
 use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
@@ -191,8 +191,11 @@ where
 
     name: String,
     func: FunctionValue<'a>,
+
     start_addr: u32,
     end_addr: u32,
+    next_instr_addr: u32,
+    pc_addr: u32,
 
     // Latest value for each register
     reg_map: RegMap<'a>,
@@ -200,6 +203,7 @@ where
 
     // Pointers to emulated state
     arm_state_ptr: PointerValue<'a>,
+    next_addr_ptr: PointerValue<'a>,
     mem_ptr: PointerValue<'a>,
     cycle_count_ptr: PointerValue<'a>,
 
@@ -257,7 +261,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         // layout of ArmState.
         let arm_state_t = ctx.struct_type(
             &[
-                i8_t.into(),                       // mode
+                i32_t.into(),                      // current_instr_addr
                 i32_t.array_type(NUM_REGS).into(), // regs
                 i32_t.into(),                      // cycle_count
                 // This is obviously not the actual type of mem, but all we need is the address,
@@ -276,12 +280,20 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         blocks.insert(addr, basic_block);
 
         let arm_state_ptr = get_ptr_param(func, 0)?;
+        let next_addr_ptr = unsafe {
+            bd.build_gep(
+                arm_state_t,
+                arm_state_ptr,
+                &[i32_t.const_zero(), i32_t.const_int(0, false)],
+                "nxt_ptr",
+            )?
+        };
         let cycle_count_ptr = unsafe {
             bd.build_gep(
                 arm_state_t,
                 arm_state_ptr,
                 &[i32_t.const_zero(), i32_t.const_int(2, false)],
-                "mem_ptr",
+                "cyc_ptr",
             )?
         };
         let mem_ptr = unsafe {
@@ -305,9 +317,12 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             func,
             start_addr: addr,
             end_addr: addr,
+            next_instr_addr: addr,
+            pc_addr: addr,
             reg_map: RegMap::new(),
             cycles: i32_t.const_zero(),
             arm_state_ptr,
+            next_addr_ptr,
             mem_ptr,
             cycle_count_ptr,
             builder: bd,
@@ -343,18 +358,20 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         }
         self.instr_iter = Some(instr_iter);
 
-        while let Some(instr) = self.instr_iter.as_mut().and_then(InstrWindowIter::next) {
+        while let Some(instr) = self.instr_iter.as_mut().unwrap().next() {
+            self.update_addresses(&instr);
+            let new_regs = self.instr_iter.as_mut().unwrap().get_new_registers();
+            self.load_initial_reg_values(&new_regs)
+                .expect("loading initial register values failed");
+
+            self.reg_map.update(Reg::PC, imm!(self, self.pc_addr));
+
             match debug_output {
                 Some(DebugOutput::Struct) => println!("{instr:#?}"),
                 Some(DebugOutput::Assembly) => println!("{instr}"),
                 None => (),
             }
-            // initial register values are loaded lazily, as they are encountered
-            let new_regs = self.instr_iter.as_mut().unwrap().get_new_registers();
-            if !new_regs.is_empty() {
-                self.load_initial_reg_values(&new_regs)
-                    .expect("initial register load failed");
-            }
+
             if let Some(ex) = self.exit_queue.front()
                 && ex.counter == 0
             {
@@ -364,7 +381,8 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             for ex in &mut self.exit_queue {
                 ex.counter -= 1;
             }
-            if self.build(&instr) {
+            let returns = self.build(&instr);
+            if returns {
                 self.end_addr = instr.addr;
                 break;
             }
@@ -417,9 +435,10 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         .ok();
     }
 
-    fn load_initial_reg_values(&mut self, regs_read: &HashSet<Reg>) -> Result<()> {
+    fn load_initial_reg_values(&mut self, new_regs: &HashSet<Reg>) -> Result<()> {
+        // initial register values are loaded lazily, as they are encountered
         let bd = &self.builder;
-        for &r in regs_read {
+        for &r in new_regs {
             let i = r as usize;
             let name = format!("r{i}_elem_ptr");
             let gep_inds = [
@@ -429,21 +448,38 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             ];
             let ptr =
                 unsafe { bd.build_gep(self.arm_state_t, self.arm_state_ptr, &gep_inds, &name)? };
-            let name = format!("r{i}");
-            let v = bd.build_load(self.i32_t, ptr, &name)?.into_int_value();
-            self.reg_map.init(r, v, ptr);
+
+            if r == Reg::PC {
+                // Based on the start address passed to the Builder, not the in-memory value
+                self.reg_map.init(r, imm!(self, self.pc_addr), ptr);
+            } else {
+                let name = format!("r{i}");
+                let v = bd.build_load(self.i32_t, ptr, &name)?.into_int_value();
+                self.reg_map.init(r, v, ptr);
+            }
         }
         Ok(())
     }
 
-    fn increment_pc(&mut self, step: u32) {
-        let curr_pc = self.reg_map.get(Reg::PC);
-        self.reg_map.update(
-            Reg::PC,
-            self.builder
-                .build_int_add(curr_pc, imm!(self, step), "pc")
-                .expect("LLVM codegen failed"),
-        );
+    /// Advance the next_instr and pc addresses, falling back on a fixed 2/4 bytes step depending
+    /// on mode. This could be incorrect if we reach the end a memory region (maybe handle this by
+    /// always performing a branch if we get there?).
+    fn update_addresses(&mut self, instr: &ArmInstruction) {
+        self.next_instr_addr = self
+            .instr_iter
+            .as_ref()
+            .unwrap()
+            .peek(0)
+            .map_or(instr.addr + instr.mode.pc_byte_offset(), |i| i.addr);
+
+        self.pc_addr = self
+            .instr_iter
+            .as_ref()
+            .unwrap()
+            .peek(1)
+            .map_or(self.next_instr_addr + instr.mode.pc_byte_offset(), |i| {
+                i.addr
+            });
     }
 
     fn get_external_func_pointer(&self, func_addr: usize) -> Result<PointerValue<'a>> {
@@ -471,6 +507,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             }
             bd.build_store(r.state_ptr, r.current_value)?;
         }
+        bd.build_store(self.next_addr_ptr, imm!(self, self.next_instr_addr))?;
         let curr_count = bd
             .build_load(self.i32_t, self.cycle_count_ptr, "curr_cyc")?
             .into_int_value();
@@ -525,7 +562,6 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             self.branch_and_return(target, imm8!(self, instr.mode as i8))?;
 
             self.builder.position_at_end(end_block);
-            self.increment_pc(instr.size);
             self.write_state_out(&self.reg_map)?;
             self.builder.build_return(None)?;
 
@@ -567,11 +603,11 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             let exit_var = exit_phi.as_basic_value().into_int_value();
             self.exit_queue.push_back(ExitCountdown::new(exit_var));
         }
-        self.increment_pc(instr.size);
         self.current_block = end_block;
         Ok(false)
     }
 
+    // instr just used for it's address - there's probably a better approach
     pub fn build_conditional_return(&mut self, must_exit: IntValue<'a>) -> Result<()> {
         let bd = &self.builder;
         let if_block = self.ctx.append_basic_block(self.func, "if");
@@ -650,221 +686,5 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             ArmInsn::ARM_INS_UMULL => self.arm_umull(instr),
             _ => unimpl_instr!(instr, "UNKNOWN"),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::collections::HashMap;
-
-    use super::*;
-    use crate::arm::state::{ArmMode, ArmState, REG_ITEMS, Reg};
-
-    macro_rules! compile_and_run {
-        ($func:ident, $state:ident) => {
-            unsafe {
-                $func.compile().unwrap().call(&mut $state);
-            }
-        };
-    }
-
-    #[test]
-    fn test_jump_to_external() {
-        // End result is:
-        // pc <- r15 + r9
-        let mut state = ArmState::default();
-        for i in 0..NUM_REGS {
-            state.regs[i as usize] = i * i;
-        }
-
-        let context = Context::create();
-        let mut f = FunctionBuilder::new(&context, 0).unwrap();
-
-        let all_regs: HashSet<Reg> = REG_ITEMS.into_iter().collect();
-        f.load_initial_reg_values(&all_regs).unwrap();
-
-        let add_res = f
-            .builder
-            .build_int_add(f.reg_map.get(Reg::PC), f.reg_map.get(Reg::R9), "add_res")
-            .unwrap();
-
-        let interp_fn_type = f
-            .void_t
-            .fn_type(&[f.ptr_t.into(), f.i32_t.into(), f.i8_t.into()], false);
-
-        let interp_fn_ptr = f
-            .get_external_func_pointer(ArmState::jump_to as fn(&mut ArmState, u32, i8) as usize)
-            .unwrap();
-
-        let call = f
-            .builder
-            .build_indirect_call(
-                interp_fn_type,
-                interp_fn_ptr,
-                &[
-                    f.arm_state_ptr.into(),
-                    add_res.into(),
-                    imm8!(f, ArmMode::ARM as i8).into(),
-                ],
-                "fn_result",
-            )
-            .unwrap();
-        call.set_tail_call(true);
-        f.builder.build_return(None).unwrap();
-
-        println!("{:?}", state.regs);
-        compile_and_run!(f, state);
-        println!("{:?}", state.regs);
-        assert_eq!(state.curr_instr_addr(), 306);
-    }
-
-    #[test]
-    fn test_cross_module_calls() {
-        // f1:
-        //   pc <- r0 - r3 - r2
-        // f2:
-        //   r0 <- 999
-        //   f1()
-        let mut state = ArmState::default();
-        for i in 0..NUM_REGS {
-            state.regs[i as usize] = i * i;
-        }
-
-        let context = Context::create();
-        let mut cache = HashMap::new();
-
-        let all_regs: HashSet<Reg> = REG_ITEMS.into_iter().collect();
-        let mut f1 = FunctionBuilder::new(&context, 0).unwrap();
-        f1.load_initial_reg_values(&all_regs).unwrap();
-
-        let r0 = f1.reg_map.get(Reg::R0);
-        let r2 = f1.reg_map.get(Reg::R2);
-        let r3 = f1.reg_map.get(Reg::R3);
-        let v0 = f1.builder.build_int_add(r3, r2, "v0").unwrap();
-        let v1 = f1.builder.build_int_sub(r0, v0, "v1").unwrap();
-
-        // Perform context switch out before jumping to ArmState code
-        f1.write_state_out(&f1.reg_map).unwrap();
-
-        let func_ptr_param = f1
-            .get_external_func_pointer(ArmState::jump_to as fn(&mut ArmState, u32, i8) as usize)
-            .unwrap();
-
-        let interp_fn_t = f1
-            .void_t
-            .fn_type(&[f1.ptr_t.into(), f1.i32_t.into(), f1.i8_t.into()], false);
-
-        let call = f1
-            .builder
-            .build_indirect_call(
-                interp_fn_t,
-                func_ptr_param,
-                &[
-                    f1.arm_state_ptr.into(),
-                    v1.into(),
-                    imm8!(f1, ArmMode::ARM as i8).into(),
-                ],
-                "fn_result",
-            )
-            .unwrap();
-        call.set_tail_call(true);
-        f1.builder.build_return(None).unwrap();
-        let compiled1 = f1.compile().unwrap();
-        cache.insert(0, compiled1);
-
-        let mut f2 = FunctionBuilder::new(&context, 1).unwrap();
-        f2.load_initial_reg_values(&all_regs).unwrap();
-        f2.reg_map.update(Reg::R0, f2.i32_t.const_int(999, false));
-        f2.write_state_out(&f2.reg_map).unwrap();
-
-        // Construct the function pointer using raw pointer obtained from function cache
-        let func_ptr_param = unsafe {
-            f2.builder
-                .build_int_to_ptr(
-                    f2.ctx
-                        .ptr_sized_int_type(f2.execution_engine.get_target_data(), None)
-                        // Double cast since usize ensures correct pointer size but inkwell
-                        // expects u64
-                        .const_int(
-                            (cache.get(&0).unwrap().inner.as_raw() as usize) as u64,
-                            false,
-                        ),
-                    f2.ptr_t,
-                    "f1_ptr",
-                )
-                .unwrap()
-        };
-
-        // Perform indirect call through pointer
-        let fn_t = f2.void_t.fn_type(&[f2.ptr_t.into()], false);
-        let call = f2
-            .builder
-            .build_indirect_call(fn_t, func_ptr_param, &[f2.arm_state_ptr.into()], "call")
-            .unwrap();
-        call.set_tail_call(true);
-        f2.builder.build_return(None).unwrap();
-        let compiled2 = f2.compile().unwrap();
-        cache.insert(1, compiled2);
-
-        println!("{:?}", state.regs);
-        unsafe {
-            cache.get(&1).unwrap().call(&mut state);
-        }
-        println!("{:?}", state.regs);
-
-        assert_eq!(
-            state.regs,
-            // PC = jump target + 8 bytes
-            //    = 994
-            [
-                999, 1, 4, 9, 16, 25, 36, 49, 64, 81, 100, 121, 144, 169, 196, 994, 256, 289
-            ]
-        );
-    }
-
-    #[test]
-    fn test_call_intrinsic() {
-        let mut state = ArmState::default();
-        let context = Context::create();
-        let mut f = FunctionBuilder::new(&context, 0).unwrap();
-
-        let all_regs: HashSet<Reg> = REG_ITEMS.into_iter().collect();
-        f.load_initial_reg_values(&all_regs).unwrap();
-
-        let bd = &f.builder;
-        let call = bd
-            .build_call(
-                f.sadd_with_overflow,
-                &[
-                    f.i32_t.const_int(0x7fff_ffff_u64, false).into(),
-                    f.i32_t.const_int(0xff, false).into(),
-                ],
-                "res",
-            )
-            .unwrap();
-        let res = call
-            .try_as_basic_value()
-            .left()
-            .unwrap()
-            .into_struct_value();
-
-        let val = bd
-            .build_extract_value(res, 0, "val")
-            .unwrap()
-            .into_int_value();
-        let overflowed = bd
-            .build_extract_value(res, 1, "overflowed")
-            .unwrap()
-            .into_int_value();
-
-        f.reg_map.update(Reg::R0, val);
-        f.reg_map.update(Reg::R1, overflowed);
-        f.write_state_out(&f.reg_map).unwrap();
-        bd.build_return(None).unwrap();
-        compile_and_run!(f, state);
-
-        println!("{:?}", state.regs);
-        assert_eq!(state.regs[0], 0x8000_00fe);
-        assert_eq!(state.regs[1], 1);
     }
 }

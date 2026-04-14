@@ -67,7 +67,7 @@ pub const REG_ITEMS: [Reg; NUM_REGS as usize] = [
 /// Emulated CPU state (and interpreter?)
 #[repr(C)]
 pub struct ArmState {
-    pub current_mode: ArmMode,
+    pub next_instr_addr: u32,
     pub regs: [u32; NUM_REGS as usize],
     pub cycle_count: u32,
     pub mem: MemoryManager,
@@ -82,11 +82,6 @@ impl ArmState {
         }
     }
 
-    // Is this reliable in Thumb mode?
-    pub fn curr_instr_addr(&self) -> u32 { self.regs[Reg::PC] - self.current_mode.pc_byte_offset() }
-
-    pub fn add_cycles(&mut self, cycles: u32) { self.cycle_count += cycles; }
-
     pub fn jump_to(&mut self, addr: u32, mode: i8) {
         let mode = ArmMode::from(mode);
         self.jump_target = Some(JumpTarget { addr, mode });
@@ -98,7 +93,7 @@ impl Default for ArmState {
         let mut regs = [0; NUM_REGS as usize];
         regs[Reg::PC] = 8; // 2 instructions ahead
         Self {
-            current_mode: ArmMode::ARM,
+            next_instr_addr: 0,
             regs,
             mem: MemoryManager::default(),
             cycle_count: 0,
@@ -114,7 +109,7 @@ impl Display for ArmState {
             let padding: String = vec![" "; 5 - rs.len()].concat();
             writeln!(f, "{}:{}0x{:08x}", rs, padding, self.regs[r])?;
         }
-        writeln!(f, "mode: {}", self.current_mode)
+        Ok(())
     }
 }
 

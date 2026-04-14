@@ -11,7 +11,7 @@ use crate::arm::disasm::instruction::ArmInstruction;
 use crate::arm::state::{ArmMode, Reg};
 
 // Currently just the minimum required to set PC correctly (initial instr + 2)
-const DISASM_WINDOW_LEN: usize = 3;
+const DISASM_WINDOW_LEN: usize = 2;
 
 /// Stores the Capstone instance and produces `InstrWindow` iterators for compilation
 pub struct Disassembler {
@@ -90,8 +90,8 @@ impl<'a> InstrWindowIter<'a> {
         start_addr: u32,
     ) -> Self {
         assert!(
-            window_len >= 3,
-            "InstrWindow must have at least 3 instructions"
+            window_len >= 2,
+            "InstrWindow must have at least 2 instructions"
         );
         let mut registers_seen = HashSet::default();
         // always need the pc, and usually need cpsr

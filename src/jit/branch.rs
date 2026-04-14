@@ -68,9 +68,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
 
         // No need to branch to end block, since we have returned already
         bd.position_at_end(end_block);
-        self.increment_pc(instr.size);
         self.write_state_out(&self.reg_map)?;
-
         self.builder.build_return(None)?;
         Ok(true)
     }
