@@ -85,7 +85,7 @@ use uuid::Uuid;
 
 use crate::arm::disasm::InstrWindowIter;
 use crate::arm::disasm::instruction::ArmInstruction;
-use crate::arm::state::{ArmState, NUM_REGS, Reg};
+use crate::arm::state::{ArmMode, ArmState, NUM_REGS, Reg};
 use crate::emulator::{DebugOutput, DumpLLVM, EnvConfig};
 use crate::jit::reg_map::{RegMap, RegMapItem};
 
@@ -354,11 +354,16 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
     pub fn build_body(mut self, instr_iter: InstrWindowIter<'a>) -> Result<Self> {
         let debug_output = self.config.as_ref().and_then(|c| c.debug_output);
         if debug_output.is_some() {
+            println!("{}", self.name);
             println!("-------------------------");
         }
         self.instr_iter = Some(instr_iter);
 
         while let Some(instr) = self.instr_iter.as_mut().unwrap().next() {
+            if instr.mode == ArmMode::THUMB {
+                let x = 1;
+                // println!("{x}");
+            }
             self.update_addresses(&instr);
             let new_regs = self.instr_iter.as_mut().unwrap().get_new_registers();
             self.load_initial_reg_values(&new_regs)
@@ -461,9 +466,9 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         Ok(())
     }
 
-    /// Advance the next_instr and pc addresses, falling back on a fixed 2/4 bytes step depending
-    /// on mode. This could be incorrect if we reach the end a memory region (maybe handle this by
-    /// always performing a branch if we get there?).
+    /// Advance the next instruction and pc addresses, falling back on a fixed 2/4 bytes step
+    /// depending on mode. This could be incorrect if we reach the end a memory region (maybe
+    /// handle this by always performing a branch if we get there?).
     fn update_addresses(&mut self, instr: &ArmInstruction) {
         self.next_instr_addr = self
             .instr_iter

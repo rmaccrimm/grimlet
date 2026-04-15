@@ -4,7 +4,7 @@
 .begin main
     .arm
     // number of test cases - incremented as we go
-    mov r7, #0
+    mov r6, #0
     // stack
     ldr sp, =0x03008000
     // flag mask
@@ -13,7 +13,7 @@
     b case_1
 
 init:
-    add r7, r7, #1
+    add r6, r6, #1
     mov pc, lr
 
 fail:
@@ -147,7 +147,7 @@ case_13:
 .align 4
 .thumb
 init_t:
-    add r7, r7, #1
+    add r6, r6, #1
     mov pc, lr
 
 fail_t:
@@ -163,67 +163,71 @@ success_t:
 
 case_14:
     bl init_t
-    mov r0, #0
-    mov r1, #0
-    asr r0, r1    
-    cmp r0, r1
+    ldr r0, =-2147483648
+    mov r3, r0
+    ldr r1, =1
+    asr r0, r1 
+    ldr r2, =-1073741824   
+    cmp r0, r2
     bne fail_t
     bl success_t
 
 case_15:
     bl init_t
-    mov r0, #0
-    mov r1, #0
-    lsr r0, r1    
+    ldr r0, =-2147483648
+    ldr r1, =1
+    lsr r0, r1
+    ldr r1, =1073741824
     cmp r0, r1
     bne fail_t
     bl success_t
 
 case_16:
     bl init_t
-    mov r0, #0
-    mov r1, #0
+    ldr r0, =1
+    ldr r1, =8
     lsl r0, r1    
+    ldr r1, =256
     cmp r0, r1
     bne fail_t
     bl success_t
 
 case_17:
     bl init_t
-    mov r0, #0
-    mov r1, #0
-    ror r0, r1    
+    ldr r0, =1
+    ldr r1, =1
+    ror r0, r1
+    ldr r1, =-2147483648 
     cmp r0, r1
     bne fail_t
     bl success_t
 
 case_18:
     bl init_t
-    mov r0, #0
-    mov r1, #0
+    ldr r0, =-2147483648
     asr r0, #17    
+    ldr r1, =-16384
     cmp r0, r1
     bne fail_t
     bl success_t
 
 case_19:
     bl init_t
-    mov r0, #0
-    mov r1, #0
-    lsr r0, #15    
+    ldr r0, =-2147483648
+    lsr r0, #3
+    ldr r1, =268435456
     cmp r0, r1
     bne fail_t
     bl success_t
 
 case_20:
     bl init_t
-    mov r0, #0
-    mov r1, #0
-    lsl r0, #5    
+    ldr r0, =1
+    lsl r0, #16
+    ldr r1, =65536
     cmp r0, r1
     bne fail_t
     bl success_t
-
     ldr r3, =exit
     bx r3
 .arm

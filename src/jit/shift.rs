@@ -113,10 +113,8 @@ impl<'a> FunctionBuilder<'_, 'a> {
                     // immediate shifts come through with 3 operands (rd, rd, #imm) while by reg
                     // comes through with 2 (rd, rm)
                     if num_operands == 2 {
-                        let rm = instr.get_reg_op(1);
-                        let rm_val = self.reg_map.get(rm);
-                        let shift_reg = instr.get_reg_op(2);
-                        self.shift_value(rm_val, Some(get_reg_shift(instr.opcode)(shift_reg)))?
+                        let shift_reg = instr.get_reg_op(1);
+                        self.shift_value(rd_val, Some(get_reg_shift(instr.opcode)(shift_reg)))?
                     } else {
                         let shift_amt = instr.get_imm_op(2);
                         self.shift_value(

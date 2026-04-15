@@ -2,8 +2,8 @@ use anyhow::{Context as _, Result, anyhow};
 use inkwell::values::{BasicValue, IntValue};
 
 use crate::arm::disasm::instruction::{ArmInstruction, MemOffset, MemOperand, WritebackMode};
-use crate::arm::state::Reg;
 use crate::arm::state::memory::{MemReadable, MemWriteable, MemoryManager, ReadVal, WriteVal};
+use crate::arm::state::{ArmMode, Reg};
 use crate::jit::{FunctionBuilder, InstrEffect, InstrResult, RegUpdate};
 
 #[derive(Copy, Clone)]
@@ -86,8 +86,6 @@ impl<'a> FunctionBuilder<'_, 'a> {
         exec_instr!(self, exec_conditional, instr, Self::pop)
     }
 
-    /// Not a real `ARMv4` instruction, but Capstone decodes some instrutions like
-    /// `ldr r0, =label` to this
     pub(super) fn arm_adr(&mut self, instr: &ArmInstruction) -> bool {
         exec_instr!(self, exec_conditional, instr, Self::adr)
     }
@@ -100,9 +98,13 @@ impl<'a> FunctionBuilder<'_, 'a> {
         exec_instr!(self, exec_conditional, instr, Self::swp::<u8>)
     }
 
-    fn addressing_mode(&self, mem_op: &MemOperand) -> Result<AddrMode<'a>> {
+    fn addressing_mode(&self, mem_op: &MemOperand, mode: ArmMode) -> Result<AddrMode<'a>> {
         let bd = &self.builder;
-        let base_val = self.reg_map.get(mem_op.base);
+
+        let mut base_val = self.reg_map.get(mem_op.base);
+        if mem_op.base == Reg::PC && mode == ArmMode::THUMB {
+            base_val = bd.build_and(base_val, imm!(self, !3), "pc_align")?;
+        }
 
         let calc_addr = match mem_op.offset {
             MemOffset::Reg {
@@ -226,7 +228,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
         T: MemReadable,
     {
         let rd = instr.get_reg_op(0);
-        let addr_mode: AddrMode = self.addressing_mode(&instr.get_mem_op(1)?)?;
+        let addr_mode: AddrMode = self.addressing_mode(&instr.get_mem_op(1)?, instr.mode)?;
         let (val, cycles) = self.call_mem_read::<T>(addr_mode.addr)?;
 
         let mut updates = vec![RegUpdate(rd, val)];
@@ -337,7 +339,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
     {
         let rd = instr.get_reg_op(0);
         let rd_val = self.reg_map.get(rd);
-        let addr_mode: AddrMode = self.addressing_mode(&instr.get_mem_op(1)?)?;
+        let addr_mode: AddrMode = self.addressing_mode(&instr.get_mem_op(1)?, instr.mode)?;
         let (exit, cycles) = self.call_mem_write::<T>(addr_mode.addr, rd_val)?;
 
         let mut updates = vec![];
@@ -479,12 +481,19 @@ impl<'a> FunctionBuilder<'_, 'a> {
         Ok(InstrEffect::new(updates, cycles))
     }
 
+    /// Not a real ARMv4 instruction, but Capstone decodes some instrutions like
+    /// `ldr r0, =label` to this
     fn adr(&self, instr: &ArmInstruction) -> InstrResult<'a> {
-        let bd = &self.builder;
         let rd = instr.get_reg_op(0);
         let pc_offset = instr.get_imm_op(1);
-        let addr = bd.build_int_add(self.reg_map.get(Reg::PC), imm!(self, pc_offset), "adr")?;
-        let updates = vec![RegUpdate(rd, addr)];
+        // Turn the pc offset into an MemOp to ensure consistent behaviour
+        let mem_op = MemOperand {
+            base: Reg::PC,
+            offset: MemOffset::Imm(pc_offset),
+            writeback: None,
+        };
+        let addr_mode = self.addressing_mode(&mem_op, instr.mode)?;
+        let updates = vec![RegUpdate(rd, addr_mode.addr)];
         Ok(InstrEffect::new(updates, imm!(self, 1)))
     }
 
@@ -705,7 +714,7 @@ mod tests {
             )
             .unwrap();
 
-            let addr_mode = f.addressing_mode(mem_op).unwrap();
+            let addr_mode = f.addressing_mode(mem_op, ArmMode::ARM).unwrap();
             if let Some(RegUpdate(r, v)) = addr_mode.writeback {
                 f.reg_map.update(r, v);
             }

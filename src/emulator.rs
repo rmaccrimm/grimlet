@@ -11,7 +11,7 @@ use inkwell::context::Context;
 
 use crate::arm::disasm::Disassembler;
 use crate::arm::state::memory::MemoryManager;
-use crate::arm::state::{ArmState, JumpTarget, Reg};
+use crate::arm::state::{ArmState, JumpTarget};
 use crate::jit::FunctionBuilder;
 use crate::jit::cache::FunctionCache;
 use crate::utils::interval_tree::IntervalTree;
@@ -103,7 +103,6 @@ impl<'a> Emulator<'a> {
     {
         loop {
             let addr = if let Some(JumpTarget { addr, mode }) = self.state.jump_target.take() {
-                // Does current_instr_addr need to be updated? I don't think it matters
                 // TODO Sort this out, probably depends on where we're jumping to (i.e. an't
                 // ignore the wait states
                 self.state.cycle_count += 2;
