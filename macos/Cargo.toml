@@ -1,5 +1,7 @@
 [package]
 name = "macos"
-
+version.workspace = true
+edition.workspace = true
 
 [dependencies]
+cacao = "0.3.2"
