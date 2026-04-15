@@ -103,7 +103,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
 
         let mut base_val = self.reg_map.get(mem_op.base);
         if mem_op.base == Reg::PC && mode == ArmMode::THUMB {
-            base_val = bd.build_and(base_val, imm!(self, !3), "pc_align")?;
+            base_val = bd.build_and(base_val, self.imm(!3), "pc_align")?;
         }
 
         let calc_addr = match mem_op.offset {
@@ -120,7 +120,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
                     bd.build_int_add(base_val, shifted, "addr")?
                 }
             }
-            MemOffset::Imm(i) => bd.build_int_add(base_val, imm!(self, i), "addr")?,
+            MemOffset::Imm(i) => bd.build_int_add(base_val, self.imm(i), "addr")?,
         };
 
         let addr_mode = match mem_op.writeback {
@@ -246,13 +246,13 @@ impl<'a> FunctionBuilder<'_, 'a> {
 
         let mut updates = vec![];
         let mut addr = base_addr;
-        let mut cycles = imm!(self, 0);
+        let mut cycles = self.imm(0);
         for &reg in &reg_list {
             // TODO - are these just additive?
             let (value, read_cycles) = self.call_mem_read::<u32>(addr)?;
             cycles = bd.build_int_add(cycles, read_cycles, "cycle")?;
             updates.push(RegUpdate(reg, value));
-            addr = bd.build_int_add(addr, imm!(self, 4), "addr")?;
+            addr = bd.build_int_add(addr, self.imm(4), "addr")?;
         }
         if instr.writeback {
             updates.push(RegUpdate(rn, addr));
@@ -268,9 +268,9 @@ impl<'a> FunctionBuilder<'_, 'a> {
 
         let mut updates = vec![];
         let mut addr = base_addr;
-        let mut cycles = imm!(self, 0);
+        let mut cycles = self.imm(0);
         for &reg in &reg_list {
-            addr = bd.build_int_add(addr, imm!(self, 4), "ib")?;
+            addr = bd.build_int_add(addr, self.imm(4), "ib")?;
             // TODO - are these just additive?
             let (value, read_cycles) = self.call_mem_read::<u32>(addr)?;
             cycles = bd.build_int_add(cycles, read_cycles, "cycle")?;
@@ -289,20 +289,19 @@ impl<'a> FunctionBuilder<'_, 'a> {
         let reg_list = instr.get_reg_list(1)?;
 
         let mut updates = vec![];
-        let mut addr =
-            bd.build_int_sub(base_addr, imm!(self, 4 * (reg_list.len() - 1)), "start")?;
-        let mut cycles = imm!(self, 0);
+        let mut addr = bd.build_int_sub(base_addr, self.imm(4 * (reg_list.len() - 1)), "start")?;
+        let mut cycles = self.imm(0);
         for &reg in &reg_list {
             // TODO - are these just additive?
             let (value, read_cycles) = self.call_mem_read::<u32>(addr)?;
             cycles = bd.build_int_add(cycles, read_cycles, "cycle")?;
             updates.push(RegUpdate(reg, value));
-            addr = bd.build_int_add(addr, imm!(self, 4), "da")?;
+            addr = bd.build_int_add(addr, self.imm(4), "da")?;
         }
         if instr.writeback {
             updates.push(RegUpdate(
                 rn,
-                bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "wb")?,
+                bd.build_int_sub(base_addr, self.imm(4 * reg_list.len()), "wb")?,
             ));
         }
         Ok(InstrEffect::new(updates, cycles))
@@ -315,19 +314,19 @@ impl<'a> FunctionBuilder<'_, 'a> {
         let reg_list = instr.get_reg_list(1)?;
 
         let mut updates = vec![];
-        let mut addr = bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "start")?;
-        let mut cycles = imm!(self, 0);
+        let mut addr = bd.build_int_sub(base_addr, self.imm(4 * reg_list.len()), "start")?;
+        let mut cycles = self.imm(0);
         for &reg in &reg_list {
             // TODO - are these just additive?
             let (value, read_cycles) = self.call_mem_read::<u32>(addr)?;
             cycles = bd.build_int_add(cycles, read_cycles, "cycle")?;
             updates.push(RegUpdate(reg, value));
-            addr = bd.build_int_add(addr, imm!(self, 4), "da")?;
+            addr = bd.build_int_add(addr, self.imm(4), "da")?;
         }
         if instr.writeback {
             updates.push(RegUpdate(
                 rn,
-                bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "wb")?,
+                bd.build_int_sub(base_addr, self.imm(4 * reg_list.len()), "wb")?,
             ));
         }
         Ok(InstrEffect::new(updates, cycles))
@@ -357,12 +356,12 @@ impl<'a> FunctionBuilder<'_, 'a> {
 
         let mut updates = vec![];
         let mut addr = base_addr;
-        let mut cycles = imm!(self, 0);
+        let mut cycles = self.imm(0);
         for &reg in &reg_list {
             let value = self.reg_map.get(reg);
             let (_, write_cycles) = self.call_mem_write::<u32>(addr, value)?;
             cycles = bd.build_int_add(cycles, write_cycles, "cycles")?;
-            addr = bd.build_int_add(addr, imm!(self, 4), "addr")?;
+            addr = bd.build_int_add(addr, self.imm(4), "addr")?;
         }
         if instr.writeback {
             updates.push(RegUpdate(rn, addr));
@@ -378,9 +377,9 @@ impl<'a> FunctionBuilder<'_, 'a> {
 
         let mut updates = vec![];
         let mut addr = base_addr;
-        let mut cycles = imm!(self, 0);
+        let mut cycles = self.imm(0);
         for &reg in &reg_list {
-            addr = bd.build_int_add(addr, imm!(self, 4), "ib")?;
+            addr = bd.build_int_add(addr, self.imm(4), "ib")?;
             let value = self.reg_map.get(reg);
             let (_, write_cycles) = self.call_mem_write::<u32>(addr, value)?;
             cycles = bd.build_int_add(cycles, write_cycles, "cycles")?;
@@ -398,19 +397,18 @@ impl<'a> FunctionBuilder<'_, 'a> {
         let reg_list = instr.get_reg_list(1)?;
 
         let mut updates = vec![];
-        let mut addr =
-            bd.build_int_sub(base_addr, imm!(self, 4 * (reg_list.len() - 1)), "start")?;
-        let mut cycles = imm!(self, 0);
+        let mut addr = bd.build_int_sub(base_addr, self.imm(4 * (reg_list.len() - 1)), "start")?;
+        let mut cycles = self.imm(0);
         for &reg in &reg_list {
             let value = self.reg_map.get(reg);
             let (_, write_cycles) = self.call_mem_write::<u32>(addr, value)?;
             cycles = bd.build_int_add(cycles, write_cycles, "cycles")?;
-            addr = bd.build_int_add(addr, imm!(self, 4), "da")?;
+            addr = bd.build_int_add(addr, self.imm(4), "da")?;
         }
         if instr.writeback {
             updates.push(RegUpdate(
                 rn,
-                bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "wb")?,
+                bd.build_int_sub(base_addr, self.imm(4 * reg_list.len()), "wb")?,
             ));
         }
         Ok(InstrEffect::new(updates, cycles))
@@ -423,18 +421,18 @@ impl<'a> FunctionBuilder<'_, 'a> {
         let reg_list = instr.get_reg_list(1)?;
 
         let mut updates = vec![];
-        let mut addr = bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "start")?;
-        let mut cycles = imm!(self, 0);
+        let mut addr = bd.build_int_sub(base_addr, self.imm(4 * reg_list.len()), "start")?;
+        let mut cycles = self.imm(0);
         for &reg in &reg_list {
             let value = self.reg_map.get(reg);
             let (_, write_cycles) = self.call_mem_write::<u32>(addr, value)?;
             cycles = bd.build_int_add(cycles, write_cycles, "cycles")?;
-            addr = bd.build_int_add(addr, imm!(self, 4), "da")?;
+            addr = bd.build_int_add(addr, self.imm(4), "da")?;
         }
         if instr.writeback {
             updates.push(RegUpdate(
                 rn,
-                bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "wb")?,
+                bd.build_int_sub(base_addr, self.imm(4 * reg_list.len()), "wb")?,
             ));
         }
         Ok(InstrEffect::new(updates, cycles))
@@ -447,17 +445,17 @@ impl<'a> FunctionBuilder<'_, 'a> {
         let reg_list = instr.get_reg_list(0)?;
 
         let mut updates = vec![];
-        let mut addr = bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "start")?;
-        let mut cycles = imm!(self, 0);
+        let mut addr = bd.build_int_sub(base_addr, self.imm(4 * reg_list.len()), "start")?;
+        let mut cycles = self.imm(0);
         for &reg in &reg_list {
             let value = self.reg_map.get(reg);
             let (_, write_cycles) = self.call_mem_write::<u32>(addr, value)?;
             cycles = bd.build_int_add(cycles, write_cycles, "cycles")?;
-            addr = bd.build_int_add(addr, imm!(self, 4), "da")?;
+            addr = bd.build_int_add(addr, self.imm(4), "da")?;
         }
         updates.push(RegUpdate(
             Reg::SP,
-            bd.build_int_sub(base_addr, imm!(self, 4 * reg_list.len()), "wb")?,
+            bd.build_int_sub(base_addr, self.imm(4 * reg_list.len()), "wb")?,
         ));
         Ok(InstrEffect::new(updates, cycles))
     }
@@ -470,12 +468,12 @@ impl<'a> FunctionBuilder<'_, 'a> {
 
         let mut updates = vec![];
         let mut addr = base_addr;
-        let mut cycles = imm!(self, 0);
+        let mut cycles = self.imm(0);
         for &reg in &reg_list {
             let (value, read_cycles) = self.call_mem_read::<u32>(addr)?;
             cycles = bd.build_int_add(cycles, read_cycles, "cycle")?;
             updates.push(RegUpdate(reg, value));
-            addr = bd.build_int_add(addr, imm!(self, 4), "addr")?;
+            addr = bd.build_int_add(addr, self.imm(4), "addr")?;
         }
         updates.push(RegUpdate(Reg::SP, addr));
         Ok(InstrEffect::new(updates, cycles))
@@ -494,7 +492,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
         };
         let addr_mode = self.addressing_mode(&mem_op, instr.mode)?;
         let updates = vec![RegUpdate(rd, addr_mode.addr)];
-        Ok(InstrEffect::new(updates, imm!(self, 1)))
+        Ok(InstrEffect::new(updates, self.imm(1)))
     }
 
     fn swp<T>(&self, instr: &ArmInstruction) -> InstrResult<'a>

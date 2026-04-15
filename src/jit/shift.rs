@@ -59,16 +59,16 @@ impl<'a> FunctionBuilder<'_, 'a> {
         match operand {
             ShifterOperand::Imm { imm, rotate } => {
                 if let Some(r) = rotate {
-                    let imm_val = imm!(self, imm);
-                    let rot_amt = imm!(self, r);
+                    let imm_val = self.imm(imm);
+                    let rot_amt = self.imm(r);
                     let rot_val =
                         call_intrinsic!(bd, self.fshr, imm_val, imm_val, rot_amt).into_int_value();
-                    let shifted = bd.build_right_shift(rot_val, imm!(self, 31), false, "sh")?;
+                    let shifted = bd.build_right_shift(rot_val, self.imm(31), false, "sh")?;
                     let rot_msb =
-                        bd.build_int_compare(IntPredicate::EQ, shifted, imm!(self, 1), "rot_msb")?;
+                        bd.build_int_compare(IntPredicate::EQ, shifted, self.imm(1), "rot_msb")?;
                     Ok((rot_val, Some(rot_msb)))
                 } else {
-                    Ok((imm!(self, imm), None))
+                    Ok((self.imm(imm), None))
                 }
             }
             ShifterOperand::Reg { reg, shift } => {
@@ -125,12 +125,12 @@ impl<'a> FunctionBuilder<'_, 'a> {
                 }
             }
         };
-        let n = bd.build_int_compare(IntPredicate::SLT, sh_val, imm!(self, 0), "n")?;
-        let z = bd.build_int_compare(IntPredicate::EQ, sh_val, imm!(self, 0), "z")?;
+        let n = bd.build_int_compare(IntPredicate::SLT, sh_val, self.imm(0), "n")?;
+        let z = bd.build_int_compare(IntPredicate::EQ, sh_val, self.imm(0), "z")?;
         let cpsr = self.set_flags(Some(n), Some(z), c, None)?;
 
         let updates = vec![RegUpdate(rd, sh_val), RegUpdate(Reg::CPSR, cpsr)];
-        Ok(InstrEffect::new(updates, imm!(self, 1)))
+        Ok(InstrEffect::new(updates, self.imm(1)))
     }
 
     pub(super) fn rrx(&self, instr: &ArmInstruction) -> InstrResult<'a> {
@@ -141,12 +141,12 @@ impl<'a> FunctionBuilder<'_, 'a> {
 
         let (sh_val, c) = self.shift_value(rm_val, Some(ArmShift::Rrx))?;
 
-        let n = bd.build_int_compare(IntPredicate::SLT, sh_val, imm!(self, 0), "n")?;
-        let z = bd.build_int_compare(IntPredicate::EQ, sh_val, imm!(self, 0), "z")?;
+        let n = bd.build_int_compare(IntPredicate::SLT, sh_val, self.imm(0), "n")?;
+        let z = bd.build_int_compare(IntPredicate::EQ, sh_val, self.imm(0), "z")?;
         let cpsr = self.set_flags(Some(n), Some(z), c, None)?;
 
         let updates = vec![RegUpdate(rd, sh_val), RegUpdate(Reg::CPSR, cpsr)];
-        Ok(InstrEffect::new(updates, imm!(self, 1)))
+        Ok(InstrEffect::new(updates, self.imm(1)))
     }
 
     fn lsl_imm(
@@ -156,14 +156,14 @@ impl<'a> FunctionBuilder<'_, 'a> {
     ) -> Result<(IntValue<'a>, Option<IntValue<'a>>)> {
         debug_assert!(imm < 32);
         let bd = &self.builder;
-        let one = imm!(self, 1);
+        let one = self.imm(1);
 
         if imm == 0 {
             Ok((base, None))
         } else {
-            let shifted = bd.build_left_shift(base, imm!(self, imm), "lsh")?;
+            let shifted = bd.build_left_shift(base, self.imm(imm), "lsh")?;
             // Get the last bit shifted out
-            let rshift = bd.build_right_shift(base, imm!(self, 32 - imm), false, "rsh")?;
+            let rshift = bd.build_right_shift(base, self.imm(32 - imm), false, "rsh")?;
             let last_bit = bd.build_and(rshift, one, "b")?;
             let c = bd.build_int_compare(IntPredicate::EQ, last_bit, one, "c")?;
             Ok((shifted, Some(c)))
@@ -176,21 +176,21 @@ impl<'a> FunctionBuilder<'_, 'a> {
         reg_id: Reg,
     ) -> Result<(IntValue<'a>, Option<IntValue<'a>>)> {
         let bd = &self.builder;
-        let zero = imm!(self, 0);
-        let one = imm!(self, 1);
+        let zero = self.imm(0);
+        let one = self.imm(1);
 
         let shift_reg = self.reg_map.get(reg_id);
         let curr_c = bd.build_int_cast_sign_flag(self.get_flag(C)?, self.i32_t, false, "c")?;
 
         // Only use 1st byte of shift reg
-        let mask = imm!(self, 0xff);
+        let mask = self.imm(0xff);
         let shift_amt = bd.build_and(shift_reg, mask, "s")?;
 
         let shift_eq_0 = bd.build_int_compare(IntPredicate::EQ, shift_amt, zero, "seq")?;
         let shift_lt_32 =
-            bd.build_int_compare(IntPredicate::ULT, shift_amt, imm!(self, 32), "slt")?;
+            bd.build_int_compare(IntPredicate::ULT, shift_amt, self.imm(32), "slt")?;
         let shift_le_32 =
-            bd.build_int_compare(IntPredicate::ULE, shift_amt, imm!(self, 32), "sle")?;
+            bd.build_int_compare(IntPredicate::ULE, shift_amt, self.imm(32), "sle")?;
         // Shifter operand calc
         // (reg << shift_reg) if shift_reg < 32 else 0
         let shift_in_range = bd.build_left_shift(base, shift_reg, "sh")?;
@@ -201,7 +201,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
         // Carry out calc
         // curr_c if shift_reg = 0 else
         //    (bit(32 - shift_reg) if 0 < shift_reg <= 32) else 0
-        let rshift_amt = bd.build_int_sub(imm!(self, 32), shift_amt, "r")?;
+        let rshift_amt = bd.build_int_sub(self.imm(32), shift_amt, "r")?;
         let rshift_in_range = bd.build_right_shift(base, rshift_amt, false, "rsh")?;
         let rshift_eq_0 = bd
             .build_select(shift_eq_0, curr_c, rshift_in_range, "rsheq")?
@@ -221,18 +221,18 @@ impl<'a> FunctionBuilder<'_, 'a> {
         imm: u32,
     ) -> Result<(IntValue<'a>, Option<IntValue<'a>>)> {
         let bd = &self.builder;
-        let zero = imm!(self, 0);
-        let one = imm!(self, 1);
+        let zero = self.imm(0);
+        let one = self.imm(1);
 
         debug_assert!(imm > 0 && imm <= 32);
         if imm == 32 {
-            let shift = bd.build_right_shift(base, imm!(self, 31), false, "sh")?;
+            let shift = bd.build_right_shift(base, self.imm(31), false, "sh")?;
             let last_bit = bd.build_and(shift, one, "b")?;
             let c = bd.build_int_compare(IntPredicate::EQ, last_bit, one, "c")?;
             Ok((zero, Some(c)))
         } else {
-            let shift = bd.build_right_shift(base, imm!(self, imm), false, "sh")?;
-            let shift_1_less = bd.build_right_shift(base, imm!(self, imm - 1), false, "shl")?;
+            let shift = bd.build_right_shift(base, self.imm(imm), false, "sh")?;
+            let shift_1_less = bd.build_right_shift(base, self.imm(imm - 1), false, "shl")?;
             let last_bit = bd.build_and(shift_1_less, one, "b")?;
             let c = bd.build_int_compare(IntPredicate::EQ, last_bit, one, "c")?;
             Ok((shift, Some(c)))
@@ -245,21 +245,21 @@ impl<'a> FunctionBuilder<'_, 'a> {
         reg_id: Reg,
     ) -> Result<(IntValue<'a>, Option<IntValue<'a>>)> {
         let bd = &self.builder;
-        let zero = imm!(self, 0);
-        let one = imm!(self, 1);
+        let zero = self.imm(0);
+        let one = self.imm(1);
 
         let shift_reg = self.reg_map.get(reg_id);
         let curr_c = bd.build_int_cast_sign_flag(self.get_flag(C)?, self.i32_t, false, "c")?;
 
         // Only use 1st byte of shift reg
-        let mask = imm!(self, 0xff);
+        let mask = self.imm(0xff);
         let shift_amt = bd.build_and(shift_reg, mask, "s")?;
 
         let shift_eq_0 = bd.build_int_compare(IntPredicate::EQ, shift_amt, zero, "seq")?;
         let shift_lt_32 =
-            bd.build_int_compare(IntPredicate::ULT, shift_amt, imm!(self, 32), "slt")?;
+            bd.build_int_compare(IntPredicate::ULT, shift_amt, self.imm(32), "slt")?;
         let shift_le_32 =
-            bd.build_int_compare(IntPredicate::ULE, shift_amt, imm!(self, 32), "sle")?;
+            bd.build_int_compare(IntPredicate::ULE, shift_amt, self.imm(32), "sle")?;
         // Shifter operand calc
         // (reg >> shift_reg) if shift_reg < 32 else 0
         let shift_in_range = bd.build_right_shift(base, shift_reg, false, "sh")?;
@@ -291,16 +291,16 @@ impl<'a> FunctionBuilder<'_, 'a> {
     ) -> Result<(IntValue<'a>, Option<IntValue<'a>>)> {
         debug_assert!(imm > 0 && imm <= 32);
         let bd = &self.builder;
-        let one = imm!(self, 1);
+        let one = self.imm(1);
 
         if imm == 32 {
-            let shift = bd.build_right_shift(base, imm!(self, 31), true, "sh")?;
+            let shift = bd.build_right_shift(base, self.imm(31), true, "sh")?;
             let last_bit = bd.build_and(shift, one, "b")?;
             let c = bd.build_int_compare(IntPredicate::EQ, last_bit, one, "c")?;
             Ok((shift, Some(c)))
         } else {
-            let shift = bd.build_right_shift(base, imm!(self, imm), true, "sh")?;
-            let shift_1_less = bd.build_right_shift(base, imm!(self, imm - 1), false, "shl")?;
+            let shift = bd.build_right_shift(base, self.imm(imm), true, "sh")?;
+            let shift_1_less = bd.build_right_shift(base, self.imm(imm - 1), false, "shl")?;
             let last_bit = bd.build_and(shift_1_less, one, "b")?;
             let c = bd.build_int_compare(IntPredicate::EQ, last_bit, one, "c")?;
             Ok((shift, Some(c)))
@@ -313,23 +313,23 @@ impl<'a> FunctionBuilder<'_, 'a> {
         reg_id: Reg,
     ) -> Result<(IntValue<'a>, Option<IntValue<'a>>)> {
         let bd = &self.builder;
-        let zero = imm!(self, 0);
-        let one = imm!(self, 1);
+        let zero = self.imm(0);
+        let one = self.imm(1);
 
         let shift_reg = self.reg_map.get(reg_id);
         let curr_c = self.get_flag(C)?;
 
         // Only use 1st byte of shift reg
-        let mask = imm!(self, 0xff);
+        let mask = self.imm(0xff);
         let shift_amt = bd.build_and(shift_reg, mask, "s")?;
 
         let shift_eq_0 = bd.build_int_compare(IntPredicate::EQ, shift_amt, zero, "seq")?;
         let shift_lt_32 =
-            bd.build_int_compare(IntPredicate::ULT, shift_amt, imm!(self, 32), "slt")?;
+            bd.build_int_compare(IntPredicate::ULT, shift_amt, self.imm(32), "slt")?;
         // Shifter operand calc
         // (reg >> shift_reg) if shift_reg < 32 else 0
         let shift_in_range = bd.build_right_shift(base, shift_amt, true, "sh")?;
-        let shift_ge_32 = bd.build_right_shift(base, imm!(self, 31), true, "shge")?;
+        let shift_ge_32 = bd.build_right_shift(base, self.imm(31), true, "shge")?;
         let shift = bd
             .build_select(shift_lt_32, shift_in_range, shift_ge_32, "shlt")?
             .into_int_value();
@@ -339,7 +339,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
         //    (bit(shift_reg - 1) if 0 < shift_reg <= 32) else 0
         let rshift_amt = bd.build_int_sub(shift_amt, one, "r")?;
         let rshift_in_range = bd.build_right_shift(base, rshift_amt, false, "rsh")?;
-        let rshift_31 = bd.build_right_shift(base, imm!(self, 31), false, "rsh31")?;
+        let rshift_31 = bd.build_right_shift(base, self.imm(31), false, "rsh31")?;
 
         let rshift = bd
             .build_select(shift_lt_32, rshift_in_range, rshift_31, "rshle")?
@@ -360,12 +360,12 @@ impl<'a> FunctionBuilder<'_, 'a> {
         imm: u32,
     ) -> Result<(IntValue<'a>, Option<IntValue<'a>>)> {
         let bd = &self.builder;
-        let one = imm!(self, 1);
+        let one = self.imm(1);
 
         debug_assert!(imm > 0 && imm < 32);
-        let rot = call_intrinsic!(bd, self.fshr, base, base, imm!(self, imm)).into_int_value();
+        let rot = call_intrinsic!(bd, self.fshr, base, base, self.imm(imm)).into_int_value();
 
-        let shift_1_less = bd.build_right_shift(base, imm!(self, imm - 1), false, "shl")?;
+        let shift_1_less = bd.build_right_shift(base, self.imm(imm - 1), false, "shl")?;
         let last_bit = bd.build_and(shift_1_less, one, "b")?;
         let c = bd.build_int_compare(IntPredicate::EQ, last_bit, one, "c")?;
         Ok((rot, Some(c)))
@@ -377,19 +377,19 @@ impl<'a> FunctionBuilder<'_, 'a> {
         reg_id: Reg,
     ) -> Result<(IntValue<'a>, Option<IntValue<'a>>)> {
         let bd = &self.builder;
-        let zero = imm!(self, 0);
-        let one = imm!(self, 1);
+        let zero = self.imm(0);
+        let one = self.imm(1);
 
         let shift_reg = self.reg_map.get(reg_id);
         let curr_c = self.get_flag(C)?;
 
         // Only use 1st byte of shift reg
-        let byte_mask = imm!(self, 0xff);
+        let byte_mask = self.imm(0xff);
         let shift_amt = bd.build_and(shift_reg, byte_mask, "s")?;
 
         let byte_eq_0 = bd.build_int_compare(IntPredicate::EQ, shift_amt, zero, "beq")?;
 
-        let rot_mask = imm!(self, 0x1f);
+        let rot_mask = self.imm(0x1f);
         let shift_mod = bd.build_and(shift_reg, rot_mask, "r")?;
 
         let rot_in_range = call_intrinsic!(bd, self.fshr, base, base, shift_mod).into_int_value();
@@ -413,7 +413,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
     /// Only has 1 possible immediate value - 1
     fn rrx_imm(&self, base: IntValue<'a>) -> Result<(IntValue<'a>, Option<IntValue<'a>>)> {
         let bd = &self.builder;
-        let one = imm!(self, 1);
+        let one = self.imm(1);
 
         let curr_c = self.get_flag(C)?;
         let c32 = bd.build_int_cast_sign_flag(curr_c, self.i32_t, false, "c_in")?;

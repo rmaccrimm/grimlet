@@ -1,23 +1,3 @@
-#![allow(clippy::cast_sign_loss, clippy::cast_lossless)]
-
-macro_rules! imm {
-    ($self:ident, $i:expr) => {
-        $self.i32_t.const_int($i as u64, false)
-    };
-}
-
-macro_rules! imm8 {
-    ($self:ident, $i:expr) => {
-        $self.i8_t.const_int($i as u64, false)
-    };
-}
-
-macro_rules! imm64 {
-    ($self:ident, $i:expr) => {
-        $self.ctx.i64_type().const_int($i as u64, false)
-    };
-}
-
 macro_rules! call_intrinsic {
     ($builder:ident, $self:ident . $intrinsic:ident, $($args:expr),+) => {
         $builder
@@ -88,6 +68,7 @@ use crate::arm::disasm::instruction::ArmInstruction;
 use crate::arm::state::{ArmState, NUM_REGS, Reg};
 use crate::emulator::{DebugOutput, DumpLLVM, EnvConfig};
 use crate::jit::reg_map::{RegMap, RegMapItem};
+use crate::utils::CastToU64;
 
 macro_rules! unimpl_instr {
     ($instr:expr, $mnemonic:expr) => {
@@ -365,7 +346,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             self.load_initial_reg_values(&new_regs)
                 .expect("loading initial register values failed");
 
-            self.reg_map.update(Reg::PC, imm!(self, self.pc_addr));
+            self.reg_map.update(Reg::PC, self.imm(self.pc_addr));
 
             match debug_output {
                 Some(DebugOutput::Struct) => println!("{instr:#?}"),
@@ -436,6 +417,18 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         .ok();
     }
 
+    fn imm(&self, i: impl CastToU64) -> IntValue<'a> {
+        self.i32_t.const_int(i.cast_to_u64(), false)
+    }
+
+    fn imm8(&self, i: impl CastToU64) -> IntValue<'a> {
+        self.i8_t.const_int(i.cast_to_u64(), false)
+    }
+
+    fn imm64(&self, i: impl CastToU64) -> IntValue<'a> {
+        self.ctx.i64_type().const_int(i.cast_to_u64(), false)
+    }
+
     fn load_initial_reg_values(&mut self, new_regs: &HashSet<Reg>) -> Result<()> {
         // initial register values are loaded lazily, as they are encountered
         let bd = &self.builder;
@@ -452,7 +445,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
 
             if r == Reg::PC {
                 // Based on the start address passed to the Builder, not the in-memory value
-                self.reg_map.init(r, imm!(self, self.pc_addr), ptr);
+                self.reg_map.init(r, self.imm(self.pc_addr), ptr);
             } else {
                 let name = format!("r{i}");
                 let v = bd.build_load(self.i32_t, ptr, &name)?.into_int_value();
@@ -508,7 +501,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             }
             bd.build_store(r.state_ptr, r.current_value)?;
         }
-        bd.build_store(self.next_addr_ptr, imm!(self, self.next_instr_addr))?;
+        bd.build_store(self.next_addr_ptr, self.imm(self.next_instr_addr))?;
         let curr_count = bd
             .build_load(self.i32_t, self.cycle_count_ptr, "curr_cyc")?
             .into_int_value();
@@ -532,7 +525,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         // If cond is not met (instruction not executed), just add 1 cycle to counter
         let unexec_cycles = self
             .builder
-            .build_int_add(self.cycles, imm!(self, 1), "unexec_cyc")?;
+            .build_int_add(self.cycles, self.imm(1), "unexec_cyc")?;
         let cond = self.eval_cond(instr.cond)?;
         self.builder
             .build_conditional_branch(cond, if_block, end_block)?;
@@ -560,7 +553,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             }
             self.write_state_out(&tmp_reg_map)?;
             // TODO - can we change mode here? Possibly an ARMv5 thing
-            self.branch_and_return(target, imm8!(self, instr.mode as i8))?;
+            self.branch_and_return(target, self.imm8(instr.mode as i8))?;
 
             self.builder.position_at_end(end_block);
             self.write_state_out(&self.reg_map)?;
@@ -598,7 +591,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
             // Exit var must be defined even if we skipped executing the instructxion
             let exit_phi = bd.build_phi(self.i8_t, "exit_phi")?;
             exit_phi.add_incoming(&[
-                (&imm8!(self, 0), self.current_block),
+                (&self.imm8(0), self.current_block),
                 (&condition_var, if_block),
             ]);
             let exit_var = exit_phi.as_basic_value().into_int_value();
@@ -615,7 +608,7 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         let end_block = self.ctx.append_basic_block(self.func, "end");
 
         let cond =
-            bd.build_int_compare(inkwell::IntPredicate::NE, must_exit, imm8!(self, 0), "exit")?;
+            bd.build_int_compare(inkwell::IntPredicate::NE, must_exit, self.imm8(0), "exit")?;
         self.builder
             .build_conditional_branch(cond, if_block, end_block)?;
 

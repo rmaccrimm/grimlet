@@ -50,12 +50,12 @@ impl<'a> FunctionBuilder<'_, 'a> {
             Some(mode) => mode,
             None => {
                 // Keep mode the same as current
-                imm8!(self, instr.mode as i8)
+                self.imm8(instr.mode as i8)
             }
         };
 
         if save_return {
-            let return_addr = imm!(self, instr.addr + instr.size);
+            let return_addr = self.imm(instr.addr + instr.size);
             // Update lr temporarily, and restore it after the context switch so that
             // the unaltered value is used if we skip the end block
             let mut tmp_reg_map = self.reg_map.clone();
@@ -92,7 +92,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
     #[allow(clippy::unnecessary_wraps)]
     fn b(&self, instr: &ArmInstruction) -> Result<BranchAction<'a>> {
         Ok(BranchAction {
-            target: imm!(self, instr.get_imm_op(0)),
+            target: self.imm(instr.get_imm_op(0)),
             save_return: false,
             change_mode: None,
         })
@@ -101,7 +101,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
     #[allow(clippy::unnecessary_wraps)]
     fn bl(&self, instr: &ArmInstruction) -> Result<BranchAction<'a>> {
         Ok(BranchAction {
-            target: imm!(self, instr.get_imm_op(0)),
+            target: self.imm(instr.get_imm_op(0)),
             save_return: true,
             change_mode: None,
         })
@@ -110,10 +110,10 @@ impl<'a> FunctionBuilder<'_, 'a> {
     fn bx(&self, instr: &ArmInstruction) -> Result<BranchAction<'a>> {
         let bd = &self.builder;
         let rm_val = self.reg_map.get(instr.get_reg_op(0));
-        let lsb = bd.build_and(rm_val, imm!(self, 1), "lsb")?;
+        let lsb = bd.build_and(rm_val, self.imm(1), "lsb")?;
         let mode = bd.build_int_cast_sign_flag(lsb, self.i8_t, false, "mode")?;
 
-        let mask = bd.build_not(imm!(self, 1), "mask")?;
+        let mask = bd.build_not(self.imm(1), "mask")?;
         let target = bd.build_and(rm_val, mask, "target")?;
 
         Ok(BranchAction {
