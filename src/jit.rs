@@ -70,7 +70,7 @@ mod shift;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::{fs, ptr};
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Result, anyhow};
 use capstone::arch::arm::ArmInsn;
 use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
@@ -85,7 +85,7 @@ use uuid::Uuid;
 
 use crate::arm::disasm::InstrWindowIter;
 use crate::arm::disasm::instruction::ArmInstruction;
-use crate::arm::state::{ArmMode, ArmState, NUM_REGS, Reg};
+use crate::arm::state::{ArmState, NUM_REGS, Reg};
 use crate::emulator::{DebugOutput, DumpLLVM, EnvConfig};
 use crate::jit::reg_map::{RegMap, RegMapItem};
 
@@ -360,10 +360,6 @@ impl<'ctx, 'a> FunctionBuilder<'ctx, 'a> {
         self.instr_iter = Some(instr_iter);
 
         while let Some(instr) = self.instr_iter.as_mut().unwrap().next() {
-            if instr.mode == ArmMode::THUMB {
-                let x = 1;
-                // println!("{x}");
-            }
             self.update_addresses(&instr);
             let new_regs = self.instr_iter.as_mut().unwrap().get_new_registers();
             self.load_initial_reg_values(&new_regs)

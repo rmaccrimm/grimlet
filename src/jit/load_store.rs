@@ -481,7 +481,7 @@ impl<'a> FunctionBuilder<'_, 'a> {
         Ok(InstrEffect::new(updates, cycles))
     }
 
-    /// Not a real ARMv4 instruction, but Capstone decodes some instrutions like
+    /// Not a real `ARMv4` instruction, but Capstone decodes some instrutions like
     /// `ldr r0, =label` to this
     fn adr(&self, instr: &ArmInstruction) -> InstrResult<'a> {
         let rd = instr.get_reg_op(0);
