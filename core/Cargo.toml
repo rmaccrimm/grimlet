@@ -1,0 +1,31 @@
+[package]
+name = "core"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "assemble"
+test = false
+
+[[bin]]
+name = "disassemble"
+test = false
+
+[[bin]]
+name = "benchmark_interval_tree"
+test = false
+
+[dependencies]
+anyhow = { workspace = true }
+capstone = { workspace = true }
+inkwell = { workspace = true }
+clap = { workspace = true }
+num = { workspace = true }
+uuid = { workspace = true }
+slab = { workspace = true }
+
+[dev-dependencies]
+dhat = { workspace = true }
+
+[features]
+dhat-heap = []  

@@ -1,36 +1,18 @@
-[package]
-name = "grimlet"
+[workspace]
+members = ["core", "macos"]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
 
-[[bin]]
-name = "main"
-test = false
-
-[[bin]]
-name = "assemble"
-test = false
-
-[[bin]]
-name = "disassemble"
-test = false
-
-[[bin]]
-name = "benchmark_interval_tree"
-test = false
-
-[dependencies]
+[workspace.dependencies]
 anyhow = "1.0.100"
 capstone = "0.13.0"
-inkwell = { version = "0.6.0", features = ["llvm18-1"] }
 clap = { version = "4.6.0", features = ["derive"] }
-num = "0.4.3"
-eframe = "0.34.0"
-uuid = { version = "1.23.0", features = ["v4"] }
-slab = "0.4.12"
-
-[dev-dependencies]
 dhat = "0.3.3"
+inkwell = { version = "0.6.0", features = ["llvm18-1"] }
+num = "0.4.3"
+slab = "0.4.12"
+uuid = { version = "1.23.0", features = ["v4"] }
 
-[features]
-dhat-heap = []  
+

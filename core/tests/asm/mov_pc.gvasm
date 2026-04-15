@@ -1,0 +1,57 @@
+.begin main
+    .arm
+    // number of test cases - incremented as we go
+    mov r6, #0
+    // stack
+    ldr sp, =0x03008000
+    b case_1
+init:
+    add r6, r6, #1
+    mov pc, lr
+fail:
+    ldr r7, =-1
+    push {r7}
+    b exit
+success:
+    mov r7, #1
+    push {r7}
+    mov pc, lr
+
+case_1:
+    bl init
+    ldr pc, =l1
+    b fail
+l1: // 20
+    bl success
+
+case_2:
+    bl init
+    add pc, pc, #0
+    b fail
+    bl success
+
+case_3:
+    bl  init
+    mov r1, pc
+    add r1, r1, #8
+    mov pc, r1
+    b fail
+    bl success
+
+case_4:
+    bl init
+    mov r1, pc
+    add r1, r1, #12
+    push {r1}
+    pop {pc}
+    b fail
+    bl success
+
+exit: 
+    // emulator test exit condition
+    mov r11, #0x6300
+    b end
+end:
+    b end
+.pool
+.end
