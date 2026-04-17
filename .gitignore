@@ -9,3 +9,6 @@
 *.sna
 *.gba
 tests/**/*.txt
+*.xcuserstate
+project.xcworkspace/
+xcuserdata/

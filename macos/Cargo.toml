@@ -1,9 +1,0 @@
-[package]
-name = "macos"
-version.workspace = true
-edition.workspace = true
-default-run = "macos"
-
-[dependencies]
-cacao = "0.3.2"
-core = { path = "../core" }
