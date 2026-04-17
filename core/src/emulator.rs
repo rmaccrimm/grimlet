@@ -61,21 +61,26 @@ impl EnvConfig {
 
 pub struct Emulator<'a> {
     pub state: ArmState,
-    ctx: &'a Context,
+    ctx: &'static Context,
     disasm: Disassembler,
     func_cache: FunctionCache<'a>,
     config: EnvConfig,
 }
 
-impl<'a> Emulator<'a> {
-    pub fn new(llvm_ctx: &'a Context) -> Self {
+impl Emulator<'_> {
+    pub fn new() -> Self {
+        // Context is needed for the life of the program but it doesn't really make sense for the
+        // caller to be responsible for managing it. Without the leak, we'd have a self-referential
+        // struct since the FunctionCache stores compiled functions that are parameterized on the
+        // lifetime of the context.
+        let ctx = Box::leak(Box::new(Context::create()));
         let (tx, rx) = mpsc::channel();
         let ival_tree = Rc::new(RefCell::new(IntervalTree::default()));
         let mem = MemoryManager::new(ival_tree.clone(), tx);
         let config = EnvConfig::load_from_env();
 
         Self {
-            ctx: llvm_ctx,
+            ctx,
             state: ArmState::new(mem),
             disasm: Disassembler::default(),
             func_cache: FunctionCache::new(ival_tree, rx),
@@ -166,6 +171,10 @@ impl<'a> Emulator<'a> {
     }
 }
 
+impl Default for Emulator<'_> {
+    fn default() -> Self { Self::new() }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -185,8 +194,7 @@ mod tests {
             0xa0, 0xe1, 0x01, 0x1f, 0xa0, 0xe3, 0x06, 0x1f, 0xa0, 0xe3, 0x12, 0x00, 0x00, 0xea,
         ];
 
-        let ctx = Context::create();
-        let mut emulator = Emulator::new(&ctx);
+        let mut emulator = Emulator::new();
 
         let (mem, _) = emulator.state.mem.mem_map_lookup_mut(0).unwrap();
         mem[..program.len()].copy_from_slice(&program);
@@ -219,8 +227,7 @@ mod tests {
             0xa0, 0xe3,
         ];
 
-        let ctx = Context::create();
-        let mut emulator = Emulator::new(&ctx);
+        let mut emulator = Emulator::new();
 
         // gvasm generated assembly - needs to be loaded into cartridge mem for labels to work
         // (Could this be a problem later? I don't know if this should actually be writeable)
