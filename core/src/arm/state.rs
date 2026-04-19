@@ -65,7 +65,7 @@ pub const REG_ITEMS: [Reg; NUM_REGS as usize] = [
     Reg::SPSR,
 ];
 
-/// Emulated CPU state (and interpreter?)
+/// Emulated CPU state (would be nide to break this up so registers can be independent)
 #[repr(C)]
 pub struct ArmState {
     pub next_instr_addr: u32,

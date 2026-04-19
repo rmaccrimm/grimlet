@@ -61,6 +61,7 @@ impl EnvConfig {
 
 pub struct Emulator<'a> {
     pub state: ArmState,
+    pub next_frame: Vec<u8>,
     ctx: &'static Context,
     disasm: Disassembler,
     func_cache: FunctionCache<'a>,
@@ -70,9 +71,9 @@ pub struct Emulator<'a> {
 impl Emulator<'_> {
     pub fn new() -> Self {
         // Context is needed for the life of the program but it doesn't really make sense for the
-        // caller to be responsible for managing it. Without the leak, we'd have a self-referential
-        // struct since the FunctionCache stores compiled functions that are parameterized on the
-        // lifetime of the context.
+        // caller to be responsible for managing it. Without the leak, we run into lifetime problems
+        // due to the self-referential struct (FunctionCache stores compiled functions that are
+        // dependent on the context).
         let ctx = Box::leak(Box::new(Context::create()));
         let (tx, rx) = mpsc::channel();
         let ival_tree = Rc::new(RefCell::new(IntervalTree::default()));
@@ -80,8 +81,9 @@ impl Emulator<'_> {
         let config = EnvConfig::load_from_env();
 
         Self {
-            ctx,
             state: ArmState::new(mem),
+            next_frame: vec![0, 240 * 160 * 3],
+            ctx,
             disasm: Disassembler::default(),
             func_cache: FunctionCache::new(ival_tree, rx),
             config,

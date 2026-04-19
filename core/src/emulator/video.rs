@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+
 pub struct Sprite<'a> {
     mem: &'a [u8],
 }
