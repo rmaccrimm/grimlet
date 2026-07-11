@@ -1,0 +1,5 @@
+module CEmuBindings {
+    umbrella header "libbindings.h"
+    export *
+    module * { export * }
+}

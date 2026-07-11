@@ -12,6 +12,7 @@ use inkwell::context::Context;
 use crate::arm::disasm::Disassembler;
 use crate::arm::state::memory::MemoryManager;
 use crate::arm::state::{ArmState, JumpTarget};
+use crate::emulator::video::{Pixel, SCREEN_H, SCREEN_W};
 use crate::jit::FunctionBuilder;
 use crate::jit::cache::FunctionCache;
 use crate::utils::interval_tree::IntervalTree;
@@ -61,25 +62,42 @@ impl EnvConfig {
 
 pub struct Emulator<'a> {
     pub state: ArmState,
-    ctx: &'a Context,
+    pub frame_buffer: Box<[Pixel]>,
+    ctx: &'static Context,
     disasm: Disassembler,
     func_cache: FunctionCache<'a>,
     config: EnvConfig,
 }
 
-impl<'a> Emulator<'a> {
-    pub fn new(llvm_ctx: &'a Context) -> Self {
+impl Emulator<'_> {
+    pub fn new() -> Self {
+        // Context is needed for the life of the program but it doesn't really make sense for the
+        // caller to be responsible for managing it. Without the leak, we run into lifetime problems
+        // due to the self-referential struct (FunctionCache stores compiled functions that are
+        // dependent on the context).
+        let ctx = Box::leak(Box::new(Context::create()));
         let (tx, rx) = mpsc::channel();
         let ival_tree = Rc::new(RefCell::new(IntervalTree::default()));
         let mem = MemoryManager::new(ival_tree.clone(), tx);
         let config = EnvConfig::load_from_env();
 
         Self {
-            ctx: llvm_ctx,
             state: ArmState::new(mem),
+            // next_frame: vec![0, 240 * 160 * 3],
+            ctx,
             disasm: Disassembler::default(),
             func_cache: FunctionCache::new(ival_tree, rx),
             config,
+            frame_buffer: vec![
+                Pixel {
+                    r: 0,
+                    g: 0,
+                    b: 0,
+                    a: 255,
+                };
+                SCREEN_W * SCREEN_H
+            ]
+            .into_boxed_slice(),
         }
     }
 
@@ -166,6 +184,10 @@ impl<'a> Emulator<'a> {
     }
 }
 
+impl Default for Emulator<'_> {
+    fn default() -> Self { Self::new() }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -185,8 +207,7 @@ mod tests {
             0xa0, 0xe1, 0x01, 0x1f, 0xa0, 0xe3, 0x06, 0x1f, 0xa0, 0xe3, 0x12, 0x00, 0x00, 0xea,
         ];
 
-        let ctx = Context::create();
-        let mut emulator = Emulator::new(&ctx);
+        let mut emulator = Emulator::new();
 
         let (mem, _) = emulator.state.mem.mem_map_lookup_mut(0).unwrap();
         mem[..program.len()].copy_from_slice(&program);
@@ -219,8 +240,7 @@ mod tests {
             0xa0, 0xe3,
         ];
 
-        let ctx = Context::create();
-        let mut emulator = Emulator::new(&ctx);
+        let mut emulator = Emulator::new();
 
         // gvasm generated assembly - needs to be loaded into cartridge mem for labels to work
         // (Could this be a problem later? I don't know if this should actually be writeable)

@@ -3,6 +3,9 @@ name = "core"
 version.workspace = true
 edition.workspace = true
 
+[lib]
+crate-type = ["lib"]
+
 [[bin]]
 name = "assemble"
 test = false

@@ -1,4 +1,18 @@
 #![allow(dead_code)]
+
+pub const SCREEN_W: usize = 240;
+
+pub const SCREEN_H: usize = 160;
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct Pixel {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+    pub a: u8,
+}
+
 pub struct Sprite<'a> {
     mem: &'a [u8],
 }

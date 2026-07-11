@@ -2,8 +2,6 @@ use core::arm::state::memory::ReadVal;
 use core::arm::state::{ArmMode, ArmState, Reg};
 use core::emulator::Emulator;
 
-use inkwell::context::Context;
-
 /// Labels produced by gvasm assume it's loaded into cartridge ROM
 const CART_START_ADDR: u32 = 0x08000000;
 
@@ -20,8 +18,7 @@ macro_rules! assembly_test {
         #[test]
         fn $name() {
             let path = format!("tests/bin/{}.gba", stringify!($name));
-            let ctx = Context::create();
-            let mut emulator = Emulator::new(&ctx);
+            let mut emulator = Emulator::new();
             let exit = |st: &ArmState| -> bool { st.regs[Reg::R11] == EXIT_VAL };
 
             emulator.load_rom(path, CART_START_ADDR).unwrap();
